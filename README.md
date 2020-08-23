@@ -1,5 +1,3 @@
-# AdaptDL
-
 ![AdaptDL Logo](AdaptDLHorizLogo.png)
 
 AdaptDL is a resource-adaptive deep learning (DL) training and scheduling
