@@ -1,6 +1,6 @@
 # AdaptDL
 
-![AdaptDL Logo](AdaptDLHorizLogo.png =250x)
+![AdaptDL Logo](AdaptDLHorizLogo.png)
 
 AdaptDL is a resource-adaptive deep learning (DL) training and scheduling
 framework. The goal of AdaptDL is to make distributed DL easy and efficient
