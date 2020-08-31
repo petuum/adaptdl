@@ -3,9 +3,12 @@
 
 name: Release Helm
 
+#on:
+#  release:
+#    types: [created]
 on:
-  release:
-    types: [created]
+  pull_request:
+    branches: [ master ]
 
 jobs:
   build_and_release:
@@ -22,8 +25,9 @@ jobs:
         helm repo add stable https://kubernetes-charts.storage.googleapis.com/
         helm dependency update helm/adaptdl
         helm package helm/adaptdl --destination . --version==$ADAPTDL_VERSION --app-version==$ADAPTDL_VERSION
-    - uses: actions/checkout@helm-repo
+    - uses: actions/checkout@master
       with:
+        ref: helm-repo
         persist-credentials: false # otherwise, the token used is the GITHUB_TOKEN, instead of your personal token
         fetch-depth: 0 # otherwise, you will failed to push refs to dest repo
     - name: Commit changes
