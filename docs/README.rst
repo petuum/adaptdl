@@ -4,6 +4,8 @@
 .. image:: https://readthedocs.org/projects/adaptdl/badge/?version=latest
   :target: https://adaptdl.readthedocs.io/en/latest/?badge=latest
   :alt: Documentation Status
+.. image:: https://codecov.io/gh/rmfan/adaptdl/branch/master/graph/badge.svg
+  :target: https://codecov.io/gh/rmfan/adaptdl
 
 `Documentation <https://adaptdl.readthedocs.org>`_ |
 `Examples <https://github.com/petuum/adaptdl/tree/master/examples>`_
