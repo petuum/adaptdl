@@ -4,9 +4,8 @@
 name: Release PyPi Packages
 
 on:
-  push:
-    tags:
-      - v*
+  release:
+    types: [created]
 
 jobs:
   release:
