@@ -2,6 +2,7 @@
   :align: center
 
 .. image:: https://img.shields.io/github/workflow/status/petuum/adaptdl/Test
+  :target: https://github.com/petuum/adaptdl/actions?query=workflow%3ATest
   :alt: GitHub Workflow Status
 .. image:: https://codecov.io/gh/petuum/adaptdl/branch/master/graph/badge.svg
   :target: https://codecov.io/gh/petuum/adaptdl
@@ -9,6 +10,7 @@
   :target: https://adaptdl.readthedocs.io/en/latest/?badge=latest
   :alt: Documentation Status
 .. image:: https://img.shields.io/pypi/v/adaptdl
+  :target: https://pypi.org/project/adaptdl/
   :alt: PyPI
 
 `Documentation <https://adaptdl.readthedocs.org>`_ |
