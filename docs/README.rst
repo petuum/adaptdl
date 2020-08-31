@@ -1,8 +1,8 @@
 .. image:: _static/img/AdaptDLHorizLogo.png
   :align: center
 
-`Documentation<https://adaptdl.readthedocs.org>`_ |
-`Examples<https://github.com/petuum/adaptdl/tree/master/examples>`_
+`Documentation <https://adaptdl.readthedocs.org>`_ |
+`Examples <https://github.com/petuum/adaptdl/tree/master/examples>`_
 
 .. include-start-after
 
@@ -50,6 +50,6 @@ AdaptDL consists of a *Kubernetes job scheduler* and a *distributed training
 library*. They can be used in two ways:
 
 1.  Scheduling multiple training jobs on a shared cluster or the cloud
-    (`Scheduler Installation<https://adaptdl.readthedocs.io/en/latest/installation/index.html>`_).
+    (`Scheduler Installation <https://adaptdl.readthedocs.io/en/latest/installation/index.html>`_).
 2.  Adapting the batch size and learning rate for a single training job
-    (:doc:`Standalone Training<https://adaptdl.readthedocs.io/en/latest/standalone-training.html>`).
+    (:doc:`Standalone Training <https://adaptdl.readthedocs.io/en/latest/standalone-training.html>`).
