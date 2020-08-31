@@ -39,6 +39,7 @@ jobs:
         git config --local user.name "GitHub Action"
         git commit -m "Update helm release $ADAPTDL_VERSION" -a
     - name: Push changes
-      uses: ad-m/github-push-action@helm-repo
+      uses: ad-m/github-push-action@master
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
+        branch: helm-repo
