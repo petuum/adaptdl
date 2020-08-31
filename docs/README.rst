@@ -29,6 +29,7 @@ AdaptDL's state-of-the-art scheduling algorithm directly optimizes cluster-wide
 training performance and resource utilization. By elastically re-scaling jobs,
 co-adapting batch sizes and learning rates, and avoiding network interference,
 AdaptDL improves shared-cluster training compared with alternative schedulers.
+For details, see our `technical paper <https://arxiv.org/pdf/2008.12260.pdf>`_.
 
 .. image:: _static/img/scheduling-performance.png
   :align: center
