@@ -1,6 +1,10 @@
 .. image:: _static/img/AdaptDLHorizLogo.png
   :align: center
 
+.. image:: https://readthedocs.org/projects/adaptdl/badge/?version=latest
+  :target: https://adaptdl.readthedocs.io/en/latest/?badge=latest
+  :alt: Documentation Status
+
 `Documentation <https://adaptdl.readthedocs.org>`_ |
 `Examples <https://github.com/petuum/adaptdl/tree/master/examples>`_
 
