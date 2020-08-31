@@ -26,6 +26,8 @@ jobs:
         helm repo add stable https://kubernetes-charts.storage.googleapis.com/
         helm dependency update helm/adaptdl
         helm package helm/adaptdl --destination . --version $ADAPTDL_VERSION --app-version $ADAPTDL_VERSION
+        git add adaptdl-$ADAPTDL_VERSION.tgz
+        git stash
     - uses: actions/checkout@master
       with:
         ref: helm-repo
@@ -35,6 +37,7 @@ jobs:
       run: |
         #export ADAPTDL_VERSION=${GITHUB_REF#"refs/tags/v"}
         export ADAPTDL_VERSION=0.2.0
+        git stash apply
         helm repo index .
         git add index.yaml adaptdl-$ADAPTDL_VERSION.tgz
         git config --local user.email "action@github.com"
