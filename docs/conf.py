@@ -52,6 +52,7 @@ exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 import sphinx_rtd_theme
 html_theme = 'sphinx_rtd_theme'
 html_logo = '_static/img/AdaptDLHorizLogo.png'
+html_favicon = '_static/img/AdaptDLFavicon.png'
 html_theme_options = {
     'canonical_url': '',
     'analytics_id': 'UA-XXXXXXX-1',  #  Provided by Google in your dashboard
