@@ -1,6 +1,11 @@
 .. image:: _static/img/AdaptDLHorizLogo.png
   :align: center
 
+`Documentation<https://adaptdl.readthedocs.org>`_ |
+`Examples<https://github.com/petuum/adaptdl/tree/master/examples>`_
+
+.. include-start-after
+
 AdaptDL is a *resource-adaptive* deep learning (DL) training and scheduling
 framework. The goal of AdaptDL is to make distributed DL easy and efficient in
 dynamic-resource environments such as shared clusters and the cloud.
@@ -36,6 +41,8 @@ training without requiring manual effort.
 .. image:: _static/img/autobsz-performance.png
   :align: center
 
+.. include-end-before
+
 Getting Started
 ---------------
 
@@ -43,6 +50,6 @@ AdaptDL consists of a *Kubernetes job scheduler* and a *distributed training
 library*. They can be used in two ways:
 
 1.  Scheduling multiple training jobs on a shared cluster or the cloud
-    (:doc:`Scheduler Installation<installation/index>`).
+    (`Scheduler Installation<https://adaptdl.readthedocs.io/en/latest/installation/index.html>`_).
 2.  Adapting the batch size and learning rate for a single training job
-    (:doc:`Standalone Training<standalone-training>`).
+    (:doc:`Standalone Training<https://adaptdl.readthedocs.io/en/latest/standalone-training.html>`).

@@ -5,7 +5,6 @@
 # from the environment for the first two.
 SPHINXOPTS    ?=
 SPHINXBUILD   ?= sphinx-build
-SPHINXAPIDOC  ?= sphinx-apidoc
 SOURCEDIR     = .
 BUILDDIR      = _build
 
@@ -13,10 +12,7 @@ BUILDDIR      = _build
 help:
 	@$(SPHINXBUILD) -M help "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
 
-api:
-	$(SPHINXAPIDOC) -l -T -e -M -o "$(SOURCEDIR)/api" ../adaptdl/adaptdl $(shell find ../adaptdl/adaptdl -type f -name '*test.py')
-
-.PHONY: help api Makefile
+.PHONY: help Makefile
 
 # Catch-all target: route all unknown targets to Sphinx using the new
 # "make mode" option.  $(O) is meant as a shortcut for $(SPHINXOPTS).

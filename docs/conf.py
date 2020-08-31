@@ -51,10 +51,11 @@ exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 #
 import sphinx_rtd_theme
 html_theme = 'sphinx_rtd_theme'
+html_logo = '_static/img/AdaptDLHorizLogo.png'
 html_theme_options = {
     'canonical_url': '',
     'analytics_id': 'UA-XXXXXXX-1',  #  Provided by Google in your dashboard
-    'logo_only': False,
+    'logo_only': True,
     'display_version': True,
     'prev_next_buttons_location': 'bottom',
     'style_external_links': False,
@@ -75,3 +76,25 @@ html_static_path = ['_static']
 html_css_files = [
     'css/custom.css',
 ]
+
+# -- Automatically run apidoc ------------------------------------------------
+
+def run_apidoc(_):
+    import glob
+    ignore_paths = glob.glob("../adaptdl/adaptdl/**/*test.py", recursive=True)
+
+    argv = [
+        "-f",
+        "-T",
+        "-e",
+        "-M",
+        "-o", "api",
+        "../adaptdl/adaptdl"
+    ] + ignore_paths
+
+    from sphinx.ext import apidoc
+    apidoc.main(argv)
+
+
+def setup(app):
+    app.connect('builder-inited', run_apidoc)

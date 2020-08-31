@@ -7,6 +7,19 @@ AdaptDL Documentation
 =====================
 
 .. include:: README.rst
+  :start-after: include-start-after
+  :end-before: include-end-before
+
+Getting Started
+---------------
+
+AdaptDL consists of a *Kubernetes job scheduler* and a *distributed training
+library*. They can be used in two ways:
+
+1.  Scheduling multiple training jobs on a shared cluster or the cloud
+    (:doc:`Scheduler Installation<installation/index>`).
+2.  Adapting the batch size and learning rate for a single training job
+    (:doc:`Standalone Training<standalone-training>`).
 
 .. toctree::
    :maxdepth: 2
