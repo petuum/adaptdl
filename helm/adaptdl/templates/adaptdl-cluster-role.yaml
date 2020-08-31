@@ -1,0 +1,53 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: adaptdl
+rules:
+- apiGroups:
+  - batch
+  resources:
+  - cronjobs
+  - jobs
+  verbs:
+  - create
+  - get
+- apiGroups:
+  - adaptdl.petuum.com 
+  resources:
+  - adaptdljobs
+  - adaptdljobs/status
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - delete
+  - patch
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - list
+  - patch
+  - get
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  - podtemplates
+  - services
+  - persistentvolumeclaims
+  verbs:
+  - get
+  - list
+  - watch
+  - delete
+  - create
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - create
+  - get

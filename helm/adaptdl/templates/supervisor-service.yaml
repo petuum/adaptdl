@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-supervisor
+  labels:
+    app: adaptdl-sched
+    release: {{ .Release.Name }}
+spec:
+  ports:
+    - port: {{ .Values.supervisor.service.port }}
+      targetPort: {{ .Values.supervisor.service.targetPort }}
+      protocol: TCP
+      name: http
+  selector:
+    app: adaptdl-sched
+    release: {{ .Release.Name }}

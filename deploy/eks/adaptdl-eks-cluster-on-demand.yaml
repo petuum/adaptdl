@@ -1,0 +1,36 @@
+---
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: adaptdl-eks-cluster
+  region: us-west-2
+
+nodeGroups:
+  - name: ng-1
+    instanceType: g4dn.xlarge
+    maxSize: 4
+    minSize: 1
+    desiredCapacity: 1
+    preBootstrapCommands:
+      - sudo sh -c "echo '127.0.0.1 adaptdl-registry.default.svc.cluster.local' >> /etc/hosts"
+    iam:
+      withAddonPolicies:
+        autoScaler: true
+        efs: true
+    ami: auto
+    ssh:
+      allow: true
+    tags:
+      Owner: "example-owner"
+      Team: "example-team"
+      k8s.io/cluster-autoscaler/enabled: "true"
+      k8s.io/cluster-autoscaler/adaptdl-eks-cluster: "owned"
+
+
+cloudWatch:
+    clusterLogging:
+        # enable specific types of cluster control plane logs
+        enableTypes: ["*"]
+        # all supported types: "api", "audit", "authenticator", "controllerManager", "scheduler"
+        # supported special values: "*" and "all"

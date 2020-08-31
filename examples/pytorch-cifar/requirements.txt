@@ -1,0 +1,9 @@
+future
+numpy
+pandas
+prometheus_client
+redis
+scipy
+statsmodels
+tensorboard
+torchvision==0.2.2

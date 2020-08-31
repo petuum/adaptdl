@@ -1,0 +1,12 @@
+apiVersion: v1
+entries:
+  adaptdl:
+  - apiVersion: v1
+    appVersion: 0.1.15
+    created: "2020-08-04T21:50:52.033584793Z"
+    digest: 0f624a0c37a7ff561cd37c1d13eb1393cd0c28e322ffe046f33f5c9bf2ae31bb
+    name: adaptdl
+    urls:
+    - adaptdl-0.1.15.tgz
+    version: 0.1.15
+generated: "2020-08-04T21:50:52.032100616Z"

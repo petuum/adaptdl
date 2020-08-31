@@ -1,0 +1,63 @@
+image:
+  repository: petuum/adaptdl
+  # Image tag, overrides default value of .Chart.AppVersion if specified.
+  tag: null
+  # Image digest, used instead of image tag if specified.
+  digest: null
+
+  secrets:
+    name: null
+
+sched:
+ resources:
+   requests:
+     memory: 1Gi
+     cpu: 1
+
+tolerations:
+  - key: "petuum.com/nodegroup"
+    value: "adaptdl"
+    operator: "Equal"
+    effect: "NoSchedule"
+
+job:
+  # Default resource requests and limits for the main (first) container in each
+  # AdaptDLJob pod.
+  defaultResources:
+    # DEFAULT REQUESTS SHOULD ALWAYS BE SPECIFIED! Otherwise, AdaptDLSched may
+    # try to pack arbitrarily many jobs without explicit resource requests into
+    # a single node.
+    requests:
+      cpu: "1.0"
+      memory: "1Gi"
+#    limits:
+#      cpu: "1.0"
+#      memory: "1Gi"
+
+metrics:
+  service:
+    type: ClusterIP
+    port: 9091
+    targetPort: 9091
+  serviceMonitor:
+    enabled: false
+    namespace: null
+    interval: null
+    # Defaults to what's used if you follow https://github.com/helm/charts/tree/master/stable/prometheus-operator#tldr
+    # https://github.com/helm/charts/tree/master/stable/prometheus-operator#prometheus-operator-1
+    # https://github.com/helm/charts/tree/master/stable/prometheus-operator#exporters
+    selector:
+      release: prometheus
+    honorLabels: true
+
+supervisor:
+  service:
+    port: 8080
+    targetPort: 8080
+
+docker-registry:
+  enabled: false
+  fullnameOverride: adaptdl-registry
+  service:
+    type: NodePort
+    nodePort: 31001
