@@ -8,6 +8,8 @@
 .. image:: https://readthedocs.org/projects/adaptdl/badge/?version=latest
   :target: https://adaptdl.readthedocs.io/en/latest/?badge=latest
   :alt: Documentation Status
+.. image:: https://img.shields.io/pypi/v/adaptdl
+  :alt: PyPI
 
 `Documentation <https://adaptdl.readthedocs.org>`_ |
 `Examples <https://github.com/petuum/adaptdl/tree/master/examples>`_
