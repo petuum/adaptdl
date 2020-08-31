@@ -1,0 +1,17 @@
+apiVersion: v1
+entries:
+  adaptdl:
+  - apiVersion: v1
+    appVersion: 0.1.6
+    created: "2020-08-31T15:53:37.95612-07:00"
+    dependencies:
+    - condition: docker-registry.enabled
+      name: docker-registry
+      repository: '@stable'
+      version: 1.9.4
+    digest: a3347a8b10b6cdb187c8a451b547f9ef9f870aa81427720d6340a4f0d37533aa
+    name: adaptdl
+    urls:
+    - adaptdl-0.1.6.tgz
+    version: 0.1.6
+generated: "2020-08-31T15:53:37.954405-07:00"
