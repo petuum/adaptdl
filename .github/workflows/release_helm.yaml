@@ -3,12 +3,9 @@
 
 name: Release Helm
 
-#on:
-#  release:
-#    types: [created]
 on:
-  pull_request:
-    branches: [ master ]
+  release:
+    types: [created]
 
 jobs:
   build_and_release:
@@ -20,8 +17,7 @@ jobs:
         fetch-depth: 0 # otherwise, you will failed to push refs to dest repo
     - name: Build helm chart and update index
       run: |
-        #export ADAPTDL_VERSION=${GITHUB_REF#"refs/tags/v"}
-        export ADAPTDL_VERSION=0.2.0
+        export ADAPTDL_VERSION=${GITHUB_REF#"refs/tags/v"}
         mkdir -p helm/repo
         helm repo add stable https://kubernetes-charts.storage.googleapis.com/
         helm dependency update helm/adaptdl
@@ -35,8 +31,7 @@ jobs:
         fetch-depth: 0 # otherwise, you will failed to push refs to dest repo
     - name: Commit changes
       run: |
-        #export ADAPTDL_VERSION=${GITHUB_REF#"refs/tags/v"}
-        export ADAPTDL_VERSION=0.2.0
+        export ADAPTDL_VERSION=${GITHUB_REF#"refs/tags/v"}
         git stash apply
         helm repo index .
         git add index.yaml adaptdl-$ADAPTDL_VERSION.tgz
