@@ -1,4 +1,4 @@
 apiVersion: v1
 name: adaptdl
-version: 0.1.15
+version: 0.1.16
 appVersion: 0.1.15
