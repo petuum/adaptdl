@@ -25,7 +25,7 @@ jobs:
         mkdir -p helm/repo
         helm repo add stable https://kubernetes-charts.storage.googleapis.com/
         helm dependency update helm/adaptdl
-        helm package helm/adaptdl --destination . --version==$ADAPTDL_VERSION --app-version==$ADAPTDL_VERSION
+        helm package helm/adaptdl --destination . --version $ADAPTDL_VERSION --app-version $ADAPTDL_VERSION
     - uses: actions/checkout@master
       with:
         ref: helm-repo
