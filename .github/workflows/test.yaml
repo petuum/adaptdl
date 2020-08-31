@@ -53,3 +53,9 @@ jobs:
         coverage report -m --omit="**/*test.py"
         coverage html --omit="**/*test.py"
         coverage xml --omit="**/*test.py"  -o htmlcov/coverage.xml
+    - name: Upload to CodeCov
+      uses: codecov/codecov-action@v1
+      with:
+        file: htmlcov/coverage.xml
+        name: adaptdl
+        fail_ci_if_error: true # optional (default = false)
