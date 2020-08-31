@@ -20,6 +20,8 @@ jobs:
     - name: Build helm chart and update index
       run: |
         mkdir -p helm/repo
+        helm repo add stable https://kubernetes-charts.storage.googleapis.com/
+        helm dependency update helm/adaptdl
         helm package helm/adaptdl --destination helm/repo
         helm repo index helm/repo
     - name: Commit changes
