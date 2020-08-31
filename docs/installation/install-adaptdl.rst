@@ -20,7 +20,7 @@ First, add the AdaptDL Helm repository to you local environment:
 
 .. code-block::
 
-   $ helm repo add adaptdl https://raw.githubusercontent.com/petuum/adaptdl/master/helm/repo
+   $ helm repo add adaptdl https://petuum.github.io/adaptdl
 
 Next, update the repository with the latest charts:
 
