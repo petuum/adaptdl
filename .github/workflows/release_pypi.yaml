@@ -4,8 +4,14 @@
 name: Release PyPi Packages
 
 on:
-  release:
-    types: [created]
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+#on:
+#  release:
+#    types: [created]
 
 jobs:
   release:
@@ -31,7 +37,7 @@ jobs:
         TWINE_USERNAME: "__token__"
         TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
       run: |
-        export ADAPTDL_VERSION=${GITHUB_REF#"refs/tags/v"}
+        export ADAPTDL_VERSION=0.2.0
         cd adaptdl
         HOME=$(pwd) python setup.py sdist bdist_wheel
         ls -ltr dist/
@@ -41,7 +47,7 @@ jobs:
         TWINE_USERNAME: "__token__"
         TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
       run: |
-        export ADAPTDL_VERSION=${GITHUB_REF#"refs/tags/v"}
+        export ADAPTDL_VERSION=0.2.0
         cd sched
         HOME=$(pwd) python setup.py sdist bdist_wheel
         ls -ltr dist/
@@ -51,7 +57,7 @@ jobs:
         TWINE_USERNAME: "__token__"
         TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
       run: |
-        export ADAPTDL_VERSION=${GITHUB_REF#"refs/tags/v"}
+        export ADAPTDL_VERSION=0.2.0
         cd adaptdl_cli
         HOME=$(pwd) python setup.py sdist bdist_wheel
         ls -ltr dist/
