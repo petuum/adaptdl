@@ -35,7 +35,7 @@ jobs:
         cd adaptdl
         HOME=$(pwd) python setup.py sdist bdist_wheel
         ls -ltr dist/
-        python -m twine upload --repository-url=https://test.pypi.org/legacy/ dist/*
+        python -m twine upload dist/*
     - name: Build and push sched package
       env:
         TWINE_USERNAME: "__token__"
@@ -45,7 +45,7 @@ jobs:
         cd sched
         HOME=$(pwd) python setup.py sdist bdist_wheel
         ls -ltr dist/
-        python -m twine upload --repository-url=https://test.pypi.org/legacy/ dist/*
+        python -m twine upload dist/*
     - name: Build and push cli package
       env:
         TWINE_USERNAME: "__token__"
@@ -55,4 +55,4 @@ jobs:
         cd adaptdl_cli
         HOME=$(pwd) python setup.py sdist bdist_wheel
         ls -ltr dist/
-        python -m twine upload --repository-url=https://test.pypi.org/legacy/ dist/*
+        python -m twine upload dist/*
