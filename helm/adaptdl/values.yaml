@@ -1,5 +1,5 @@
 image:
-  repository: petuum/adaptdl
+  repository: petuum/adaptdl-sched
   # Image tag, overrides default value of .Chart.AppVersion if specified.
   tag: null
   # Image digest, used instead of image tag if specified.
