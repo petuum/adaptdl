@@ -40,8 +40,9 @@ The AdaptDL scheduler directly optimizes cluster-wide training performance and
 resource utilization, by using a genetic algorithm to periodically optimize
 resource allocations for all jobs. Through elastic re-scaling, co-adapting
 batch sizes and learning rates, and avoiding network interference, AdaptDL
-improves shared-cluster training when compared with alternative schedulers. 
-For details, see our `technical paper <https://arxiv.org/pdf/2008.12260.pdf>`_.
+significantly acelerates shared-cluster training when compared with alternative
+schedulers. For details, please see our `technical paper
+<https://arxiv.org/pdf/2008.12260.pdf>`_.
 
 .. image:: _static/img/scheduling-performance.png
   :align: center
