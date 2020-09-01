@@ -36,10 +36,11 @@ AdaptDL supports PyTorch training programs. TensorFlow support coming soon!
 Why AdaptDL?
 ------------
 
-AdaptDL's state-of-the-art scheduling algorithm directly optimizes cluster-wide
-training performance and resource utilization. By elastically re-scaling jobs,
-co-adapting batch sizes and learning rates, and avoiding network interference,
-AdaptDL improves shared-cluster training compared with alternative schedulers.
+The AdaptDL scheduler directly optimizes cluster-wide training performance and
+resource utilization, by using a genetic algorithm to periodically optimize
+resource allocations for all jobs. Through elastic re-scaling, co-adapting
+batch sizes and learning rates, and avoiding network interference, AdaptDL
+improves shared-cluster training when compared with alternative schedulers. 
 For details, see our `technical paper <https://arxiv.org/pdf/2008.12260.pdf>`_.
 
 .. image:: _static/img/scheduling-performance.png
@@ -52,7 +53,10 @@ provisions spot instances when available to reduce cost by up to 80%.
 Efficient distributed training requires careful selection of the batch size and
 learning rate, which can be tricky to find manually. AdaptDL offers automatic
 batch size and learning rate scaling, which enables efficient distributed
-training without requiring manual effort.
+training without requiring manual effort. To achieve this, AdaptDL measures the
+system performance and `gradient noise scale <https://arxiv.org/pdf/1812.06162.pdf>`_
+during training, and adaptively selects the most efficient batch size and
+learning rate.
 
 .. image:: _static/img/autobsz-performance.png
   :align: center
