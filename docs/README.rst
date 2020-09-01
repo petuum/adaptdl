@@ -16,6 +16,9 @@
   :target: https://pypi.org/project/adaptdl/
   :alt: PyPI
 
+Introduction
+------------
+
 .. include-start-after
 
 AdaptDL is a *resource-adaptive* deep learning (DL) training and scheduling
