@@ -13,11 +13,11 @@
   :target: https://pypi.org/project/adaptdl/
   :alt: PyPI
 
-`Documentation <https://adaptdl.readthedocs.org>`_ |
-`Examples <https://github.com/petuum/adaptdl/tree/master/examples>`_
-
 Introduction
 ------------
+
+`Documentation <https://adaptdl.readthedocs.org>`_ |
+`Examples <https://github.com/petuum/adaptdl/tree/master/examples>`_
 
 .. include-start-after
 
