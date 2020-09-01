@@ -4,10 +4,8 @@
 name: Release Helm
 
 on:
-  push:
-    branches: [ master ]
-    paths:
-      - 'helm/adaptdl/Chart.yaml'
+  release:
+    types: [created]
 
 jobs:
   build_and_release:
@@ -19,19 +17,29 @@ jobs:
         fetch-depth: 0 # otherwise, you will failed to push refs to dest repo
     - name: Build helm chart and update index
       run: |
+        export ADAPTDL_VERSION=${GITHUB_REF#"refs/tags/v"}
         mkdir -p helm/repo
         helm repo add stable https://kubernetes-charts.storage.googleapis.com/
         helm dependency update helm/adaptdl
-        helm package helm/adaptdl --destination helm/repo
-        helm repo index helm/repo
+        helm package helm/adaptdl --destination . --version $ADAPTDL_VERSION --app-version $ADAPTDL_VERSION
+        git add adaptdl-$ADAPTDL_VERSION.tgz
+        git stash
+    - uses: actions/checkout@master
+      with:
+        ref: helm-repo
+        persist-credentials: false # otherwise, the token used is the GITHUB_TOKEN, instead of your personal token
+        fetch-depth: 0 # otherwise, you will failed to push refs to dest repo
     - name: Commit changes
       run: |
-        export HELM_VERSION=$(grep "version" helm/adaptdl/Chart.yaml)
-        git add helm/repo
+        export ADAPTDL_VERSION=${GITHUB_REF#"refs/tags/v"}
+        git stash apply
+        helm repo index .
+        git add index.yaml adaptdl-$ADAPTDL_VERSION.tgz
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
-        git commit -m "Update helm release $HELM_VERSION" -a
+        git commit -m "Update helm release $ADAPTDL_VERSION" -a
     - name: Push changes
       uses: ad-m/github-push-action@master
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
+        branch: helm-repo
