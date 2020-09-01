@@ -66,7 +66,7 @@ learning rate.
 Getting Started
 ---------------
 
-AdaptDL consists of a *Kubernetes job scheduler* and a *distributed training
+AdaptDL consists of a *Kubernetes job scheduler* and an *adaptive training
 library*. They can be used in two ways:
 
 1.  Scheduling multiple training jobs on a shared cluster or the cloud
