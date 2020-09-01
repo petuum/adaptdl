@@ -1,6 +1,9 @@
 .. image:: _static/img/AdaptDLHorizLogo.png
   :align: center
 
+`Documentation <https://adaptdl.readthedocs.org>`_ |
+`Examples <https://github.com/petuum/adaptdl/tree/master/examples>`_
+
 .. image:: https://img.shields.io/github/workflow/status/petuum/adaptdl/Test
   :target: https://github.com/petuum/adaptdl/actions?query=workflow%3ATest
   :alt: GitHub Workflow Status
@@ -12,9 +15,6 @@
 .. image:: https://img.shields.io/pypi/v/adaptdl
   :target: https://pypi.org/project/adaptdl/
   :alt: PyPI
-
-`Documentation <https://adaptdl.readthedocs.org>`_ |
-`Examples <https://github.com/petuum/adaptdl/tree/master/examples>`_
 
 .. include-start-after
 
