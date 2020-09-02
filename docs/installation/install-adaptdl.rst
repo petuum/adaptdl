@@ -15,25 +15,12 @@ or to :doc:`provision an auto-scaling cluster on EKS<deploy-eks>`.
 Install the AdaptDL Helm Chart
 ------------------------------
 
-The AdaptDL scheduler can be installed in just a few commands using Helm.
-First, add the AdaptDL Helm repository to you local environment:
+The AdaptDL scheduler can be installed in just one command using Helm:
 
 .. code-block::
 
-   $ helm repo add adaptdl https://github.com/petuum/adaptdl/raw/helm-repo
-
-Next, update the repository with the latest charts:
-
-.. code-block::
-
-   $ helm repo update
-
-Finally, install the AdaptDL scheduler chart:
-
-.. code-block::
-
-   $ helm install adaptdl adaptdl/adaptdl --namespace adaptdl --create-namespace \
-     --set docker-registry.enabled=true
+   $ helm install adaptdl adaptdl --repo https://github.com/petuum/adaptdl/raw/helm-repo \
+     --namespace adaptdl --create-namespace --set docker-registry.enabled=true
 
 The above command installs Kubernetes deployments for the AdaptDL scheduler
 service, as well as a Docker registry. The Docker registry is used to store
