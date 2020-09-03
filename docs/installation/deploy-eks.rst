@@ -124,6 +124,11 @@ Once you are done with the cluster, you can clean up all AWS resources with:
 
    eksctl delete cluster --name $CLUSTER_NAME
 
+   for target in `aws efs describe-mount-targets --file-system-id $FILE_SYSTEM_ID --query 'MountTargets[].MountTargetId' --output text`; \
+   do aws efs delete-mount-target --mount-target-id $target; done
+
+   aws efs delete-file-system --file-system-id $FILE_SYSTEM_ID
+
 Next Steps
 ----------
 
