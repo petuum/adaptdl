@@ -30,7 +30,7 @@ import scipy.stats
 # is modeled as a constant term plus a retrogression term which increases
 # linearly with the total number of replicas.
 Params = collections.namedtuple("Params", [
-    # T_compute ~ alpha_c + beta_c * local_bsz
+    # T_compute ~ alpha_c + beta_c * local_bsz * grad_acc_steps
     "alpha_c",  # Constant term of compute time
     "beta_c",   # Multiplicative factor of compute time
     # If inter-node: T_network ~ alpha_n + beta_n * replicas
@@ -53,15 +53,23 @@ class SpeedupFunction(object):
 
     def __init__(self, params, grad_params=None, init_batch_size=None,
                  max_batch_size=None, local_bsz_bounds=None,
-                 elastic_bsz=False):
+                 grad_acc_steps=None, elastic_bsz=False):
         self._grad_params = grad_params
         self._init_batch_size = init_batch_size
 
+        if grad_acc_steps is not None:
+            self._max_grad_acc_steps = grad_acc_steps
+        else:
+            self._max_grad_acc_steps = 1
+
         if local_bsz_bounds is not None:
-            self._max_local_bsz = local_bsz_bounds[1]
+            self._max_local_bsz = local_bsz_bounds[1] * \
+                self._max_grad_acc_steps
+            self._true_max_local_bsz = local_bsz_bounds[1]
             self._min_local_bsz = local_bsz_bounds[0]
         else:
             self._max_local_bsz = None
+            self._true_max_local_bsz = None
             self._min_local_bsz = None
 
         default_max_batch_size_scale = 100
@@ -77,9 +85,9 @@ class SpeedupFunction(object):
         else:
             self._params = None
         if params is not None and init_batch_size is not None:
-            base_step_time, _, _ = _predict_log(self._params,
-                                                np.array([1]), np.array([1]),
-                                                init_batch_size)
+            base_step_time, _, _ = _predict_log(
+                self._params, np.array([1]), np.array([1]),
+                init_batch_size, self._max_grad_acc_steps)
             base_step_time = base_step_time.item()
             self._base_goodput = 1.0 / np.exp(base_step_time)
         else:
@@ -151,7 +159,7 @@ class SpeedupFunction(object):
         else:
             local_bsz = np.ceil(self._init_batch_size / replicas).astype(int)
             log_pred_step_time, _, _ = \
-                _predict_log(self._params, nodes, replicas, local_bsz)
+                _predict_log(self._params, nodes, replicas, local_bsz, 1)
             goodput = 1.0 / np.exp(log_pred_step_time)
         speedup = goodput / self._base_goodput
 
@@ -174,13 +182,28 @@ class SpeedupFunction(object):
         if isscalar:
             ret_speedup = ret_speedup.item()
             ret_local_bsz = ret_local_bsz.item()
-
-        return ((ret_speedup, ret_local_bsz)
+        return ((ret_speedup, self._partition_local_bsz(ret_local_bsz))
                 if return_local_bsz else ret_speedup)
 
+    def _partition_local_bsz(self, local_bsz):
+        if (self._true_max_local_bsz is not None and
+                np.any(self._true_max_local_bsz < local_bsz)):
+            grad_acc_steps = np.maximum(
+                np.minimum(
+                    np.floor(local_bsz / self._true_max_local_bsz),
+                    self._max_grad_acc_steps),
+                1)
+            true_local_bsz = np.minimum(self._true_max_local_bsz,
+                                        np.ceil(local_bsz / grad_acc_steps))
+            return true_local_bsz, grad_acc_steps
+        else:
+            return local_bsz, 1
+
     def _goodput(self, nodes, replicas, local_bsz):
+        local_bsz, grad_acc_steps = self._partition_local_bsz(local_bsz)
         log_pred_step_time, _, _ = \
-            _predict_log(self._params, nodes, replicas, local_bsz)
+            _predict_log(self._params, nodes, replicas,
+                         local_bsz, grad_acc_steps)
         var, norm = self._grad_params['var'], self._grad_params['norm']
         global_bsz = replicas * local_bsz
         gain = np.where(
@@ -193,9 +216,11 @@ class SpeedupFunction(object):
         return self._params
 
 
-def fit(nodes, replicas, local_bsz, step_time, step_time_compute):
+def fit(nodes, replicas, local_bsz, grad_acc_steps,
+        step_time, step_time_compute):
     # Fit the performance model given step time and compute time measurements
-    # for different configurations of nodes, replicas, local_bsz.
+    # for different configurations of nodes, replicas, local_bsz, and
+    # grad_acc_steps.
 
     # HACK: We want to use the original numpy module for calls from the
     # SpeedupFunction for performance reasons, but also need those functions to
@@ -233,7 +258,8 @@ def fit(nodes, replicas, local_bsz, step_time, step_time_compute):
         params[5] = upper[5] = lower[5]
     bounds = scipy.optimize.Bounds(lower, upper, keep_feasible=True)
 
-    args = (nodes, replicas, local_bsz, step_time, step_time_compute)
+    args = (nodes, replicas, local_bsz, grad_acc_steps,
+            step_time, step_time_compute)
     # FIXME: need to handle optimization failures and propagate to the Trainer.
     grad_fn = autograd.grad(_obj_fn)
     result = scipy.optimize.minimize(_obj_fn, params, args=args,
@@ -244,9 +270,9 @@ def fit(nodes, replicas, local_bsz, step_time, step_time_compute):
     return Params(*params)
 
 
-def _predict_log(params, nodes, replicas, local_bsz):
+def _predict_log(params, nodes, replicas, local_bsz, grad_acc_steps):
     params = Params(*params)
-    step_time_compute = _predict_compute(params, local_bsz)
+    step_time_compute = _predict_compute(params, local_bsz, grad_acc_steps)
     step_time_network = _predict_network(params, nodes, replicas)
     gamma = params.gamma
     # Return predicted total step time in log-space to avoid numerical issues
@@ -256,10 +282,11 @@ def _predict_log(params, nodes, replicas, local_bsz):
             step_time_compute, step_time_network)
 
 
-def _predict_compute(params, local_bsz):
+def _predict_compute(params, local_bsz, grad_acc_steps):
     params = Params(*params)
-    # Forward/backward passes should scale linearly with the batch size.
-    return params.alpha_c + params.beta_c * local_bsz
+    # Forward/backward passes should scale linearly with the batch size
+    # and number of accumulation steps.
+    return params.alpha_c + params.beta_c * local_bsz * grad_acc_steps
 
 
 def _predict_network(params, nodes, replicas):
@@ -283,10 +310,11 @@ def _rmse(pred, true):
     return np.sqrt(((pred - true) ** 2).mean())
 
 
-def _obj_fn(params, nodes, replicas, local_bsz, step_time, step_time_compute):
+def _obj_fn(params, nodes, replicas, local_bsz, grad_acc_steps,
+            step_time, step_time_compute):
     params = Params(*params)
     log_pred_step_time, pred_step_time_compute, _ = \
-        _predict_log(params, nodes, replicas, local_bsz)
+        _predict_log(params, nodes, replicas, local_bsz, grad_acc_steps)
     # Error of total step time predictions.
     err1 = _rmse(log_pred_step_time, np.log(step_time))
     # Error of compute time predictions.

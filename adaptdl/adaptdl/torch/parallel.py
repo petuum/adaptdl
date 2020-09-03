@@ -64,7 +64,7 @@ class AdaptiveDataParallel(DistributedDataParallel):
             param.register_hook(functools.partial(self._backward_hook, param))
 
         # Setup for AdaScale, must be after registering backward hooks!
-        self.adascale = AdaScale(optimizer, patch_optimizer=True)
+        self.adascale = AdaScale(optimizer, lr_scheduler, patch_optimizer=True)
 
         self._state = _AdaptiveDataParallelState(model, optimizer,
                                                  lr_scheduler, name)
@@ -122,7 +122,9 @@ class AdaptiveDataParallel(DistributedDataParallel):
         dataloader.train()
 
         scale = dataloader.current_batch_size / dataloader.batch_size
-        self.adascale.set_scale(scale)
+        grad_acc_steps = dataloader.grad_acc_steps
+        self.adascale.set_scale(scale * grad_acc_steps)
+        self.adascale.set_grad_acc_steps(grad_acc_steps)
         self._state.gain = self.adascale.gain()
         adaptdl.torch._metrics.update_progress(self._state.gain)
         if dataloader.max_batch_size and \
@@ -152,7 +154,12 @@ class _AdaptiveDataParallelState(adaptdl.checkpoint.State):
     def save(self, fileobj):
         state_dicts = [self.model.state_dict(), self.optimizer.state_dict()]
         if self.lr_scheduler is not None:
-            state_dicts.append(self.lr_scheduler.state_dict())
+            # Need to remove self.lr_scheduler.step from the pickling,
+            # otherwise pickle will throw an error
+            lr_scheduler_state = self.lr_scheduler.state_dict()
+            del lr_scheduler_state['step']
+            state_dicts.append(lr_scheduler_state)
+        LOG.info("state dicts: {}".format(state_dicts))
         torch.save((state_dicts, self.gain), fileobj)
 
     def load(self, fileobj):

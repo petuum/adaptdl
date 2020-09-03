@@ -31,9 +31,10 @@ LOG = logging.getLogger(__name__)
 LOG.setLevel(logging.INFO)
 
 
-def profile_step_start(local_bsz):
+def profile_step_start(local_bsz, grad_acc_steps):
     state = _metrics_state()
     state.local_bsz = local_bsz
+    state.grad_acc_steps = grad_acc_steps
     state.step_start = time.time()
     state.sync_time = 0.0
 
@@ -51,11 +52,12 @@ def profile_step_commit():
     step_time = time.time() - state.step_start
     num_nodes = adaptdl.env.num_nodes()
     num_replicas = adaptdl.env.num_replicas()
-    key = (num_nodes, num_replicas, state.local_bsz)
+    key = (num_nodes, num_replicas, state.local_bsz, state.grad_acc_steps)
     state.profile[key]["step_time"] += step_time
     state.profile[key]["sync_time"] += state.sync_time
     state.profile[key]["count"] += 1
     del state.local_bsz
+    del state.grad_acc_steps
     del state.step_start
     del state.sync_time
     if _PREV_REPORT is None:
@@ -111,12 +113,14 @@ def _fit_perf_params():
     num_nodes = np.array([key[0] for key in state.profile])
     num_replicas = np.array([key[1] for key in state.profile])
     local_bsz = np.array([key[2] for key in state.profile])
+    grad_acc_steps = np.array([key[3] for key in state.profile])
     values = state.profile.values()
     step_time = np.array([val["step_time"] / val["count"] for val in values])
     sync_time = np.array([val["sync_time"] / val["count"] for val in values])
     compute_time = step_time - sync_time
     state.perf_params = adaptdl.speedup.fit(
-            num_nodes, num_replicas, local_bsz, step_time, compute_time)
+        num_nodes, num_replicas, local_bsz, grad_acc_steps,
+        step_time, compute_time)
 
 
 def _report_sched_hints():
