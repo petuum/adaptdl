@@ -60,4 +60,5 @@ docker-registry:
   fullnameOverride: adaptdl-registry
   service:
     type: NodePort
-    nodePort: 31001
+    nodePort: 32000
+    port: 5000

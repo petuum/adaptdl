@@ -12,8 +12,6 @@ nodeGroups:
     maxSize: 4
     minSize: 1
     desiredCapacity: 1
-    preBootstrapCommands:
-      - sudo sh -c "echo '127.0.0.1 adaptdl-registry.default.svc.cluster.local' >> /etc/hosts"
     iam:
       withAddonPolicies:
         autoScaler: true

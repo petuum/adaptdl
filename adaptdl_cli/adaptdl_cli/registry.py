@@ -20,7 +20,7 @@ import subprocess
 from pathlib import Path
 import sys
 
-ADAPTDL_REGISTRY_URL = "adaptdl-registry.default.svc.cluster.local:31001"
+ADAPTDL_REGISTRY_URL = "adaptdl-registry.remote:32000"
 ADAPTDL_REGISTRY_CREDS = "adaptdl-registry-creds"
 
 _DAEMON_FILE = f"{str(Path.home())}/.docker/daemon.json"
@@ -75,8 +75,10 @@ def _fix_daemon_json():
 
 
 def registry_running():
-    svc = json.loads(subprocess.check_output(['kubectl', 'get', 'svc', '-l',
-                                             'app=docker-registry', '-ojson']))
+    svc = json.loads(subprocess.check_output(['kubectl', 'get', 'svc',
+                                              '-A', '-l',
+                                              'app=docker-registry',
+                                              '-ojson']))
     return len(svc['items']) > 0
 
 

@@ -39,7 +39,7 @@ def _get_registry_info():
         return os.environ['ADAPTDL_SUBMIT_REPO'], \
             os.environ['ADAPTDL_SUBMIT_REPO_CREDS'], False
     else:
-        print("Using AdaptDL internal registry")
+        print(f"Using AdaptDL internal registry at {ADAPTDL_REGISTRY_URL}")
         return ADAPTDL_REGISTRY_URL, ADAPTDL_REGISTRY_CREDS, True
 
 
@@ -48,6 +48,8 @@ def _prefix(image):
     parts = image.split('/')
     return '/'.join(parts[:-1] + [parts[-1].split(':')[0]])
 
+def _replace_localhost(repodigest):
+    return ":".join(["localhost"] + repodigest.split(':')[1:])
 
 def submit(args, remaining):
     repo, secret, internal = _get_registry_info()
@@ -85,7 +87,7 @@ def submit(args, remaining):
         ["kubectl", "create", "--dry-run", "-f", jobfile, "-o", "json"])
     resource = json.loads(resource.decode())
     resource["spec"]["template"]["spec"]["containers"][0]["image"] = \
-        repodigest
+        _replace_localhost(repodigest) if internal else repodigest
     resource["spec"]["template"]["spec"]["containers"][0]["args"] = remaining
     resource["spec"]["template"]["spec"]["imagePullSecrets"] = \
             [{"name": secret}]
