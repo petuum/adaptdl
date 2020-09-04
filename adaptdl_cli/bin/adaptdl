@@ -28,8 +28,8 @@ from datetime import datetime
 from adaptdl_cli.pvc import get_storageclass, create_pvc, create_copy_pod
 from adaptdl_cli.tensorboard import TENSORBOARD_PREFIX, \
     add_tensorboard_commands
-from adaptdl_cli.registry import fix_local_docker, ADAPTDL_REGISTRY_URL, \
-    ADAPTDL_REGISTRY_CREDS
+from adaptdl_cli.registry import fix_local_docker, fix_etc_hosts, \
+    ADAPTDL_REGISTRY_URL, ADAPTDL_REGISTRY_CREDS
 
 
 def _get_registry_info():
@@ -62,6 +62,9 @@ def submit(args, remaining):
     subprocess.check_call(["docker", "build", "-t", image, args.project] +
                           ([] if not args.dockerfile else
                               ["-f", args.dockerfile]))
+    if internal:
+        # Quick check and fix host entry if it's stale
+        fix_etc_hosts()
     try:
         subprocess.check_call(["docker", "push", image])
     except subprocess.CalledProcessError:

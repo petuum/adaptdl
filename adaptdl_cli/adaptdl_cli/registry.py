@@ -19,6 +19,7 @@ import os
 import subprocess
 from pathlib import Path
 import sys
+import socket
 
 ADAPTDL_REGISTRY_URL = "adaptdl-registry.remote:32000"
 ADAPTDL_REGISTRY_CREDS = "adaptdl-registry-creds"
@@ -37,6 +38,7 @@ LINUX_DOCKER_RESTART_SCRIPT = r"""sudo systemctl restart docker \
 
 def _get_node_ip():
     nodes = json.loads(subprocess.check_output(['kubectl', 'get', 'no',
+                                                '--sort-by=.metadata.creationTimestamp',  # noqa: E501
                                                 '-ojson']))
     ip = None
     if len(nodes['items']) > 0:
@@ -47,6 +49,16 @@ def _get_node_ip():
                 ip = addr['address']
                 break
     return ip
+
+
+def fix_etc_hosts():
+    # Correct /etc/hosts entry with the current node IP kubectl is pointing to
+    node_ip = _get_node_ip()
+    if not node_ip:
+        raise SystemExit("Didn't find any nodes.")
+    if node_ip != socket.gethostbyname(ADAPTDL_REGISTRY_URL.split(':')[0]):
+        assert os.system(f"sudo `which hostman` add -f {node_ip} \
+                          {ADAPTDL_REGISTRY_URL.split(':')[0]}") == 0
 
 
 def _find_entry():
@@ -83,9 +95,6 @@ def registry_running():
 
 
 def fix_local_docker():
-    node_ip = _get_node_ip()
-    if not node_ip:
-        raise SystemExit("Didn't find any nodes.")
     if not registry_running():
         raise SystemExit("Registry service not installed or running.")
 
@@ -98,8 +107,6 @@ def fix_local_docker():
         else:
             print("Restart your docker daemon for changes to take effect.")
 
-    assert os.system(f"sudo `which hostman` add -f {node_ip} \
-                      {ADAPTDL_REGISTRY_URL.split(':')[0]}") == 0
     assert os.system(f"docker login -u user -p password \
                       {ADAPTDL_REGISTRY_URL}") == 0
 
