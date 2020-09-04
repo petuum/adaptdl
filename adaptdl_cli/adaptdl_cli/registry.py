@@ -54,11 +54,17 @@ def _get_node_ip():
 def fix_etc_hosts():
     # Correct /etc/hosts entry with the current node IP kubectl is pointing to
     node_ip = _get_node_ip()
+    host_entry = None
     if not node_ip:
         raise SystemExit("Didn't find any nodes.")
-    if node_ip != socket.gethostbyname(ADAPTDL_REGISTRY_URL.split(':')[0]):
+    try:
+        host_entry = socket.gethostbyname(ADAPTDL_REGISTRY_URL.split(':')[0])
+    except socket.gaierror:
+        pass
+
+    if node_ip != host_entry:
         assert os.system(f"sudo `which hostman` add -f {node_ip} \
-                          {ADAPTDL_REGISTRY_URL.split(':')[0]}") == 0
+                {ADAPTDL_REGISTRY_URL.split(':')[0]}") == 0
 
 
 def _find_entry():
