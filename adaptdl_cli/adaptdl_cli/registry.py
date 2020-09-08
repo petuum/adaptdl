@@ -16,16 +16,21 @@
 
 import json
 import os
-import subprocess
 from pathlib import Path
 import sys
 import socket
+import kubernetes
+
 
 ADAPTDL_REGISTRY_URL = "adaptdl-registry.remote:32000"
-ADAPTDL_REGISTRY_CREDS = "adaptdl-registry-creds"
 
-_DAEMON_FILE = f"{str(Path.home())}/.docker/daemon.json"
+
+if "linux" in sys.platform.lower():
+    _DAEMON_FILE = "/etc/docker/daemon.json"
+else:
+    _DAEMON_FILE = f"{str(Path.home())}/.docker/daemon.json"
 _REG_KEY = "insecure-registries"
+
 
 # https://forums.docker.com/t/restart-docker-from-command-line/9420/9
 MACOS_DOCKER_RESTART_SCRIPT = r"""osascript -e 'quit app "Docker"'; \
@@ -37,17 +42,25 @@ LINUX_DOCKER_RESTART_SCRIPT = r"""sudo systemctl restart docker \
 
 
 def _get_node_ip():
-    nodes = json.loads(subprocess.check_output(['kubectl', 'get', 'no',
-                                                '--sort-by=.metadata.creationTimestamp',  # noqa: E501
-                                                '-ojson']))
-    ip = None
-    if len(nodes['items']) > 0:
-        for addr in nodes['items'][0]['status']['addresses']:
-            if addr['type'] == 'InternalIP':
-                ip = addr['address']
-            if addr['type'] == 'ExternalIP':
-                ip = addr['address']
-                break
+    def ready(conditions):
+        return any(cond.type == "Ready" and
+                   cond.status == "True" for cond in conditions)
+
+    # Collect Ready nodes sorted by descending age
+    v1 = kubernetes.client.CoreV1Api()
+    nodes = v1.list_node()
+    nodes = [node for node in nodes.items if ready(node.status.conditions)]
+    nodes = sorted(nodes, key=lambda x: x.metadata.creation_timestamp)
+    if len(nodes) == 0:
+        return None
+
+    for addr in nodes[0].status.addresses:
+        if addr.type == 'InternalIP':
+            ip = addr.address
+        if addr.type == 'ExternalIP':
+            ip = addr.address
+            break
+    assert ip
     return ip
 
 
@@ -93,11 +106,10 @@ def _fix_daemon_json():
 
 
 def registry_running():
-    svc = json.loads(subprocess.check_output(['kubectl', 'get', 'svc',
-                                              '-A', '-l',
-                                              'app=docker-registry',
-                                              '-ojson']))
-    return len(svc['items']) > 0
+    v1 = kubernetes.client.CoreV1Api()
+    svc = v1.list_service_for_all_namespaces(
+        label_selector="app=docker-registry,release=adaptdl")
+    return len(svc.items) > 0
 
 
 def fix_local_docker():

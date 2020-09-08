@@ -113,7 +113,7 @@ need help from your AWS administrator to perform this step.
    'StackResources[?LogicalResourceId == `SG`].[PhysicalResourceId]' --output text)
 
    aws ec2 authorize-security-group-ingress --group-id $SECURITY_GROUP \
-   --protocol tcp --port 31001 --cidr 0.0.0.0/0
+   --protocol tcp --port 32000 --cidr 0.0.0.0/0
 
 Cleaning Up
 -----------
