@@ -108,7 +108,7 @@ def _fix_daemon_json():
 def registry_running():
     v1 = kubernetes.client.CoreV1Api()
     svc = v1.list_service_for_all_namespaces(
-        label_selector="app=docker-registry,release=adaptdl")
+        field_selector="metadata.name=adaptdl-registry")
     return len(svc.items) > 0
 
 
@@ -119,9 +119,9 @@ def fix_local_docker():
     if _fix_daemon_json():
         # restart docker daemon
         if "darwin" in sys.platform.lower():
-            os.system(MACOS_DOCKER_RESTART_SCRIPT) == 0
+            assert os.system(MACOS_DOCKER_RESTART_SCRIPT) == 0
         elif "linux" in sys.platform.lower():
-            os.system(LINUX_DOCKER_RESTART_SCRIPT) == 0
+            assert os.system(LINUX_DOCKER_RESTART_SCRIPT) == 0
         else:
             print("Restart your docker daemon for changes to take effect.")
 
