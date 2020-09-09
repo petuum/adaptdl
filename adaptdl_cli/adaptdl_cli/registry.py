@@ -14,17 +14,23 @@
 # limitations under the License.
 
 
-import json
+import sys
 import os
+import socket
+import json
 import subprocess
 from pathlib import Path
-import sys
+import kubernetes
 
-ADAPTDL_REGISTRY_URL = "adaptdl-registry.default.svc.cluster.local:31001"
-ADAPTDL_REGISTRY_CREDS = "adaptdl-registry-creds"
 
-_DAEMON_FILE = f"{str(Path.home())}/.docker/daemon.json"
+ADAPTDL_REGISTRY_URL = "adaptdl-registry.remote:32000"
+
+if "linux" in sys.platform.lower():
+    _DAEMON_FILE = "/etc/docker/daemon.json"
+else:
+    _DAEMON_FILE = f"{str(Path.home())}/.docker/daemon.json"
 _REG_KEY = "insecure-registries"
+
 
 # https://forums.docker.com/t/restart-docker-from-command-line/9420/9
 MACOS_DOCKER_RESTART_SCRIPT = r"""osascript -e 'quit app "Docker"'; \
@@ -36,17 +42,42 @@ LINUX_DOCKER_RESTART_SCRIPT = r"""sudo systemctl restart docker \
 
 
 def _get_node_ip():
-    nodes = json.loads(subprocess.check_output(['kubectl', 'get', 'no',
-                                                '-ojson']))
-    ip = None
-    if len(nodes['items']) > 0:
-        for addr in nodes['items'][0]['status']['addresses']:
-            if addr['type'] == 'InternalIP':
-                ip = addr['address']
-            if addr['type'] == 'ExternalIP':
-                ip = addr['address']
-                break
+    def ready(conditions):
+        return any(cond.type == "Ready" and
+                   cond.status == "True" for cond in conditions)
+
+    # Collect Ready nodes sorted by descending age
+    v1 = kubernetes.client.CoreV1Api()
+    nodes = v1.list_node()
+    nodes = [node for node in nodes.items if ready(node.status.conditions)]
+    nodes = sorted(nodes, key=lambda x: x.metadata.creation_timestamp)
+    if len(nodes) == 0:
+        return None
+
+    for addr in nodes[0].status.addresses:
+        if addr.type == 'InternalIP':
+            ip = addr.address
+        if addr.type == 'ExternalIP':
+            ip = addr.address
+            break
+    assert ip
     return ip
+
+
+def fix_etc_hosts():
+    # Correct /etc/hosts entry with the current node IP kubectl is pointing to
+    node_ip = _get_node_ip()
+    host_entry = None
+    if not node_ip:
+        raise SystemExit("Didn't find any nodes.")
+    try:
+        host_entry = socket.gethostbyname(ADAPTDL_REGISTRY_URL.split(':')[0])
+    except socket.gaierror:
+        pass
+
+    if node_ip != host_entry:
+        subprocess.run(f"sudo `which hostman` add -f {node_ip} \
+                        {ADAPTDL_REGISTRY_URL.split(':')[0]}", shell=True)
 
 
 def _find_entry():
@@ -75,31 +106,27 @@ def _fix_daemon_json():
 
 
 def registry_running():
-    svc = json.loads(subprocess.check_output(['kubectl', 'get', 'svc', '-l',
-                                             'app=docker-registry', '-ojson']))
-    return len(svc['items']) > 0
+    v1 = kubernetes.client.CoreV1Api()
+    svc = v1.list_service_for_all_namespaces(
+        field_selector="metadata.name=adaptdl-registry")
+    return len(svc.items) > 0
 
 
 def fix_local_docker():
-    node_ip = _get_node_ip()
-    if not node_ip:
-        raise SystemExit("Didn't find any nodes.")
     if not registry_running():
         raise SystemExit("Registry service not installed or running.")
 
     if _fix_daemon_json():
         # restart docker daemon
         if "darwin" in sys.platform.lower():
-            os.system(MACOS_DOCKER_RESTART_SCRIPT) == 0
+            subprocess.run(MACOS_DOCKER_RESTART_SCRIPT, shell=True)
         elif "linux" in sys.platform.lower():
-            os.system(LINUX_DOCKER_RESTART_SCRIPT) == 0
+            subprocess.run(LINUX_DOCKER_RESTART_SCRIPT, shell=True)
         else:
             print("Restart your docker daemon for changes to take effect.")
 
-    assert os.system(f"sudo `which hostman` add -f {node_ip} \
-                      {ADAPTDL_REGISTRY_URL.split(':')[0]}") == 0
-    assert os.system(f"docker login -u user -p password \
-                      {ADAPTDL_REGISTRY_URL}") == 0
+    subprocess.run(f"docker login -u user -p password \
+                      {ADAPTDL_REGISTRY_URL}", shell=True)
 
 
 if __name__ == "__main__":
