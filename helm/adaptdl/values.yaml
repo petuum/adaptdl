@@ -55,6 +55,8 @@ supervisor:
     port: 8080
     targetPort: 8080
 
+# Some services depend on the specific name of the registry service which is
+# enforced through fullnameOverride.
 docker-registry:
   enabled: false
   fullnameOverride: adaptdl-registry

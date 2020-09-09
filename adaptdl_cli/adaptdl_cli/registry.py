@@ -14,16 +14,16 @@
 # limitations under the License.
 
 
-import json
-import os
-from pathlib import Path
 import sys
+import os
 import socket
+import json
+import subprocess
+from pathlib import Path
 import kubernetes
 
 
 ADAPTDL_REGISTRY_URL = "adaptdl-registry.remote:32000"
-
 
 if "linux" in sys.platform.lower():
     _DAEMON_FILE = "/etc/docker/daemon.json"
@@ -76,8 +76,8 @@ def fix_etc_hosts():
         pass
 
     if node_ip != host_entry:
-        assert os.system(f"sudo `which hostman` add -f {node_ip} \
-                {ADAPTDL_REGISTRY_URL.split(':')[0]}") == 0
+        subprocess.run(f"sudo `which hostman` add -f {node_ip} \
+                        {ADAPTDL_REGISTRY_URL.split(':')[0]}", shell=True)
 
 
 def _find_entry():
@@ -119,14 +119,14 @@ def fix_local_docker():
     if _fix_daemon_json():
         # restart docker daemon
         if "darwin" in sys.platform.lower():
-            assert os.system(MACOS_DOCKER_RESTART_SCRIPT) == 0
+            subprocess.run(MACOS_DOCKER_RESTART_SCRIPT, shell=True)
         elif "linux" in sys.platform.lower():
-            assert os.system(LINUX_DOCKER_RESTART_SCRIPT) == 0
+            subprocess.run(LINUX_DOCKER_RESTART_SCRIPT, shell=True)
         else:
             print("Restart your docker daemon for changes to take effect.")
 
-    assert os.system(f"docker login -u user -p password \
-                      {ADAPTDL_REGISTRY_URL}") == 0
+    subprocess.run(f"docker login -u user -p password \
+                      {ADAPTDL_REGISTRY_URL}", shell=True)
 
 
 if __name__ == "__main__":
