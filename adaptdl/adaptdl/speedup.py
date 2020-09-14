@@ -272,21 +272,24 @@ def fit(nodes, replicas, local_bsz, grad_acc_steps,
 
 def _predict_log(params, nodes, replicas, local_bsz, grad_acc_steps):
     params = Params(*params)
-    step_time_compute = _predict_compute(params, local_bsz, grad_acc_steps)
+    step_time_compute = _predict_compute(params, local_bsz)
     step_time_network = _predict_network(params, nodes, replicas)
     gamma = params.gamma
     # Return predicted total step time in log-space to avoid numerical issues
     # in autograd and optimization.
-    return (np.log(step_time_compute ** gamma +
-                   step_time_network ** gamma) / gamma,
-            step_time_compute, step_time_network)
+    return (
+        np.logaddexp(np.log(step_time_compute * (grad_acc_steps - 1)),
+                     np.log(step_time_compute ** gamma +
+                            step_time_network ** gamma) / gamma),
+        grad_acc_steps * step_time_compute,
+        step_time_network)
 
 
-def _predict_compute(params, local_bsz, grad_acc_steps):
+def _predict_compute(params, local_bsz):
     params = Params(*params)
     # Forward/backward passes should scale linearly with the batch size
     # and number of accumulation steps.
-    return params.alpha_c + params.beta_c * local_bsz * grad_acc_steps
+    return params.alpha_c + params.beta_c * local_bsz
 
 
 def _predict_network(params, nodes, replicas):

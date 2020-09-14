@@ -135,7 +135,7 @@ def test_grad_acc_optimization_1():
     params = torch.autograd.Variable(params_t, requires_grad=True)
     sgd = torch.optim.SGD([params], lr=0.001)
     schedule = torch.optim.lr_scheduler.MultiStepLR(sgd, [1000])
-    obj = adascale.AdaScale(sgd, schedule, scale=6.0, num_replicas=1,
+    obj = adascale.AdaScale(sgd, scale=6.0, num_replicas=1,
                             patch_optimizer=True)
     obj.set_grad_acc_steps(6)
     i = 0.0
@@ -162,10 +162,11 @@ def test_grad_acc_optimization_2():
     params = torch.autograd.Variable(params_t, requires_grad=True)
     sgd = torch.optim.SGD([params], lr=0.001)
     schedule = torch.optim.lr_scheduler.MultiStepLR(sgd, [1000])
-    obj = adascale.AdaScale(sgd, schedule, scale=6.0, num_replicas=1,
+    obj = adascale.AdaScale(sgd, scale=6.0, num_replicas=1,
                             patch_optimizer=True)
     obj.set_grad_acc_steps(6)
     i = 0.0
+    j = 0
     while i < 100000 and not params.allclose(torch.tensor([1.0, 1.0]),
                                              atol=0.01):
         sgd.zero_grad()
@@ -173,5 +174,7 @@ def test_grad_acc_optimization_2():
         loss.backward()
         sgd.step()
         i += obj.get_progress()
-        schedule.step()
+        j += 1
+        if j % 6 == 0:
+            schedule.step()
     assert(params.allclose(torch.tensor([1.0, 1.0]), atol=0.01))

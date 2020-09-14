@@ -63,7 +63,7 @@ class AdaScale(object):
 
     .. _AdaScale: https://proceedings.icml.cc/static/paper_files/icml/2020/4682-Supplemental.pdf
     """  # noqa: E501
-    def __init__(self, optimizer, lr_scheduler=None, scale=None,
+    def __init__(self, optimizer, scale=None,
                  num_replicas=None, patch_optimizer=False):
         self._optimizer = optimizer
         self._optimizer_step = optimizer.step
@@ -100,8 +100,6 @@ class AdaScale(object):
 
         if patch_optimizer:
             self.patch_optimizer()
-        if not (lr_scheduler is None):
-            self.patch_lr_scheduler(lr_scheduler)
         self._smoothing = 0.997
 
     @property
@@ -326,16 +324,6 @@ class AdaScale(object):
         self._optimizer_step(*args, **kwargs)
         for lr, param_group in zip(initial_lr, self._optimizer.param_groups):
             param_group["lr"] = lr
-
-    def patch_lr_scheduler(self, lr_scheduler):
-        old_step = lr_scheduler.step
-
-        @functools.wraps(lr_scheduler.step)
-        def wrapper(*args, **kwargs):
-            if (self._made_step):
-                return old_step(*args, **kwargs)
-            return None
-        lr_scheduler.step = wrapper
 
     def patch_optimizer(self):
         """

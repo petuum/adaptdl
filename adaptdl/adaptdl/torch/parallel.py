@@ -154,11 +154,7 @@ class _AdaptiveDataParallelState(adaptdl.checkpoint.State):
     def save(self, fileobj):
         state_dicts = [self.model.state_dict(), self.optimizer.state_dict()]
         if self.lr_scheduler is not None:
-            # Need to remove self.lr_scheduler.step from the pickling,
-            # otherwise pickle will throw an error
-            lr_scheduler_state = self.lr_scheduler.state_dict()
-            del lr_scheduler_state['step']
-            state_dicts.append(lr_scheduler_state)
+            state_dicts.append(self.lr_scheduler.state_dict())
         LOG.info("state dicts: {}".format(state_dicts))
         torch.save((state_dicts, self.gain), fileobj)
 
