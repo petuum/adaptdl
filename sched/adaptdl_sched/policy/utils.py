@@ -21,10 +21,13 @@ class JobInfo(object):
             resources (dict): Requested resources (eg. GPUs) of each replica.
             speedup_fn (SpeedupFunction): Speedup function for this job.
             creation_timestamp (datetime): Time when this job was created.
-            max_replicas (int): Maximum number of replicas.
+            max_replicas (int): Maximum number of replicas. Maximum should be
+                                greater or equal to Minimum
+            min_replicas (int): Minimum number of replicas.
             preemptible (bool): Is job preemptible?
         """
         assert max_replicas > 0
+        assert max_replicas >= min_replicas
         self.resources = resources
         self.speedup_fn = speedup_fn
         self.creation_timestamp = creation_timestamp

@@ -126,11 +126,12 @@ class AdaptDLAllocator(object):
             resources = get_pod_requests(job["spec"]["template"]["spec"])
             hints = job.get("status", {}).get("train", {})
             max_replicas = max(2 * hints.get("maxProfiledReplicas", 0), 1)
-            min_replicas = job["spec"].get("minReplicas", 0)
-            preemptible = job["spec"].get("preemptible", True)
             if job["spec"].get("maxReplicas"):
                 max_replicas = min(max_replicas, job["spec"]["maxReplicas"])
-            if hints:
+            min_replicas = job["spec"].get("minReplicas", 0)
+            max_replicas = max(max_replicas, min_replicas)
+            preemptible = job["spec"].get("preemptible", True)
+            if hints and preemptible:
                 max_batch_size = hints.get("maxBatchSize") or \
                                                  hints.get("initBatchSize")
                 if hints.get("localBszBounds"):
