@@ -130,7 +130,8 @@ class PolluxPolicy(object):
 
         # Consider job preemptible only if it already has an allocation
         def isnonpreemptible(key, job):
-            return not job.preemptible and key in base_allocations
+            return not job.preemptible and \
+                    base_allocations.get(key, []) != []
 
         # Sort jobs in FIFO order. Prioritize non-preemptible jobs
         jobs = OrderedDict(sorted(jobs.items(),

@@ -29,6 +29,7 @@ metadata:
 spec:
   preemptible: false
   minReplicas: 2
+  maxReplicas: 2
   template:
     spec:
       containers:
