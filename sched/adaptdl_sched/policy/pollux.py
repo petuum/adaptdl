@@ -134,8 +134,8 @@ class PolluxPolicy(object):
 
         # Sort jobs in FIFO order. Prioritize non-preemptible jobs
         jobs = OrderedDict(sorted(jobs.items(),
-                 key=lambda kv: (not isnonpreemptible(kv[0], kv[1]),
-                                 kv[1].creation_timestamp)))
+                           key=lambda kv: (not isnonpreemptible(kv[0], kv[1]),
+                                           kv[1].creation_timestamp)))
         nodes = OrderedDict(  # Sort preemptible nodes last.
             sorted(nodes.items(), key=lambda kv: (kv[1].preemptible, kv[0])))
         base_state = np.concatenate(
@@ -143,7 +143,7 @@ class PolluxPolicy(object):
              np.zeros((len(jobs), len(nodes)), dtype=np.int)), axis=1)
         # Precompute indices for non-preemptible jobs
         nonpreemptible_indices = [i for i, key in enumerate(jobs)
-                                    if isnonpreemptible(key, jobs[key])]
+                                  if isnonpreemptible(key, jobs[key])]
         if self._prev_states is None:
             states = np.expand_dims(base_state, 0)
         else:
@@ -333,7 +333,7 @@ class Problem(pymoo.model.problem.Problem):
         states = states.reshape(states.shape[0], *self._base_state.shape)
         # Copy previous allocations for non-preemptible jobs
         states[:, self._nonpreemptible_indices] = \
-                            self._base_state[self._nonpreemptible_indices, :]
+            self._base_state[self._nonpreemptible_indices, :]
         # Enforce at most one distributed job per node.
         distributed = np.count_nonzero(states, axis=2) > 1
         mask = states * np.expand_dims(distributed, axis=-1) > 0
