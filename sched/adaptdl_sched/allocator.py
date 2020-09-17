@@ -126,6 +126,8 @@ class AdaptDLAllocator(object):
             resources = get_pod_requests(job["spec"]["template"]["spec"])
             hints = job.get("status", {}).get("train", {})
             max_replicas = max(2 * hints.get("maxProfiledReplicas", 0), 1)
+            min_replicas = job["spec"].get("minReplicas", 0)
+            preemptible = job["spec"].get("preemptible", True)
             if job["spec"].get("maxReplicas"):
                 max_replicas = min(max_replicas, job["spec"]["maxReplicas"])
             if hints:
@@ -153,7 +155,8 @@ class AdaptDLAllocator(object):
             namespace = job["metadata"]["namespace"]
             name = job["metadata"]["name"]
             job_infos[(namespace, name)] = JobInfo(
-                    resources, speedup_fn, creation_ts, max_replicas)
+                    resources, speedup_fn, creation_ts, max_replicas,
+                    min_replicas, preemptible)
         return job_infos
 
     def _allocate(self, jobs, nodes, prev_allocations, node_template):
