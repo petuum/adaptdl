@@ -15,19 +15,22 @@
 
 class JobInfo(object):
     def __init__(self, resources, speedup_fn, creation_timestamp,
-                 max_replicas):
+                 max_replicas, min_replicas=0, preemptible=True):
         """
         Args:
             resources (dict): Requested resources (eg. GPUs) of each replica.
             speedup_fn (SpeedupFunction): Speedup function for this job.
             creation_timestamp (datetime): Time when this job was created.
             max_replicas (int): Maximum number of replicas.
+            preemptible (bool): Is job preemptible?
         """
         assert max_replicas > 0
         self.resources = resources
         self.speedup_fn = speedup_fn
         self.creation_timestamp = creation_timestamp
         self.max_replicas = max_replicas
+        self.min_replicas = min_replicas
+        self.preemptible = preemptible
 
 
 class NodeInfo(object):

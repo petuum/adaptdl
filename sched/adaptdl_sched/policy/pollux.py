@@ -108,6 +108,13 @@ class PolluxPolicy(object):
                 best_nodes = num_nodes
         return int(best_nodes)
 
+    # Reset preemptible flag from jobs who didn't have any earlier allocation,
+    # so they are treated like preemptible jobs inside the optimizer
+    def _reset_preemptible(self, jobs, base_allocations):
+        for key, job in jobs.items():
+            if not job.preemptible and key not in base_allocations:
+                jobs[key].preemptible = True
+
     def optimize(self, jobs, nodes, base_allocations, node_template):
         """
         Run one optimization cycle of the Pollux scheduling policy.
@@ -127,8 +134,12 @@ class PolluxPolicy(object):
             dict: map from job keys to their optimized resource allocations,
                 in the form of a list of a node key for each replica.
         """
-        jobs = OrderedDict(  # Sort jobs in FIFO order.
-            sorted(jobs.items(), key=lambda kv: kv[1].creation_timestamp))
+
+        self._reset_preemptible(jobs, base_allocations)
+        # Sort jobs in FIFO order. We only prioritize non-preemptible jobs
+        # which already have allocations.
+        jobs = OrderedDict(sorted(jobs.items(), key=lambda kv:
+                                    (kv[1].preemptible, kv[1].creation_timestamp)))
         nodes = OrderedDict(  # Sort preemptible nodes last.
             sorted(nodes.items(), key=lambda kv: (kv[1].preemptible, kv[0])))
         base_state = np.concatenate(
@@ -318,6 +329,10 @@ class Problem(pymoo.model.problem.Problem):
     def _repair(self, pop, **kwargs):
         states = pop.get("X")
         states = states.reshape(states.shape[0], *self._base_state.shape)
+        # Copy previous allocations for non-preemptible jobs
+        nonpreemptible = [i for i, x in enumerate(self._jobs)
+                          if not x.preemptible]
+        states[:, nonpreemptible] = self._base_state[nonpreemptible, :]
         # Enforce at most one distributed job per node.
         distributed = np.count_nonzero(states, axis=2) > 1
         mask = states * np.expand_dims(distributed, axis=-1) > 0
@@ -341,6 +356,10 @@ class Problem(pymoo.model.problem.Problem):
         with np.errstate(divide="ignore", invalid="ignore"):
             states = np.amin(np.floor_divide(states, job_resources),
                              where=job_resources > 0, initial=99, axis=-1)
+        # Only choose solutions which have at least min_replicas allocations
+        min_replicas = np.array([j.min_replicas for j in self._jobs])
+        mask = np.sum(states, axis=-1) < min_replicas
+        states[mask] = 0
         return pop.new("X", states.reshape(states.shape[0], -1))
 
 
