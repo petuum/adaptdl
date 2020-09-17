@@ -108,13 +108,6 @@ class PolluxPolicy(object):
                 best_nodes = num_nodes
         return int(best_nodes)
 
-    # Reset preemptible flag from jobs who didn't have any earlier allocation,
-    # so they are treated like preemptible jobs inside the optimizer
-    def _reset_preemptible(self, jobs, base_allocations):
-        for key, job in jobs.items():
-            if not job.preemptible and key not in base_allocations:
-                jobs[key].preemptible = True
-
     def optimize(self, jobs, nodes, base_allocations, node_template):
         """
         Run one optimization cycle of the Pollux scheduling policy.
@@ -135,22 +128,29 @@ class PolluxPolicy(object):
                 in the form of a list of a node key for each replica.
         """
 
-        self._reset_preemptible(jobs, base_allocations)
-        # Sort jobs in FIFO order. We only prioritize non-preemptible jobs
-        # which already have allocations.
-        jobs = OrderedDict(sorted(jobs.items(), key=lambda kv:
-                                    (kv[1].preemptible, kv[1].creation_timestamp)))
+        # Consider job preemptible only if it already has an allocation
+        def isnonpreemptible(key, job):
+            return not job.preemptible and key in base_allocations
+
+        # Sort jobs in FIFO order. Prioritize non-preemptible jobs
+        jobs = OrderedDict(sorted(jobs.items(),
+                 key=lambda kv: (not isnonpreemptible(kv[0], kv[1]),
+                                 kv[1].creation_timestamp)))
         nodes = OrderedDict(  # Sort preemptible nodes last.
             sorted(nodes.items(), key=lambda kv: (kv[1].preemptible, kv[0])))
         base_state = np.concatenate(
             (self._allocations_to_state(base_allocations, jobs, nodes),
              np.zeros((len(jobs), len(nodes)), dtype=np.int)), axis=1)
+        # Precompute indices for non-preemptible jobs
+        nonpreemptible_indices = [i for i, key in enumerate(jobs)
+                                    if isnonpreemptible(key, jobs[key])]
         if self._prev_states is None:
             states = np.expand_dims(base_state, 0)
         else:
             states = self._adapt_prev_states(jobs, nodes)
         problem = Problem(list(jobs.values()), list(nodes.values()) +
-                          len(nodes) * [node_template], base_state)
+                          len(nodes) * [node_template], base_state,
+                          nonpreemptible_indices)
         algorithm = NSGA2(
             pop_size=100,
             # pymoo expects a flattened 2-D array.
@@ -185,7 +185,7 @@ class PolluxPolicy(object):
 
 
 class Problem(pymoo.model.problem.Problem):
-    def __init__(self, jobs, nodes, base_state):
+    def __init__(self, jobs, nodes, base_state, nonpreemptible_indices):
         """
         Multi-objective optimization problem used by PolluxPolicy to determine
         resource allocations and desired cluster size. Optimizes for the best
@@ -209,6 +209,8 @@ class Problem(pymoo.model.problem.Problem):
         self._jobs = jobs
         self._nodes = nodes
         self._base_state = base_state
+        self._nonpreemptible_indices = nonpreemptible_indices
+
         # Find which resource types are requested by at least one job.
         rtypes = sorted(set.union(*[set(job.resources) for job in jobs]))
         # Build array of job resources: <num_jobs> x <num_rtypes>. Each entry
@@ -330,9 +332,8 @@ class Problem(pymoo.model.problem.Problem):
         states = pop.get("X")
         states = states.reshape(states.shape[0], *self._base_state.shape)
         # Copy previous allocations for non-preemptible jobs
-        nonpreemptible = [i for i, x in enumerate(self._jobs)
-                          if not x.preemptible]
-        states[:, nonpreemptible] = self._base_state[nonpreemptible, :]
+        states[:, self._nonpreemptible_indices] = \
+                            self._base_state[self._nonpreemptible_indices, :]
         # Enforce at most one distributed job per node.
         distributed = np.count_nonzero(states, axis=2) > 1
         mask = states * np.expand_dims(distributed, axis=-1) > 0
