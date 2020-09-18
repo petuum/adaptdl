@@ -61,6 +61,8 @@ def _get_insecure_registry_proxy(proxy_port):
     if platform.system() == "Darwin":
         # Docker for Mac runs in a VM and can't access the proxy which is bound
         # to a port on the host. Use a special DNS name instead.
+        # https://github.com/docker/for-mac/issues/3611
+        # https://docs.docker.com/docker-for-mac/networking/#use-cases-and-workarounds
         registry = f"host.docker.internal:{proxy_port}"
         # Docker doesn't automatically trust host.docker.internal as an
         # insecure registry. Need to add it manually.
