@@ -33,7 +33,6 @@ from adaptdl_cli.tensorboard import TENSORBOARD_PREFIX, \
     add_tensorboard_commands
 
 
-
 def _find_insecure_registry():
     services = kubernetes.client.CoreV1Api().list_service_for_all_namespaces(
         label_selector="app=docker-registry",
