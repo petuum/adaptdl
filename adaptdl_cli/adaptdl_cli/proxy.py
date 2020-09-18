@@ -1,5 +1,5 @@
 from contextlib import contextmanager
-from multiprocessing import Process, Queue
+from multiprocessing import Process, Barrier
 
 import kubernetes
 
@@ -37,13 +37,13 @@ def service_proxy(namespace, service, listen_host="localhost",
         verbose (bool): if True, prints extra logs from the background proxy.
     """
     listen_port = pick_unused_port() if listen_port is None else listen_port
-    queue = Queue()
+    barrier = Barrier(2)
     child = Process(
         target=_run_proxy, name="mitmproxy",
-        args=(queue, namespace, service, listen_host, listen_port, verbose),
+        args=(barrier, namespace, service, listen_host, listen_port, verbose),
     )
     child.start()
-    queue.get()  # Wait for child to bind the port.
+    barrier.wait()  # Wait for child to bind the port.
     try:
         yield f"{listen_host}:{listen_port}"
     finally:
@@ -51,7 +51,7 @@ def service_proxy(namespace, service, listen_host="localhost",
         child.join()
 
 
-def _run_proxy(queue, namespace, service, listen_host, listen_port, verbose):
+def _run_proxy(barrier, namespace, service, listen_host, listen_port, verbose):
     # Run mitmproxy as a reverse-proxy to the Kubernetes ApiServer under the
     # subpath /api/v1/namespaces/{namespace}/services/{service}/proxy. See
     # https://k8s.io/docs/tasks/administer-cluster/access-cluster-services.
@@ -66,7 +66,7 @@ def _run_proxy(queue, namespace, service, listen_host, listen_port, verbose):
     options.ssl_insecure = True
     master.server = ProxyServer(ProxyConfig(options))
     master.addons.add(_Addon(client, prefix))
-    queue.put(None)  # Port is bound by this time, unblock parent process.
+    barrier.wait()  # Port is bound by this time, unblock parent process.
     master.run()
 
 
