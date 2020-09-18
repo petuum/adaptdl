@@ -1,6 +1,7 @@
 from contextlib import contextmanager
-from multiprocessing import Process
-from subprocess import Popen, DEVNULL
+from multiprocessing import Process, Queue
+
+import kubernetes
 
 from mitmproxy.options import Options
 from mitmproxy.proxy.config import ProxyConfig
@@ -11,40 +12,53 @@ from urllib.parse import urlparse
 
 
 @contextmanager
-def service_proxy(namespace, name, host="127.0.0.1", port=0):
-    port = port if port else pick_unused_port()
-    prefix = "/api/v1/namespaces/{}/services/{}/proxy".format(namespace, name)
-    kproxy_port = pick_unused_port()
-    kproxy_args = ["kubectl", "proxy", f"--port={kproxy_port}",
-                   "--accept-hosts=.*", f"--api-prefix={prefix}"]
-    with Popen(kproxy_args, stdout=DEVNULL) as kproxy:
-        try:
-            options = Options(listen_host=host, listen_port=port,
-                              mode=f"reverse:http://localhost:{kproxy_port}")
-            mproxy = DumpMaster(options, with_termlog=False, with_dumper=False)
-            options.keep_host_header = True
-            mproxy.server = ProxyServer(ProxyConfig(options))
-            mproxy.addons.add(_Middleware(prefix))
-            p = Process(target=mproxy.run)
-            p.start()
-            try:
-                yield f"{host}:{port}"
-            finally:
-                p.terminate()
-                p.join()
-        finally:
-            kproxy.kill()
+def service_proxy(namespace, service, listen_host="127.0.0.1", listen_port=0,
+                  verbose=False):
+    listen_port = listen_port if listen_port else pick_unused_port()
+    queue = Queue()
+    child = Process(
+        target=_run_proxy, name="mitmproxy",
+        args=(queue, namespace, service, listen_host, listen_port, verbose),
+    )
+    child.start()
+    queue.get()  # Wait for child to bind the port.
+    try:
+        yield f"{listen_host}:{listen_port}"
+    finally:
+        child.terminate()
+        child.join()
 
 
-class _Middleware(object):
-    def __init__(self, prefix):
+def _run_proxy(queue, namespace, service, listen_host, listen_port, verbose):
+    client = kubernetes.config.new_client_from_config()
+    prefix = f"/api/v1/namespaces/{namespace}/services/{service}/proxy"
+    options = Options(listen_host=listen_host, listen_port=listen_port,
+                      mode=f"reverse:{client.configuration.host}")
+    master = DumpMaster(options, with_termlog=verbose, with_dumper=verbose)
+    options.keep_host_header = True
+    options.ssl_insecure = True
+    master.server = ProxyServer(ProxyConfig(options))
+    master.addons.add(_Addon(client, prefix))
+    queue.put(None)  # Port is bound by this time, unblock parent process.
+    master.run()
+
+
+class _Addon(object):
+    def __init__(self, client, prefix):
+        self.client = client
         self.prefix = prefix
 
-    def request(self, flow):
+    def requestheaders(self, flow):
+        flow.request.stream = True  # Stream for better performance.
         flow.request.path = self.prefix + flow.request.path
+        self.client.update_params_for_auth(  # Inject authorization.
+            flow.request.headers, flow.request.query, ["BearerToken"])
 
-    def response(self, flow):
+    def responseheaders(self, flow):
+        flow.response.stream = True  # Stream for better performance.
         if "location" in flow.response.headers:
+            # Undo Kubernetes ApiServer's rewriting of the Location header.
+            # https://github.com/kubernetes/kubernetes/pull/52556
             url = urlparse(flow.response.headers["location"])
             if url.path.startswith(self.prefix):
                 url = url._replace(path=url.path[len(self.prefix):])
