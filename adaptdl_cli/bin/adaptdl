@@ -78,8 +78,9 @@ def _get_insecure_registry_proxy(proxy_port):
             docker_dir.mkdir(exist_ok=True)
             with open(daemon_path, "w") as f:
                 json.dump(daemon, f, indent=2)
-            raise SystemExit(f"Insecure registry {registry} written to"
-                             f" {daemon_path}. Please restart Docker!")
+            raise SystemExit(f"Insecure registry {registry} written to "
+                             f"{daemon_path}. Please restart Docker and then"
+                             " submit your job again!")
         return registry
     return f"localhost:{proxy_port}"
 
