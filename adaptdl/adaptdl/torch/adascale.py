@@ -18,7 +18,6 @@ import functools
 import numpy as np
 import torch.distributed
 import torch.optim
-from torch import from_numpy
 from torch.autograd import Variable
 
 __all__ = ["AdaScale"]
@@ -201,6 +200,15 @@ class AdaScale(object):
     def _backward_hook(self, idx, grad):
         # This method should be invoked once for each parameter during the
         # backward pass, before gradients are synchronized between replicas.
+        if self._norms is None:
+            self._norms = torch.zeros((self._grad_acc_steps, self._num_params),
+                                      device=grad[0].device)
+        if self._prev_acc_grad is not None:
+            self._norms[self._current_grad_acc_step][idx] = \
+                (grad - self._prev_acc_grad[idx]).pow(2).sum()
+        else:
+            self._norms[self._current_grad_acc_step][idx] = \
+                grad.pow(2).sum()
         self._final_callback_queued = False
         Variable._execution_engine.queue_callback(self._queue_callback)
 
@@ -227,14 +235,6 @@ class AdaScale(object):
         for group in self._optimizer.param_groups:
             grad.extend([p.grad.detach().clone() / total_steps
                          for p in group["params"]])
-        if (self._norms is None) and not(grad is None):
-            self._norms = torch.zeros((total_steps, len(grad)),
-                                      device=grad[0].device)
-        prev_grad = self._prev_acc_grad
-        if not prev_grad:
-            prev_grad = [0.0] * len(grad)
-        self._norms[current_step, :] = from_numpy(_normsq(
-            [g - p for (g, p) in zip(grad, prev_grad)]))
         if (current_step < total_steps - 1):
             self._prev_acc_grad = grad
             return
@@ -245,18 +245,18 @@ class AdaScale(object):
         if has_previous_step:
             if self._num_replicas > 1:
                 self._norms_future[0].wait()
-            norms_pointer, samples = self._norms_future[1]
-            norms = norms_pointer[0]
+            norms_sum, samples = self._norms_future[1]
+            norms = norms_sum.cpu().numpy()
         if self._num_replicas > 1:
-            norms_pointer = (sum(self._norms),)
+            norms_sum = torch.sum(self._norms, 0)
             self._norms_future = (
                 torch.distributed.all_reduce(
-                    norms_pointer, async_op=True),
-                (norms_pointer,
+                    norms_sum, async_op=True),
+                (norms_sum,
                  self._state['replicas'] * total_steps))
         else:
             self._norms_future = (
-                None, ((sum(self._norms),),
+                None, (torch.sum(self._norms, 0),
                        self._state['replicas'] * total_steps))
 
         if has_previous_step:
@@ -266,7 +266,7 @@ class AdaScale(object):
                 # gradient accumulation steps manually
                 n = _normsq(
                     [g for g in self._prev_full_grad])
-                var = norms.numpy() / (samples - 1)
+                var = norms / (samples - 1)
                 var -= n * (samples / (samples - 1))
                 var *= (self._scale / samples)
                 var = np.maximum(var, 1e-6)

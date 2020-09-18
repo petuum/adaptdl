@@ -46,13 +46,35 @@ def profile_sync_time(sync_time):
 _PREV_REPORT = None
 
 
+def profile_accumulation_commit():
+    global _PREV_REPORT
+    state = _metrics_state()
+    step_time = time.time() - state.step_start
+    num_nodes = adaptdl.env.num_nodes()
+    num_replicas = adaptdl.env.num_replicas()
+    key = (num_nodes, num_replicas, state.local_bsz)
+    state.profile[key]["accumulation_step_time"] += step_time
+    state.profile[key]["accumulation_count"] += 1
+    state.profile[key]["accumulation_sync_time"] += state.sync_time
+    del state.local_bsz
+    del state.grad_acc_steps
+    del state.step_start
+    del state.sync_time
+    if _PREV_REPORT is None:
+        _PREV_REPORT = time.time()
+    if adaptdl.env.replica_rank() == 0 and time.time() - _PREV_REPORT > 30:
+        _fit_perf_params()
+        _report_sched_hints()
+        _PREV_REPORT = time.time()
+
+
 def profile_step_commit():
     global _PREV_REPORT
     state = _metrics_state()
     step_time = time.time() - state.step_start
     num_nodes = adaptdl.env.num_nodes()
     num_replicas = adaptdl.env.num_replicas()
-    key = (num_nodes, num_replicas, state.local_bsz, state.grad_acc_steps)
+    key = (num_nodes, num_replicas, state.local_bsz)
     state.profile[key]["step_time"] += step_time
     state.profile[key]["sync_time"] += state.sync_time
     state.profile[key]["count"] += 1
@@ -113,14 +135,19 @@ def _fit_perf_params():
     num_nodes = np.array([key[0] for key in state.profile])
     num_replicas = np.array([key[1] for key in state.profile])
     local_bsz = np.array([key[2] for key in state.profile])
-    grad_acc_steps = np.array([key[3] for key in state.profile])
     values = state.profile.values()
     step_time = np.array([val["step_time"] / val["count"] for val in values])
     sync_time = np.array([val["sync_time"] / val["count"] for val in values])
+    accumulation_steps = np.array([val["accumulation_count"]
+                                   for val in values])
+    accumulation_time = np.array(
+        [(val["accumulation_step_time"] - val["accumulation_sync_time"])
+         / val["accumulation_count"]
+         if val["accumulation_count"] != 0 else 0.0 for val in values])
     compute_time = step_time - sync_time
     state.perf_params = adaptdl.speedup.fit(
-        num_nodes, num_replicas, local_bsz, grad_acc_steps,
-        step_time, compute_time)
+        num_nodes, num_replicas, local_bsz, accumulation_steps,
+        step_time, compute_time, accumulation_time)
 
 
 def _report_sched_hints():
@@ -128,6 +155,7 @@ def _report_sched_hints():
     state = _metrics_state()
     # Scheduling hints
     sched_hints = SCHED_HINTS.copy()
+    LOG.info("state: {}".format(state.perf_params))
     sched_hints["perfParams"] = {k: v for (k, v) in
                                  zip(PERF_PARAMS.keys(),
                                  state.perf_params)}
@@ -139,6 +167,7 @@ def _report_sched_hints():
         sched_hints["gradParams"]["norm"] = state.grad_params[0]
         sched_hints["gradParams"]["var"] = state.grad_params[1]
     sched_hints["maxProfiledReplicas"] = max(key[1] for key in state.profile)
+    LOG.info(sched_hints)
     post_sched_hints(sched_hints, adaptdl.env.job_id())
 
 

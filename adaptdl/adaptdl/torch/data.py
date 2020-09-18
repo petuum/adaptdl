@@ -26,7 +26,7 @@ import adaptdl.collective
 import adaptdl.env
 from adaptdl.torch.epoch import current_epoch
 from adaptdl.torch._metrics import (
-    profile_step_start, profile_step_commit,
+    profile_step_start, profile_step_commit, profile_accumulation_commit,
     set_batch_size, get_speedup_fn, get_progress)
 from adaptdl._signal import get_exit_flag
 
@@ -167,6 +167,26 @@ class AdaptiveDataLoaderHelper(object):
         self._state.current_index = index
 
     @property
+    def current_step(self):
+        """
+        The total number of data samples processed so far in the current loop.
+        Includes the data processed by all replicas. ``None`` if this data
+        loader is not currently being iterated.
+        """
+        if AdaptiveDataLoaderHelper._current is not self:
+            return None
+        return self._state.current_step
+
+    @current_step.setter
+    def current_step(self, step):
+        if AdaptiveDataLoaderHelper._current is not self:
+            return
+        self._state.current_step = step
+
+    def is_accumulation_step(self):
+        return not ((self.current_step + 1) % self.grad_acc_steps) == 0
+
+    @property
     def end_index(self):
         """
         (Optional) Can be used to track the end index of dataset across
@@ -266,6 +286,7 @@ class AdaptiveDataLoaderHelper(object):
                 return_local_bsz=True)
             (self._current_local_bsz, self._grad_acc_steps) = \
                 adaptdl.collective.broadcast((local_bsz, grad_acc_steps))
+        self.step = 0
         return self.current_local_bsz
 
     @property
@@ -288,10 +309,16 @@ class AdaptiveDataLoaderHelper(object):
         self.future_exit = adaptdl.collective.allreduce_async(
                     get_exit_flag(), lambda a, b: a or b)
         profile_step_start(self.current_local_bsz, self.grad_acc_steps)
-        yield
-        if self.training and self.current_index > self.current_batch_size:
-            # Don't profile the first batch since it may be slower.
-            profile_step_commit()
+        if self.is_accumulation_step():
+            yield
+            if self.training and self.current_index > self.current_batch_size:
+                # Don't profile the first batch since it may be slower.
+                profile_accumulation_commit()
+        else:
+            yield
+            if self.training and self.current_index > self.current_batch_size:
+                # Don't profile the first batch since it may be slower.
+                profile_step_commit()
 
     @contextmanager
     def context(self):
@@ -444,6 +471,7 @@ class AdaptiveDataLoader(DataLoader, AdaptiveDataLoaderMixin):
                         yield batch
                         # Increment by the number of data samples processed
                         self._elastic.current_index += self.current_batch_size  # noqa: E501
+                        self._elastic.step += 1
                         if self._elastic.max_batch_size is not None and \
                            get_progress() >= len(self.dataset) * \
                            (epoch + 1) / self.batch_size:
@@ -471,6 +499,7 @@ class _AdaptiveDataLoaderState(adaptdl.checkpoint.State):
         super().__init__("adaptdl-dataloader-epoch{}-{}".format(epoch, count))
         _AdaptiveDataLoaderState.init_count[epoch] += 1
 
+        self.current_step = 0    # Step within the current dataloader loop.
         self.current_index = 0   # Index within the current dataloader loop.
         self.end_index = 0       # End index of the current DataLoader loop.
         self.last_position = {}  # Epoch -> position of last completed loop.

@@ -155,7 +155,6 @@ class _AdaptiveDataParallelState(adaptdl.checkpoint.State):
         state_dicts = [self.model.state_dict(), self.optimizer.state_dict()]
         if self.lr_scheduler is not None:
             state_dicts.append(self.lr_scheduler.state_dict())
-        LOG.info("state dicts: {}".format(state_dicts))
         torch.save((state_dicts, self.gain), fileobj)
 
     def load(self, fileobj):
