@@ -23,9 +23,9 @@ def service_proxy(namespace, service, listen_host="localhost",
 
     .. code-block:: python
 
-       with service_proxy("default", "my-service:80", port=8080) as addr:
+       with service_proxy("default", "my-service", listen_port=8080) as addr:
            print(addr)  # Should print: localhost:8080
-           # In this block, access port 80 of my-service using localhost:8080.
+           # In this block, access my-service using localhost:8080.
 
     Arguments:
         namespace (str): namespace of the target Kubernetes service.
