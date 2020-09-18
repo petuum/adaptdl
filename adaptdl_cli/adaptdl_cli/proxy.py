@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 
 
 @contextmanager
-def service_proxy(namespace, service, listen_host="localhost",
+def service_proxy(namespace, service, listen_host="127.0.0.1",
                   listen_port=None, verbose=False):
     """
     This is a context manager that runs a background proxy to a Kubernetes
@@ -24,8 +24,8 @@ def service_proxy(namespace, service, listen_host="localhost",
     .. code-block:: python
 
        with service_proxy("default", "my-service", listen_port=8080) as addr:
-           print(addr)  # Should print: localhost:8080
-           # In this block, access my-service using localhost:8080.
+           print(addr)  # Should print: 127.0.0.1:8080
+           # In this block, access my-service using 127.0.0.1:8080.
 
     Arguments:
         namespace (str): namespace of the target Kubernetes service.
@@ -57,8 +57,6 @@ def _run_proxy(event, namespace, service, listen_host, listen_port, verbose):
     # https://k8s.io/docs/tasks/administer-cluster/access-cluster-services.
     client = kubernetes.config.new_client_from_config()
     prefix = f"/api/v1/namespaces/{namespace}/services/{service}/proxy"
-    # mitmproxy can't directly bind to "localhost".
-    listen_host = "127.0.0.1" if listen_host == "localhost" else listen_host
     options = Options(listen_host=listen_host, listen_port=listen_port,
                       mode=f"reverse:{client.configuration.host}")
     master = DumpMaster(options, with_termlog=verbose, with_dumper=verbose)

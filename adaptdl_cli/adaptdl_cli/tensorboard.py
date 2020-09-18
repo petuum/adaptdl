@@ -168,7 +168,8 @@ def tensorboard_proxy(args, remaining):
     with service_proxy(namespace, service, args.address, args.port) as addr:
         print(f"Proxying to TensorBoard instance {args.name} at http://{addr}")
         try:
-            time.sleep(1000000000)
+            while True:
+                time.sleep(1000000)
         except KeyboardInterrupt:
             pass
 
