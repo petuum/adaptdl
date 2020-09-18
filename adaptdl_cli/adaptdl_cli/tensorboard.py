@@ -204,7 +204,7 @@ def add_tensorboard_commands(parser):
        "proxy", help="proxy to a tensorboard deployment")
     parser_proxy.add_argument(
        "name", type=str, help="tensorboard deployment name")
-    parser_proxy.add_argument("--address", type=str, default="localhost",
+    parser_proxy.add_argument("--address", type=str, default="127.0.0.1",
                               help="local address to bind for the proxy")
     parser_proxy.add_argument("-p", "--port", type=int,
                               help="local port to bind for the proxy")

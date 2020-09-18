@@ -93,17 +93,26 @@ def _build_push(project, dockerfile, proxy_port):
         print("Using AdaptDL insecure registry.")
         registry = _get_insecure_registry_proxy(proxy_port)
         image = f"{registry}/adaptdl-submit"
-    subprocess.check_call(["docker", "build", "-t", image, project] +
-                          (["-f", dockerfile] if dockerfile else []))
+    try:
+        subprocess.check_call(["docker", "build", "-t", image, project] +
+                              (["-f", dockerfile] if dockerfile else []))
+    except subprocess.CalledProcessError:
+        raise SystemExit(f"Error: could not build image {image}")
     if external:
-        subprocess.check_call(["docker", "push", image])
+        try:
+            subprocess.check_call(["docker", "push", image])
+        except subprocess.CalledProcessError:
+            raise SystemExit(f"Error: could not push image {image}")
         remote_image = image
     else:
         namespace, service, nodeport = _find_insecure_registry()
         if None in (namespace, service, nodeport):
             raise SystemExit("Error: No Docker registry could be found!")
         with service_proxy(namespace, service, listen_port=proxy_port):
-            subprocess.check_call(["docker", "push", image])
+            try:
+                subprocess.check_call(["docker", "push", image])
+            except subprocess.CalledProcessError:
+                raise SystemExit(f"Error: could not push image {image}")
         remote_image = f"localhost:{nodeport}/adaptdl-submit"
     repodigests = json.loads(subprocess.check_output(
         ["docker", "image", "inspect", image,
