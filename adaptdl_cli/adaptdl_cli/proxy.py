@@ -12,8 +12,8 @@ from urllib.parse import urlparse
 
 
 @contextmanager
-def service_proxy(namespace, service, listen_host="127.0.0.1", listen_port=0,
-                  verbose=False):
+def service_proxy(namespace, service, listen_host="localhost",
+                  listen_port=None, verbose=False):
     """
     This is a context manager that runs a background proxy to a Kubernetes
     service, for the duration of the managed context. The local Kubernetes
@@ -24,19 +24,19 @@ def service_proxy(namespace, service, listen_host="127.0.0.1", listen_port=0,
     .. code-block:: python
 
        with service_proxy("default", "my-service:80", port=8080) as addr:
-           print(addr)  # Should print: 127.0.0.1:8080
-           # In this block, access port 80 of my-service using 127.0.0.1:8080.
+           print(addr)  # Should print: localhost:8080
+           # In this block, access port 80 of my-service using localhost:8080.
 
     Arguments:
         namespace (str): namespace of the target Kubernetes service.
         service (str): name of the target Kubernetes service, in the form
             [https:]service_name[:port_name].
         listen_host (str): local address to bind the proxy.
-        listen_port (int): local port to bind the proxy. If 0, selects an
+        listen_port (int): local port to bind the proxy. If None, selects an
             arbitrary free port.
         verbose (bool): if True, prints extra logs from the background proxy.
     """
-    listen_port = listen_port if listen_port else pick_unused_port()
+    listen_port = pick_unused_port() if listen_port is None else listen_port
     queue = Queue()
     child = Process(
         target=_run_proxy, name="mitmproxy",
@@ -57,6 +57,8 @@ def _run_proxy(queue, namespace, service, listen_host, listen_port, verbose):
     # https://k8s.io/docs/tasks/administer-cluster/access-cluster-services.
     client = kubernetes.config.new_client_from_config()
     prefix = f"/api/v1/namespaces/{namespace}/services/{service}/proxy"
+    # mitmproxy can't directly bind to "localhost".
+    listen_host = "127.0.0.1" if listen_host == "localhost" else listen_host
     options = Options(listen_host=listen_host, listen_port=listen_port,
                       mode=f"reverse:{client.configuration.host}")
     master = DumpMaster(options, with_termlog=verbose, with_dumper=verbose)
