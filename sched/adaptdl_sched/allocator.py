@@ -129,6 +129,7 @@ class AdaptDLAllocator(object):
             if job["spec"].get("maxReplicas"):
                 max_replicas = min(max_replicas, job["spec"]["maxReplicas"])
             min_replicas = job["spec"].get("minReplicas", 0)
+            # max_replicas should be greater or equal to min_replicas
             max_replicas = max(max_replicas, min_replicas)
             preemptible = job["spec"].get("preemptible", True)
             if hints and preemptible:

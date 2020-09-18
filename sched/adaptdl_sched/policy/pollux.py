@@ -205,6 +205,8 @@ class Problem(pymoo.model.problem.Problem):
                 cluster, in decreasing order of allocation preference.
             base_state (numpy.array): base optimization state corresponding to
                 the current cluster allocations. Shape: (num_jobs x num_nodes).
+            nonpreemptible_indices (list): list of non-preemptible jobs
+                indices for jobs array
         """
         assert base_state.shape == (len(jobs), len(nodes))
         self._jobs = jobs
