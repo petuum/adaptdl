@@ -17,6 +17,7 @@
 import argparse
 import json
 import kubernetes
+import platform
 import os
 import subprocess
 import sys
@@ -24,79 +25,106 @@ import time
 import traceback
 import uuid
 from datetime import datetime
+from pathlib import Path
 
+from adaptdl_cli.proxy import service_proxy
 from adaptdl_cli.pvc import get_storageclass, create_pvc, create_copy_pod
 from adaptdl_cli.tensorboard import TENSORBOARD_PREFIX, \
     add_tensorboard_commands
-from adaptdl_cli.registry import fix_local_docker, fix_etc_hosts, \
-    ADAPTDL_REGISTRY_URL
 
 
-def _get_registry_info():
-    if 'ADAPTDL_SUBMIT_REPO' and 'ADAPTDL_SUBMIT_REPO_CREDS' in os.environ:
-        print(f"Using external repo at "
-              f"{os.environ['ADAPTDL_SUBMIT_REPO']}")
-        return os.environ['ADAPTDL_SUBMIT_REPO'], \
-            os.environ['ADAPTDL_SUBMIT_REPO_CREDS'], False
+def _find_insecure_registry():
+    services = kubernetes.client.CoreV1Api().list_service_for_all_namespaces(
+        label_selector="app=docker-registry",
+        field_selector="metadata.name=adaptdl-registry")
+    for service in services.items:
+        for port in service.spec.ports:
+            if port.node_port and port.name == "registry":
+                return (service.metadata.namespace,
+                        service.metadata.name + ":" + port.name,
+                        port.node_port)
+    return None, None, None
+
+
+def _get_insecure_registry_proxy(proxy_port):
+    if platform.system() == "Darwin":
+        # Docker for Mac runs in a VM and can't access the proxy which is bound
+        # to a port on the host. Use a special DNS name instead.
+        # https://github.com/docker/for-mac/issues/3611
+        # https://docs.docker.com/docker-for-mac/networking/#use-cases-and-workarounds
+        registry = f"host.docker.internal:{proxy_port}"
+        # Docker doesn't automatically trust host.docker.internal as an
+        # insecure registry. Need to add it manually.
+        docker_dir = Path.home() / ".docker"
+        daemon_path = docker_dir / "daemon.json"
+        try:
+            with open(daemon_path, "r") as f:
+                daemon = json.load(f)
+        except FileNotFoundError:
+            daemon = {}
+        if registry not in daemon.setdefault("insecure-registries", []):
+            daemon["insecure-registries"].append(registry)
+            docker_dir.mkdir(exist_ok=True)
+            with open(daemon_path, "w") as f:
+                json.dump(daemon, f, indent=2)
+            raise SystemExit(f"Insecure registry {registry} written to "
+                             f"{daemon_path}. Please restart Docker and then"
+                             " submit your job again!")
+        return registry
+    return f"localhost:{proxy_port}"
+
+
+def _build_push(project, dockerfile, proxy_port):
+    image = os.getenv("ADAPTDL_SUBMIT_REPO")
+    external = image is not None
+    if external:
+        print(f"Using external Docker repository at {image}.")
     else:
-        print(f"Using AdaptDL internal registry at {ADAPTDL_REGISTRY_URL}")
-        return ADAPTDL_REGISTRY_URL, None, True
-
-
-def _prefix(image):
-    # RepoDigests have sha256 suffixes and not user tags, so we remove it here
-    parts = image.split('/')
-    return '/'.join(parts[:-1] + [parts[-1].split(':')[0]])
-
-
-def _replace_localhost(repodigest):
-    return ":".join(["localhost"] + repodigest.split(':')[1:])
-
-
-def submit(args, remaining):
-    repo, secret, internal = _get_registry_info()
-    if internal:
-        # We choose the full reponame
-        image = f"{repo}/dev/adaptdl-submit:latest"
-    else:
-        # Expect users to provide full repo name
-        image = repo
-    subprocess.check_call(["docker", "build", "-t", image, args.project] +
-                          ([] if not args.dockerfile else
-                              ["-f", args.dockerfile]))
-    if internal:
-        # Quick check and fix host entry if it's stale
-        fix_etc_hosts()
+        print("Using AdaptDL insecure registry.")
+        registry = _get_insecure_registry_proxy(proxy_port)
+        image = f"{registry}/adaptdl-submit"
     try:
-        subprocess.check_call(["docker", "push", image])
+        subprocess.check_call(["docker", "build", "-t", image, project] +
+                              (["-f", dockerfile] if dockerfile else []))
     except subprocess.CalledProcessError:
-        if internal:
-            # We try to fix the local docker client assuming internal docker
-            # registry is up and running. This includes,
-            # 1. Adding well-known registry hostname to /etc/hosts
-            # 2. Making local docker daemon accept unsecure AdaptDL registry
-            # 3. docker login to AdaptDL registry
-            print("Fixing local docker client.")
-            fix_local_docker()
+        raise SystemExit(f"Error: could not build image {image}")
+    if external:
+        try:
             subprocess.check_call(["docker", "push", image])
+        except subprocess.CalledProcessError:
+            raise SystemExit(f"Error: could not push image {image}")
+        remote_image = image
+    else:
+        namespace, service, nodeport = _find_insecure_registry()
+        if None in (namespace, service, nodeport):
+            raise SystemExit("Error: No Docker registry could be found!")
+        with service_proxy(namespace, service, listen_port=proxy_port):
+            try:
+                subprocess.check_call(["docker", "push", image])
+            except subprocess.CalledProcessError:
+                raise SystemExit(f"Error: could not push image {image}")
+        remote_image = f"localhost:{nodeport}/adaptdl-submit"
     repodigests = json.loads(subprocess.check_output(
         ["docker", "image", "inspect", image,
          "--format={{json .RepoDigests}}"]))
-    # Find a matching digest from possible aliases
+    # Return a remote-accessible repodigest.
     for digest in repodigests:
-        if digest.startswith(_prefix(image)):
-            repodigest = digest
-    assert repodigest
+        if digest.startswith(image):
+            return remote_image + "@" + digest.split("@")[-1]
+
+
+def submit(args, remaining):
+    repodigest = _build_push(args.project, args.dockerfile, args.proxy_port)
     jobfile = args.jobfile or os.path.join(args.project, "adaptdljob.yaml")
     resource = subprocess.check_output(
         ["kubectl", "create", "--dry-run", "-f", jobfile, "-o", "json"])
     resource = json.loads(resource.decode())
-    resource["spec"]["template"]["spec"]["containers"][0]["image"] = \
-        _replace_localhost(repodigest) if internal else repodigest
-    resource["spec"]["template"]["spec"]["containers"][0]["args"] = remaining
+    pod_spec = resource["spec"]["template"]["spec"]
+    pod_spec["containers"][0]["image"] = repodigest
+    pod_spec["containers"][0]["args"] = remaining
+    secret = os.getenv("ADAPTDL_SUBMIT_REPO_CREDS")
     if secret:
-        resource["spec"]["template"]["spec"]["imagePullSecrets"] = \
-                [{"name": secret}]
+        pod_spec["imagePullSecrets"] = [{"name": secret}]
 
     if args.name is not None:
         resource["metadata"]["generateName"] = args.name + "-"
@@ -109,15 +137,14 @@ def submit(args, remaining):
         claim_name = "{}{}".format(TENSORBOARD_PREFIX, args.tensorboard)
         core_api = kubernetes.client.CoreV1Api()
         core_api.read_namespaced_persistent_volume_claim(claim_name, namespace)
-        volumes = resource["spec"]["template"]["spec"].setdefault("volumes",
-                                                                  [])
+        volumes = pod_spec.setdefault("volumes", [])
         volumes.append({
             "name": "adaptdl-tensorboard",
             "persistentVolumeClaim": {
                 "claimName": claim_name,
             },
         })
-        for container in resource["spec"]["template"]["spec"]["containers"]:
+        for container in pod_spec["containers"]:
             volume_mounts = container.setdefault("volumeMounts", [])
             volume_mounts.append({
                 "name": "adaptdl-tensorboard",
@@ -137,7 +164,7 @@ def submit(args, remaining):
             "claimName": pvc_name,
         }
     }
-    for container in resource["spec"]["template"]["spec"]["containers"]:
+    for container in pod_spec["containers"]:
         volume_mounts = container.setdefault("volumeMounts", [])
         volume_mounts.append({
             "name": volume_name,
@@ -156,7 +183,7 @@ def submit(args, remaining):
                     {"name": "ADAPTDL_SHARE_PATH",
                      "value": "/adaptdl/share"}])
 
-    volumes = resource["spec"]["template"]["spec"].setdefault("volumes", [])
+    volumes = pod_spec.setdefault("volumes", [])
     volumes.append(volume)
 
     storage_class = get_storageclass(name=args.checkpoint_storage_class)
@@ -320,6 +347,9 @@ if __name__ == "__main__":
     parser_submit.add_argument(
         "--checkpoint-storage-class", type=str,
         help="storage class of new temporary pvc to create", default=None)
+    parser_submit.add_argument(
+        "--proxy-port", type=int, default=59283,  # Some uncommon port.
+        help="temporary proxy port used for pushing to the insecure registry")
     parser_submit.set_defaults(handler=submit)
 
     parser_logs = subparsers.add_parser(

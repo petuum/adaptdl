@@ -12,9 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
+import time
 import kubernetes
 from .pvc import get_storageclass
+from .proxy import service_proxy
 
 
 TENSORBOARD_PREFIX = "adaptdl-tensorboard-"
@@ -92,26 +93,25 @@ def tensorboard_create(args, remaining):
             requests={"storage": args.size})
     core_api = kubernetes.client.CoreV1Api()
     core_api.create_namespaced_persistent_volume_claim(namespace, claim)
-    # Create NodePort Service.
-    if args.nodeport:
-        service = kubernetes.client.V1Service(
-            metadata=kubernetes.client.V1ObjectMeta(
-                name=name,
-                labels=labels,
-                owner_references=[owner_reference],
-            ),
-            spec=kubernetes.client.V1ServiceSpec(
-                selector=labels,
-                type="NodePort",
-                ports=[
-                    kubernetes.client.V1ServicePort(
-                        port=6006,
-                        target_port=6006,
-                    ),
-                ],
-            )
+    # Create Service.
+    service = kubernetes.client.V1Service(
+        metadata=kubernetes.client.V1ObjectMeta(
+            name=name,
+            labels=labels,
+            owner_references=[owner_reference],
+        ),
+        spec=kubernetes.client.V1ServiceSpec(
+            selector=labels,
+            type=("NodePort" if args.nodeport else "ClusterIP"),
+            ports=[
+                kubernetes.client.V1ServicePort(
+                    port=6006,
+                    target_port=6006,
+                ),
+            ],
         )
-        core_api.create_namespaced_service(namespace, service)
+    )
+    core_api.create_namespaced_service(namespace, service)
     print("Successfully created TensorBoard instance {}".format(args.name))
 
 
@@ -161,6 +161,19 @@ def tensorboard_list(args, remaining):
         print(line.format(*[rec[key] for key in header]))
 
 
+def tensorboard_proxy(args, remaining):
+    context = kubernetes.config.list_kube_config_contexts()[1]
+    namespace = context["context"].get("namespace", "default")
+    service = f"adaptdl-tensorboard-{args.name}"
+    with service_proxy(namespace, service, args.address, args.port) as addr:
+        print(f"Proxying to TensorBoard instance {args.name} at http://{addr}")
+        try:
+            while True:
+                time.sleep(1000000)
+        except KeyboardInterrupt:
+            pass
+
+
 def add_tensorboard_commands(parser):
     parser.set_defaults(handler=lambda args, remaining: parser.print_help())
     subparsers = parser.add_subparsers(help="sub-command help")
@@ -186,13 +199,13 @@ def add_tensorboard_commands(parser):
     parser_list = subparsers.add_parser(
         "list", help="list tensorboard deployments")
     parser_list.set_defaults(handler=tensorboard_list)
-    # TODO: proxy
-    # parser_proxy = subparsers.add_parser(
-    #    "proxy", help="proxy to a tensorboard deployment")
-    # parser_proxy.add_argument(
-    #    "name", type=str, help="tensorboard deployment name")
-    # parser_proxy.add_argument("--addr", type=str, default="localhost",
-    #                           help="local address for proxy")
-    # parser_proxy.add_argument("--port", type=int,
-    #                           help="local port for proxy")
-    # parser_proxy.set_defaults(handler=tensorboard_proxy)
+    # proxy
+    parser_proxy = subparsers.add_parser(
+       "proxy", help="proxy to a tensorboard deployment")
+    parser_proxy.add_argument(
+       "name", type=str, help="tensorboard deployment name")
+    parser_proxy.add_argument("--address", type=str, default="127.0.0.1",
+                              help="local address to bind for the proxy")
+    parser_proxy.add_argument("-p", "--port", type=int,
+                              help="local port to bind for the proxy")
+    parser_proxy.set_defaults(handler=tensorboard_proxy)

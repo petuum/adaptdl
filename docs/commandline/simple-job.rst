@@ -108,6 +108,17 @@ Run the following AdaptDL cli command from your client.
 
    adaptdl submit hello_world
 
+.. note::
+
+   If you are using Docker for Mac with AdaptDL's built-in insecure registry, the first run of
+   ``adaptdl submit`` may fail with an error similar to:
+
+   ::
+
+      Get https://host.docker.internal:59283/v2/: x509: certificate signed by unknown authority
+
+   You may need to restart Docker, and ``adaptdl submit`` should work thereafer.
+
 This will create the AdaptDL Kubernetes job object for your application. Once this is created,
 the AdaptDL scheduler will recognize the job and schedule it for execution. Please note that for
 this command to work, the docker file created in step 3 must be located in `hello_world/Dockerfile`
