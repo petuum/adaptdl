@@ -14,6 +14,28 @@ from urllib.parse import urlparse
 @contextmanager
 def service_proxy(namespace, service, listen_host="127.0.0.1", listen_port=0,
                   verbose=False):
+    """
+    This is a context manager that runs a background proxy to a Kubernetes
+    service, for the duration of the managed context. The local Kubernetes
+    context should have access to the /proxy verb of the given service.
+
+    For example,
+
+    .. code-block:: python
+
+       with service_proxy("default", "my-service:80", port=8080) as addr:
+           print(addr)  # Should print: 127.0.0.1:8080
+           # In this block, access port 80 of my-service using 127.0.0.1:8080.
+
+    Arguments:
+        namespace (str): namespace of the target Kubernetes service.
+        service (str): name of the target Kubernetes service, in the form
+            [https:]service_name[:port_name].
+        listen_host (str): local address to bind the proxy.
+        listen_port (int): local port to bind the proxy. If 0, selects an
+            arbitrary free port.
+        verbose (bool): if True, prints extra logs from the background proxy.
+    """
     listen_port = listen_port if listen_port else pick_unused_port()
     queue = Queue()
     child = Process(
@@ -30,6 +52,9 @@ def service_proxy(namespace, service, listen_host="127.0.0.1", listen_port=0,
 
 
 def _run_proxy(queue, namespace, service, listen_host, listen_port, verbose):
+    # Run mitmproxy as a reverse-proxy to the Kubernetes ApiServer under the
+    # subpath /api/v1/namespaces/{namespace}/services/{service}/proxy. See
+    # https://k8s.io/docs/tasks/administer-cluster/access-cluster-services.
     client = kubernetes.config.new_client_from_config()
     prefix = f"/api/v1/namespaces/{namespace}/services/{service}/proxy"
     options = Options(listen_host=listen_host, listen_port=listen_port,
@@ -49,16 +74,18 @@ class _Addon(object):
         self.prefix = prefix
 
     def requestheaders(self, flow):
+        # Modify outgoing request headers.
         flow.request.stream = True  # Stream for better performance.
         flow.request.path = self.prefix + flow.request.path
-        self.client.update_params_for_auth(  # Inject authorization.
+        self.client.update_params_for_auth(  # Inject Kubernetes authorization.
             flow.request.headers, flow.request.query, ["BearerToken"])
 
     def responseheaders(self, flow):
+        # Modify incoming response headers.
         flow.response.stream = True  # Stream for better performance.
         if "location" in flow.response.headers:
-            # Undo Kubernetes ApiServer's rewriting of the Location header.
-            # https://github.com/kubernetes/kubernetes/pull/52556
+            # Kubernetes ApiServer re-writes the Location header, undo it here.
+            # See https://github.com/kubernetes/kubernetes/pull/52556.
             url = urlparse(flow.response.headers["location"])
             if url.path.startswith(self.prefix):
                 url = url._replace(path=url.path[len(self.prefix):])
