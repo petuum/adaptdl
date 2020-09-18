@@ -33,16 +33,6 @@ from adaptdl_cli.tensorboard import TENSORBOARD_PREFIX, \
     add_tensorboard_commands
 
 
-def _get_registry_info():
-    if 'ADAPTDL_SUBMIT_REPO' in os.environ:
-        print(f"Using external repo at "
-              f"{os.environ['ADAPTDL_SUBMIT_REPO']}")
-        return (os.environ['ADAPTDL_SUBMIT_REPO'],
-                os.getenv('ADAPTDL_SUBMIT_REPO_CREDS'))
-    else:
-        print("Using AdaptDL internal registry")
-        return None, None
-
 
 def _find_insecure_registry():
     services = kubernetes.client.CoreV1Api().list_service_for_all_namespaces(
