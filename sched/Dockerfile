@@ -18,7 +18,7 @@ WORKDIR /root/adaptdl
 
 COPY adaptdl adaptdl
 COPY sched sched
-COPY adaptdl_cli/bin/adaptdl adaptdl_cli/bin/adaptdl
+COPY cli/bin/adaptdl cli/bin/adaptdl
 
 RUN cd adaptdl && python3 setup.py bdist_wheel
 RUN cd sched && python3 setup.py bdist_wheel
