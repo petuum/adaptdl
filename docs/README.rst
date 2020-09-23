@@ -36,6 +36,7 @@ AdaptDL supports PyTorch training programs. TensorFlow support coming soon!
 Why AdaptDL?
 ------------
 
+**Efficient resource management.**
 The AdaptDL scheduler directly optimizes cluster-wide training performance and
 resource utilization, by using a genetic algorithm to periodically optimize
 resource allocations for all jobs. Through elastic re-scaling, co-adapting
@@ -51,6 +52,7 @@ In the cloud (e.g. AWS), AdaptDL auto-scales the size of the cluster based on
 how well those cluster resources are utilized. AdaptDL automatically
 provisions spot instances when available to reduce cost by up to 80%.
 
+**Adaptive batch size tuning.**
 Efficient distributed training requires careful selection of the batch size and
 learning rate, which can be tricky to find manually. AdaptDL offers automatic
 batch size and learning rate scaling, which enables efficient distributed
