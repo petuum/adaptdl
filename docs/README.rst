@@ -73,7 +73,8 @@ Easy-to-use Elastic API
 
 Making training programs be elastic can be challenging and error-prone.
 AdaptDL offers APIs which make it easy to enable elasticity for existing
-PyTorch distributed code, without heavy refactoring!
+data-parallel PyTorch programs. Simply change a few lines of code, without
+heavy refactoring!
 
 **BEFORE:**
 
