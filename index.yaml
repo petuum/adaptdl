@@ -2,8 +2,21 @@ apiVersion: v1
 entries:
   adaptdl:
   - apiVersion: v1
+    appVersion: 0.2.2
+    created: "2020-09-23T20:32:36.083973311Z"
+    dependencies:
+    - condition: docker-registry.enabled
+      name: docker-registry
+      repository: '@stable'
+      version: 1.9.4
+    digest: 9a30bc6b0e5220d19354162ff6949900858a55c9b222efff18700f8f9ca2e5ac
+    name: adaptdl
+    urls:
+    - adaptdl-0.2.2.tgz
+    version: 0.2.2
+  - apiVersion: v1
     appVersion: 0.2.1
-    created: "2020-09-01T18:39:47.538832197Z"
+    created: "2020-09-23T20:32:36.082246699Z"
     dependencies:
     - condition: docker-registry.enabled
       name: docker-registry
@@ -16,7 +29,7 @@ entries:
     version: 0.2.1
   - apiVersion: v1
     appVersion: 0.2.0
-    created: "2020-09-01T18:39:47.537476275Z"
+    created: "2020-09-23T20:32:36.065431082Z"
     dependencies:
     - condition: docker-registry.enabled
       name: docker-registry
@@ -29,7 +42,7 @@ entries:
     version: 0.2.0
   - apiVersion: v1
     appVersion: 0.1.6
-    created: "2020-09-01T18:39:47.53598365Z"
+    created: "2020-09-23T20:32:36.064082072Z"
     dependencies:
     - condition: docker-registry.enabled
       name: docker-registry
@@ -40,4 +53,4 @@ entries:
     urls:
     - adaptdl-0.1.6.tgz
     version: 0.1.6
-generated: "2020-09-01T18:39:47.534323523Z"
+generated: "2020-09-23T20:32:36.062057258Z"
