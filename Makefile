@@ -1,10 +1,5 @@
-ifeq "$(and $(ADAPTDL_DEV_REPO),$(ADAPTDL_DEV_REPO_CREDS))" ""
-	IMAGE_REPOSITORY := $(shell python3 -c 'from adaptdl_cli.adaptdl_cli.registry import ADAPTDL_REGISTRY_URL; print(ADAPTDL_REGISTRY_URL)')/dev/adaptdl-dev
-	REPO_CREDS := $(shell python3 -c 'from adaptdl_cli.adaptdl_cli.registry import ADAPTDL_REGISTRY_CREDS; print(ADAPTDL_REGISTRY_CREDS)')
-else
-	IMAGE_REPOSITORY := $(ADAPTDL_DEV_REPO)
-	REPO_CREDS := $(ADAPTDL_DEV_REPO_CREDS)
-endif
+IMAGE_REPOSITORY := $(ADAPTDL_DEV_REPO)
+REPO_CREDS := $(ADAPTDL_DEV_REPO_CREDS)
 
 NAMESPACE = default
 IMAGE_TAG = $(shell cat .devtag)
