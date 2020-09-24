@@ -76,7 +76,7 @@ class SpeedupFunction(object):
             self._max_batch_size = init_batch_size
 
         self._true_max_local_bsz = self._max_local_bsz
-        if gradient_accumulation is not None:
+        if gradient_accumulation:
             self._max_local_bsz = self._max_batch_size
 
         if params is not None:
