@@ -57,6 +57,7 @@ spec:
           containerPort: {{ .Values.supervisor.service.targetPort }}
           protocol: TCP
         imagePullPolicy: Always
-
+{{- if .Values.image.pullSecrets }}
       imagePullSecrets:
-      - name: {{ .Values.image.secrets.name }}
+{{ toYaml .Values.image.pullSecrets | indent 8 }}
+{{- end -}}

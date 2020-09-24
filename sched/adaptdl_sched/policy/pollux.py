@@ -241,9 +241,8 @@ class Problem(pymoo.model.problem.Problem):
         """
         num_replicas = np.sum(states, axis=2)
         speedups = self._get_job_speedups(states)
-        cluster_sizes = self._get_cluster_sizes(states)
         # mask (pop_size x num_nodes): indicates which nodes are active.
-        mask = np.arange(len(self._nodes)) < np.expand_dims(cluster_sizes, 1)
+        mask = np.sum(states, axis=1) > 0
         # total (pop_size x num_rtypes): total amount of cluster resources.
         total = np.sum(np.expand_dims(mask, 2) * self._node_resources, axis=1)
         # alloc (pop_size x num_jobs x num_rtypes):

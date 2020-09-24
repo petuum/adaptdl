@@ -1,64 +1,41 @@
-ifeq "$(and $(ADAPTDL_DEV_REPO),$(ADAPTDL_DEV_REPO_CREDS))" ""
-	IMAGE_REPOSITORY := $(shell python3 -c 'from adaptdl_cli.adaptdl_cli.registry import ADAPTDL_REGISTRY_URL; print(ADAPTDL_REGISTRY_URL)')/dev/adaptdl-dev
-	REPO_CREDS := $(shell python3 -c 'from adaptdl_cli.adaptdl_cli.registry import ADAPTDL_REGISTRY_CREDS; print(ADAPTDL_REGISTRY_CREDS)')
-else
-	IMAGE_REPOSITORY := $(ADAPTDL_DEV_REPO)
-	REPO_CREDS := $(ADAPTDL_DEV_REPO_CREDS)
-endif
-
-NAMESPACE = default
-IMAGE_TAG = $(shell cat .devtag)
-IMAGE_DIGEST = $(shell docker images --format='{{.Repository}}:{{.Tag}} {{.Digest}}' | \
-                       grep '^$(IMAGE_REPOSITORY):$(IMAGE_TAG)' | awk '{ printf $$2 }')
 RELEASE_NAME = adaptdl
-
-.devtag:
-	@uuidgen > .devtag
+LOCAL_PORT=59283
+REMOTE_PORT=32000
+LOCAL_REPO = localhost:$(LOCAL_PORT)/adaptdl-sched
+REMOTE_REPO = localhost:$(REMOTE_PORT)/adaptdl-sched
+IMAGE_TAG = latest
+IMAGE_DIGEST = $(shell docker images --format='{{.Repository}}:{{.Tag}} {{.Digest}}' | \
+                       grep '^$(LOCAL_REPO):$(IMAGE_TAG) ' | awk '{ printf $$2 }')
+NAMESPACE = $(or $(shell kubectl config view --minify -o 'jsonpath={..namespace}'),default)
 
 .values.yaml:
 	@awk '{print "#" $$0}' helm/adaptdl/values.yaml > .values.yaml
 
-check-reg:
-ifeq ($(ADAPTDL_DEV_REPO),)
-ifeq ($(shell helm ls -q | grep adaptdl-registry),)
-			$(error Need a registry, do make deploy-reg or set ADAPTDL_DEV_REPO)
-endif
-endif
+registry:
+	helm status adaptdl-registry || \
+	helm install adaptdl-registry stable/docker-registry \
+		--set fullnameOverride=adaptdl-registry \
+		--set service.type=NodePort \
+		--set service.nodePort=$(REMOTE_PORT)
 
-build: .devtag check-reg
-	docker build -f docker/Dockerfile . -t $(IMAGE_REPOSITORY):$(IMAGE_TAG)
+build:
+	docker build -f docker/Dockerfile . -t $(LOCAL_REPO):$(IMAGE_TAG)
 
-push: build
-	docker push $(IMAGE_REPOSITORY):$(IMAGE_TAG)
+push: registry build
+	python3 adaptdl_cli/adaptdl_cli/proxy.py -p $(LOCAL_PORT) $(NAMESPACE) \
+		adaptdl-registry:registry docker push $(LOCAL_REPO):$(IMAGE_TAG)
 
 deploy: push .values.yaml
-	$(info Using $(IMAGE_REPOSITORY) and $(REPO_CREDS))
 	helm dep up helm/adaptdl
 	helm upgrade $(RELEASE_NAME) helm/adaptdl --install --wait \
-		--set image.repository=$(IMAGE_REPOSITORY) \
+		--set image.repository=$(REMOTE_REPO) \
 		--set image.digest=$(IMAGE_DIGEST) \
-		--set image.secrets.name=$(REPO_CREDS) \
-		--set docker-registry.enabled=true \
 		--values .values.yaml
 
-delete: .devtag
+delete:
 	helm delete $(RELEASE_NAME)
-
-pip-install-reqs:
-	pip3 install -r adaptdl_cli/requirements.txt
-
-deploy-reg: pip-install-reqs
-	$(info Using $(IMAGE_REPOSITORY) and $(REPO_CREDS))
-	helm upgrade $(RELEASE_NAME)-registry stable/docker-registry --install --wait \
-		--values registry/values.yaml
-	python3 adaptdl_cli/adaptdl_cli/registry.py
-	kubectl create -f registry/registry-creds.yaml
-
-delete-reg:
-	helm delete $(RELEASE_NAME)-registry
-	kubectl delete -f registry/registry-creds.yaml
 
 config: .values.yaml
 	$(or $(shell git config --get core.editor),editor) .values.yaml
 
-.PHONY: build push deploy delete config deploy-reg delete-reg check-reg pip-install-reqs
+.PHONY: registry build push deploy delete config
