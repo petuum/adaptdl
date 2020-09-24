@@ -19,10 +19,6 @@ import collections
 import scipy.optimize
 import scipy.stats
 
-import logging
-logging.basicConfig(level=logging.INFO)
-LOG = logging.getLogger(__name__)
-LOG.setLevel(logging.INFO)
 
 # Parameters for a performance model which predicts the per-step time of
 # distributed SGD using all-reduce. At a high level, models compute time and
@@ -38,8 +34,6 @@ Params = collections.namedtuple("Params", [
     #             (alpha_a + beta_a * local_bsz) * grad_acc_steps
     "alpha_c",  # Constant term of compute time
     "beta_c",   # Multiplicative factor of compute time
-    "alpha_a",  # Constant term of accumulation compute time
-    "beta_a",   # Multiplicative term of accumulation compute time
     # If inter-node: T_network ~ alpha_n + beta_n * replicas
     "alpha_n",  # Constant term of inter-node network time
     "beta_n",   # Retrogression factor of inter-node network time
@@ -60,19 +54,12 @@ class SpeedupFunction(object):
 
     def __init__(self, params, grad_params=None, init_batch_size=None,
                  max_batch_size=None, local_bsz_bounds=None,
-                 grad_acc_steps=None, elastic_bsz=False):
+                 gradient_accumulation=False, elastic_bsz=False):
         self._grad_params = grad_params
         self._init_batch_size = init_batch_size
 
-        if grad_acc_steps is not None:
-            self._max_grad_acc_steps = grad_acc_steps
-        else:
-            self._max_grad_acc_steps = 1
-
         if local_bsz_bounds is not None:
-            self._max_local_bsz = local_bsz_bounds[1] * \
-                self._max_grad_acc_steps
-            self._true_max_local_bsz = local_bsz_bounds[1]
+            self._max_local_bsz = local_bsz_bounds[1]
             self._min_local_bsz = local_bsz_bounds[0]
         else:
             self._max_local_bsz = None
@@ -87,6 +74,11 @@ class SpeedupFunction(object):
                                     init_batch_size)
         else:
             self._max_batch_size = init_batch_size
+
+        self._true_max_local_bsz = self._max_local_bsz
+        if gradient_accumulation is not None:
+            self._max_local_bsz = self._max_batch_size
+
         if params is not None:
             self._params = Params(*params)
         else:
@@ -94,7 +86,7 @@ class SpeedupFunction(object):
         if params is not None and init_batch_size is not None:
             base_step_time, _, _, _ = _predict_log(
                 self._params, np.array([1]), np.array([1]),
-                init_batch_size, self._max_grad_acc_steps)
+                init_batch_size, 1)
             base_step_time = base_step_time.item()
             self._base_goodput = 1.0 / np.exp(base_step_time)
         else:
@@ -190,8 +182,8 @@ class SpeedupFunction(object):
 
         if isscalar:
             ret_speedup = ret_speedup.item()
-            ret_local_bsz = ret_local_bsz.item()
-            ret_acc_steps = ret_acc_steps.item()
+            ret_local_bsz = int(ret_local_bsz.item())
+            ret_acc_steps = int(ret_acc_steps.item())
         if return_local_bsz:
             return (ret_speedup, (ret_local_bsz, ret_acc_steps))
         else:
@@ -201,13 +193,11 @@ class SpeedupFunction(object):
         if (self._true_max_local_bsz is not None and
                 np.any(self._true_max_local_bsz < local_bsz)):
             grad_acc_steps = np.maximum(
-                np.minimum(
-                    np.floor(local_bsz / self._true_max_local_bsz),
-                    self._max_grad_acc_steps),
+                np.floor(local_bsz / self._true_max_local_bsz),
                 1)
             true_local_bsz = np.minimum(self._true_max_local_bsz,
                                         np.ceil(local_bsz / grad_acc_steps))
-            return true_local_bsz, grad_acc_steps
+            return true_local_bsz.astype(int), grad_acc_steps.astype(int)
         else:
             return local_bsz, np.asarray([1])
 
@@ -217,7 +207,7 @@ class SpeedupFunction(object):
             _predict_log(self._params, nodes, replicas,
                          local_bsz, grad_acc_steps)
         var, norm = self._grad_params['var'], self._grad_params['norm']
-        global_bsz = replicas * local_bsz
+        global_bsz = replicas * local_bsz * grad_acc_steps
         gain = np.where(
             (var / global_bsz * self._init_batch_size + norm) == 0.0,
             1.0,
@@ -249,31 +239,26 @@ def fit(nodes, replicas, local_bsz, grad_acc_steps,
     grad_acc_time = np.array(grad_acc_time)
 
     # Set initial params to reasonable values.
-    params = [1e-1, 1e-2] * 4 + [1.0 + 1e-3]
+    params = [1e-1, 1e-2] * 3 + [1.0 + 1e-3]
     # Set lower/upper bounds for each parameter. Add a small slack to lower
     # bounds to avoid numerical instability issues.
-    lower = [1e-8, 1e-8] * 4 + [1.0]
-    upper = [np.inf, np.inf] * 4 + [10.0]
+    lower = [1e-8, 1e-8] * 3 + [1.0]
+    upper = [np.inf, np.inf] * 3 + [10.0]
     if len(np.unique(local_bsz)) == 1:
         # Fix alpha_c if only observed a single local batch size.
         params[0] = upper[0] = lower[0]
-    LOG.info("grad_acc_steps: {}".format(grad_acc_steps))
-    if all(grad_acc_steps == 0):
-        # Fix alpha_a, beta_a if there is no gradient accumulation
-        params[2] = upper[2] = lower[2]
-        params[3] = upper[3] = lower[3]
     if not any(nodes > 1):
         # Fix alpha_n and beta_n if no multi-node observations.
-        params[4] = upper[4] = lower[4]
-        params[5] = upper[5] = lower[5]
+        params[2] = upper[2] = lower[2]
+        params[3] = upper[3] = lower[3]
     if not any(np.logical_and(nodes == 1, replicas > 1)):
         # Fix alpha_r and beta_r if no single-node/multi-replica observations.
-        params[6] = upper[6] = lower[6]
-        params[7] = upper[7] = lower[7]
+        params[4] = upper[4] = lower[4]
+        params[5] = upper[5] = lower[5]
     if not any(replicas > 2):
         # Fix beta_n and beta_r if no replicas > 2.
-        params[5] = upper[5] = lower[5]
-        params[7] = upper[7] = lower[7]
+        params[3] = upper[3] = lower[5]
+        params[5] = upper[5] = lower[3]
     bounds = scipy.optimize.Bounds(lower, upper, keep_feasible=True)
     args = (nodes, replicas, local_bsz, grad_acc_steps,
             step_time, step_time_compute, grad_acc_time)
@@ -290,25 +275,18 @@ def _predict_log(params, nodes, replicas, local_bsz, grad_acc_steps):
     params = Params(*params)
     step_time_compute = _predict_compute(params, local_bsz)
     step_time_network = _predict_network(params, nodes, replicas)
-    step_time_accumulation = _predict_accumulation(params, local_bsz,
-                                                   grad_acc_steps)
+    step_time_accumulation = step_time_compute
     gamma = params.gamma
     # Return predicted total step time in log-space to avoid numerical issues
     # in autograd and optimization.
-    step_time = np.log((step_time_compute + step_time_accumulation) ** gamma +
-                       step_time_network ** gamma) / gamma
+    step_time = np.log(
+        ((step_time_compute) ** gamma + step_time_network ** gamma) **
+        (1 / gamma) + step_time_accumulation)
     return (
         step_time,
         step_time_compute,
         step_time_network,
         step_time_accumulation)
-
-
-def _predict_accumulation(params, local_bsz, grad_acc_steps):
-    params = Params(*params)
-    # Forward/backward passes should scale linearly with the batch size
-    # and number of accumulation steps.
-    return (params.alpha_a + params.beta_a * local_bsz) * grad_acc_steps
 
 
 def _predict_compute(params, local_bsz):
@@ -348,8 +326,7 @@ def _obj_fn(params, nodes, replicas, local_bsz, grad_acc_steps,
     # Error of compute time predictions.
     err2 = _rmse(np.log(pred_step_time_compute), np.log(step_time_compute))
     # Error of gradient accumulation
-    err3 = _rmse(np.log(pred_grad_acc_time + 1e-8),
-                 np.log(grad_acc_time + 1e-8))
+    err3 = _rmse(np.log(pred_grad_acc_time), np.log(grad_acc_time))
     # L2 regularization towards a smaller gamma, because it's easier to
     # optimize the alpha and beta parameters when gamma is smaller.
     reg1 = 1e-3 * (params.gamma - 1) ** 2

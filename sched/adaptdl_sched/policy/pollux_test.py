@@ -29,8 +29,7 @@ def test_optimize(num_nodes, total_devices=16):
     num_devices = total_devices // num_nodes
     print("{}x{} nodes:".format(num_nodes, num_devices))
     # Make up a realistic speedup function.
-    params = Params(0.121, 0.00568, 0.0, 0.0,
-                    0.0236, 0.00634, 0.0118, 0.00317, 1.14)
+    params = Params(0.121, 0.00568, 0.0236, 0.00634, 0.0118, 0.00317, 1.14)
     grad_params = {"norm": 0.00136, "var": 0.000502}
     speedup_fn = SpeedupFunction(
             params, grad_params, init_batch_size=128, max_batch_size=1280,

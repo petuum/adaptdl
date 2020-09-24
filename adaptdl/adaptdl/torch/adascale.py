@@ -19,7 +19,6 @@ import numpy as np
 import torch.distributed
 import torch.optim
 from torch.autograd import Variable
-
 __all__ = ["AdaScale"]
 
 
@@ -71,7 +70,7 @@ class AdaScale(object):
         self._num_replicas = (num_replicas if num_replicas is not None
                               else torch.distributed.get_world_size())
         self._num_params = \
-            sum(len(pg["params"]) for pg in optimizer.param_groups)
+            int(sum(len(pg["params"]) for pg in optimizer.param_groups))
         self._prev_acc_grad = None
         self._prev_full_grad = None
         self._norms = None
@@ -143,8 +142,12 @@ class AdaScale(object):
             grad_acc_steps (int): new number of batches sampled before
                                   stepping.
         """
-        self._current_grad_acc_step = 0
-        self._grad_acc_steps = grad_acc_steps
+        if grad_acc_steps != self._grad_acc_steps:
+            self._current_grad_acc_step = 0
+            self._grad_acc_steps = int(grad_acc_steps)
+
+    def is_accumulation_step(self):
+        return self._current_grad_acc_step != self._grad_acc_steps - 1
 
     def norm_avg(self):
         """
@@ -229,13 +232,12 @@ class AdaScale(object):
         # This method should be invoked once for each backward pass, after
         # gradients have been synchronized between each replica.
         self._final_callback_queued = False
-        current_step = self._current_grad_acc_step
-        total_steps = self._grad_acc_steps
         grad = []
+        total_steps = self._grad_acc_steps
         for group in self._optimizer.param_groups:
             grad.extend([p.grad.detach().clone() / total_steps
                          for p in group["params"]])
-        if (current_step < total_steps - 1):
+        if (self.is_accumulation_step()):
             self._prev_acc_grad = grad
             return
 
@@ -300,9 +302,7 @@ class AdaScale(object):
             args: Positional arguments passed to ``optimizer.step``.
             kwargs: Keyword arguments passed to ``optimizer.step``.
         """
-        current_step = self._current_grad_acc_step
-        total_steps = self._grad_acc_steps
-        if (current_step < total_steps - 1):
+        if (self.is_accumulation_step()):
             self._current_grad_acc_step += 1
             self._made_step = False
             return
@@ -315,7 +315,7 @@ class AdaScale(object):
             size = len(param_group["params"])
             grad_sqr = self._state["norm_avg"][offset:offset + size].sum()
             grad_var = self._state["var_avg"][offset:offset + size].sum()
-            gain = (grad_var + grad_sqr) / (grad_var / self._scale + grad_sqr)
+            gain = (grad_var + grad_sqr) / (grad_var / self.scale + grad_sqr)
             param_group["lr"] = gain * param_group["lr"]
             offset += size
         for group in self._optimizer.param_groups:

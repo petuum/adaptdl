@@ -82,7 +82,6 @@ class ElasticSampler(Sampler):
         if len(local_indices) < len(self):
             local_indices.append(indices[self.rank])
         assert len(local_indices) == len(self)
-
         return iter(local_indices)
 
     def __len__(self):
@@ -167,26 +166,6 @@ class AdaptiveDataLoaderHelper(object):
         self._state.current_index = index
 
     @property
-    def current_step(self):
-        """
-        The total number of data samples processed so far in the current loop.
-        Includes the data processed by all replicas. ``None`` if this data
-        loader is not currently being iterated.
-        """
-        if AdaptiveDataLoaderHelper._current is not self:
-            return None
-        return self._state.current_step
-
-    @current_step.setter
-    def current_step(self, step):
-        if AdaptiveDataLoaderHelper._current is not self:
-            return
-        self._state.current_step = step
-
-    def is_accumulation_step(self):
-        return not ((self.current_step + 1) % self.grad_acc_steps) == 0
-
-    @property
     def end_index(self):
         """
         (Optional) Can be used to track the end index of dataset across
@@ -234,6 +213,14 @@ class AdaptiveDataLoaderHelper(object):
         """
         return self._grad_acc_steps
 
+    @property
+    def is_accumulation_step(self):
+        return self._is_accumulation_step
+
+    @is_accumulation_step.setter
+    def is_accumulation_step(self, value: bool):
+        self._is_accumulation_step = value
+
     def train(self):
         """
         Set this data loader to be the one used for training. Only one data
@@ -242,10 +229,10 @@ class AdaptiveDataLoaderHelper(object):
         if AdaptiveDataLoaderHelper._training is None:
             AdaptiveDataLoaderHelper._training = self
         set_batch_size(self.batch_size, self.max_batch_size,
-                       self.local_bsz_bounds)
+                       self.local_bsz_bounds, self._gradient_accumulation)
 
     def autoscale_batch_size(self, max_batch_size, local_bsz_bounds=None,
-                             max_acc_grad_steps=1):
+                             gradient_accumulation=False):
         """
         Enables adaptive batch size. Should be invoked once after the data
         loader object is created.
@@ -269,6 +256,7 @@ class AdaptiveDataLoaderHelper(object):
             raise ValueError("invalid local_bsz_bounds")
         self._max_batch_size = max_batch_size
         self._local_bsz_bounds = local_bsz_bounds
+        self._gradient_accumulation = gradient_accumulation
         self.train()
 
     def _sync_local_bsz(self):
@@ -286,7 +274,7 @@ class AdaptiveDataLoaderHelper(object):
                 return_local_bsz=True)
             (self._current_local_bsz, self._grad_acc_steps) = \
                 adaptdl.collective.broadcast((local_bsz, grad_acc_steps))
-        self.step = 0
+        self.is_accumulation_step = self._grad_acc_steps != 1
         return self.current_local_bsz
 
     @property
@@ -309,15 +297,12 @@ class AdaptiveDataLoaderHelper(object):
         self.future_exit = adaptdl.collective.allreduce_async(
                     get_exit_flag(), lambda a, b: a or b)
         profile_step_start(self.current_local_bsz, self.grad_acc_steps)
-        if self.is_accumulation_step():
-            yield
-            if self.training and self.current_index > self.current_batch_size:
-                # Don't profile the first batch since it may be slower.
+        yield
+        # Don't profile the first batch since it may be slower.
+        if self.training and self.current_index > self.current_batch_size:
+            if self.is_accumulation_step:
                 profile_accumulation_commit()
-        else:
-            yield
-            if self.training and self.current_index > self.current_batch_size:
-                # Don't profile the first batch since it may be slower.
+            else:
                 profile_step_commit()
 
     @contextmanager
@@ -380,9 +365,9 @@ class AdaptiveDataLoaderMixin(object):
         self._elastic = AdaptiveDataLoaderHelper(batch_size)
 
     def autoscale_batch_size(self, max_batch_size, local_bsz_bounds=None,
-                             max_acc_grad_steps=1):
+                             gradient_accumulation=False):
         self._elastic.autoscale_batch_size(max_batch_size, local_bsz_bounds,
-                                           max_acc_grad_steps)
+                                           gradient_accumulation)
 
     @property
     def current_local_bsz(self):
@@ -466,12 +451,20 @@ class AdaptiveDataLoader(DataLoader, AdaptiveDataLoaderMixin):
             while not done:
                 self.sampler.set_epoch(epoch, index=self._elastic.current_index)  # noqa: E501
                 self.batch_sampler.batch_size = self._elastic._sync_local_bsz()
+                base_iterations = (len(self.sampler)
+                                   / self.batch_sampler.batch_size)
+                iterations = int(
+                    base_iterations -
+                    base_iterations % self._elastic._grad_acc_steps)
                 for idx, batch in enumerate(super().__iter__()):
+                    if idx > iterations:
+                        break
                     with self._elastic.profile():
                         yield batch
                         # Increment by the number of data samples processed
-                        self._elastic.current_index += self.current_batch_size  # noqa: E501
-                        self._elastic.step += 1
+                        self._elastic.current_index += (
+                            self._elastic._current_local_bsz
+                            * adaptdl.env.num_replicas())
                         if self._elastic.max_batch_size is not None and \
                            get_progress() >= len(self.dataset) * \
                            (epoch + 1) / self.batch_size:
@@ -499,7 +492,6 @@ class _AdaptiveDataLoaderState(adaptdl.checkpoint.State):
         super().__init__("adaptdl-dataloader-epoch{}-{}".format(epoch, count))
         _AdaptiveDataLoaderState.init_count[epoch] += 1
 
-        self.current_step = 0    # Step within the current dataloader loop.
         self.current_index = 0   # Index within the current dataloader loop.
         self.end_index = 0       # End index of the current DataLoader loop.
         self.last_position = {}  # Epoch -> position of last completed loop.

@@ -14,7 +14,6 @@
 
 
 import collections
-import logging
 import pickle
 import time
 
@@ -25,10 +24,6 @@ import adaptdl.checkpoint
 import adaptdl.collective
 from adaptdl.sched_hints import SCHED_HINTS, PERF_PARAMS, \
         post_sched_hints
-
-logging.basicConfig(level=logging.INFO)
-LOG = logging.getLogger(__name__)
-LOG.setLevel(logging.INFO)
 
 
 def profile_step_start(local_bsz, grad_acc_steps):
@@ -55,17 +50,10 @@ def profile_accumulation_commit():
     key = (num_nodes, num_replicas, state.local_bsz)
     state.profile[key]["accumulation_step_time"] += step_time
     state.profile[key]["accumulation_count"] += 1
-    state.profile[key]["accumulation_sync_time"] += state.sync_time
     del state.local_bsz
     del state.grad_acc_steps
     del state.step_start
     del state.sync_time
-    if _PREV_REPORT is None:
-        _PREV_REPORT = time.time()
-    if adaptdl.env.replica_rank() == 0 and time.time() - _PREV_REPORT > 30:
-        _fit_perf_params()
-        _report_sched_hints()
-        _PREV_REPORT = time.time()
 
 
 def profile_step_commit():
@@ -108,11 +96,13 @@ def get_progress():
     return _metrics_state().progress
 
 
-def set_batch_size(init_batch_size, max_batch_size, local_bsz_bounds):
+def set_batch_size(init_batch_size, max_batch_size, local_bsz_bounds,
+                   gradient_accumulation):
     state = _metrics_state()
     state.init_batch_size = init_batch_size
     state.max_batch_size = max_batch_size
     state.local_bsz_bounds = local_bsz_bounds
+    state.gradient_accumulation = gradient_accumulation
 
 
 def get_speedup_fn():
@@ -126,6 +116,7 @@ def get_speedup_fn():
         init_batch_size=state.init_batch_size,
         max_batch_size=state.max_batch_size,
         local_bsz_bounds=state.local_bsz_bounds,
+        gradient_accumulation=state.gradient_accumulation,
         elastic_bsz=(state.max_batch_size is not None),
     )
 
@@ -138,13 +129,15 @@ def _fit_perf_params():
     values = state.profile.values()
     step_time = np.array([val["step_time"] / val["count"] for val in values])
     sync_time = np.array([val["sync_time"] / val["count"] for val in values])
-    accumulation_steps = np.array([val["accumulation_count"]
-                                   for val in values])
     accumulation_time = np.array(
-        [(val["accumulation_step_time"] - val["accumulation_sync_time"])
-         / val["accumulation_count"]
-         if val["accumulation_count"] != 0 else 0.0 for val in values])
+        [val["accumulation_step_time"] for val in values])
+    accumulation_steps = np.array(
+        [val["accumulation_count"] for val in values])
     compute_time = step_time - sync_time
+    accumulation_time = np.where(
+        accumulation_steps > 0,
+        accumulation_time / accumulation_steps,
+        compute_time)
     state.perf_params = adaptdl.speedup.fit(
         num_nodes, num_replicas, local_bsz, accumulation_steps,
         step_time, compute_time, accumulation_time)
@@ -155,7 +148,6 @@ def _report_sched_hints():
     state = _metrics_state()
     # Scheduling hints
     sched_hints = SCHED_HINTS.copy()
-    LOG.info("state: {}".format(state.perf_params))
     sched_hints["perfParams"] = {k: v for (k, v) in
                                  zip(PERF_PARAMS.keys(),
                                  state.perf_params)}
@@ -167,7 +159,6 @@ def _report_sched_hints():
         sched_hints["gradParams"]["norm"] = state.grad_params[0]
         sched_hints["gradParams"]["var"] = state.grad_params[1]
     sched_hints["maxProfiledReplicas"] = max(key[1] for key in state.profile)
-    LOG.info(sched_hints)
     post_sched_hints(sched_hints, adaptdl.env.job_id())
 
 
@@ -180,6 +171,7 @@ class _MetricsState(adaptdl.checkpoint.State):
         self.init_batch_size = None
         self.max_batch_size = None
         self.local_bsz_bounds = None
+        self.max_grad_acc_steps = None
         self.progress = 0.0  # Progress in scale-invariant iterations.
 
     def save(self, fileobj):
@@ -189,6 +181,7 @@ class _MetricsState(adaptdl.checkpoint.State):
         pickle.dump(self.init_batch_size, fileobj)
         pickle.dump(self.max_batch_size, fileobj)
         pickle.dump(self.local_bsz_bounds, fileobj)
+        pickle.dump(self.max_grad_acc_steps, fileobj)
         pickle.dump(self.progress, fileobj)
 
     def load(self, fileobj):
@@ -198,6 +191,7 @@ class _MetricsState(adaptdl.checkpoint.State):
         self.init_batch_size = pickle.load(fileobj)
         self.max_batch_size = pickle.load(fileobj)
         self.local_bsz_bounds = pickle.load(fileobj)
+        self.max_grad_acc_steps = pickle.load(fileobj)
         self.progress = pickle.load(fileobj)
 
 

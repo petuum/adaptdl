@@ -20,7 +20,7 @@ import numpy as np
 def test_no_bounds():
     np.random.seed(0)
     for i in range(100):
-        params = np.random.gamma(2.0, 2.0, (9,))
+        params = np.random.gamma(2.0, 2.0, (7,))
         grad_params = np.random.gamma(2.0, 2.0, (2,))
         grad_params = {"norm": grad_params[0], "var": grad_params[1]}
         fun = SpeedupFunction(params, grad_params, 128,
@@ -50,7 +50,7 @@ def test_no_bounds():
 def test_local_bounds():
     np.random.seed(0)
     for i in range(100):
-        params = np.random.gamma(2.0, 2.0, (9,))
+        params = np.random.gamma(2.0, 2.0, (7,))
         grad_params = np.random.gamma(2.0, 2.0, (2,))
         grad_params = {"norm": grad_params[0], "var": grad_params[1]}
         fun = SpeedupFunction(params, grad_params, 128, None, (64, 256),
@@ -82,7 +82,7 @@ def test_local_bounds():
 def test_max_bounds():
     np.random.seed(0)
     for i in range(100):
-        params = np.random.gamma(2.0, 2.0, (9,))
+        params = np.random.gamma(2.0, 2.0, (7,))
         grad_params = np.random.gamma(2.0, 2.0, (2,))
         grad_params = {"norm": grad_params[0], "var": grad_params[1]}
         fun = SpeedupFunction(params, grad_params, 128, 1280,
@@ -110,7 +110,7 @@ def test_max_bounds():
 def test_all_bounds():
     np.random.seed(0)
     for i in range(100):
-        params = np.random.gamma(2.0, 2.0, (9,))
+        params = np.random.gamma(2.0, 2.0, (7,))
         grad_params = np.random.gamma(2.0, 2.0, (2,))
         grad_params = {"norm": grad_params[0], "var": grad_params[1]}
         fun = SpeedupFunction(params, grad_params, 128, 1280, (64, 256),
@@ -148,7 +148,7 @@ def test_all_bounds():
 def test_gradient_accumulation():
     np.random.seed(0)
     for i in range(100):
-        params = np.random.gamma(2.0, 2.0, (9,))
+        params = np.random.gamma(2.0, 2.0, (7,))
         grad_params = np.random.gamma(2.0, 2.0, (2,))
         grad_params = {"norm": grad_params[0], "var": grad_params[1]}
         fun = SpeedupFunction(params, grad_params, 128, 1280, (64, 256),

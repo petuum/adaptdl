@@ -14,7 +14,6 @@
 
 
 import functools
-import logging
 import time
 
 import torch
@@ -27,10 +26,6 @@ import adaptdl.env
 from adaptdl.torch.data import current_dataloader
 from adaptdl.torch.adascale import AdaScale
 from adaptdl.torch._metrics import profile_sync_time
-
-logging.basicConfig(level=logging.INFO)
-LOG = logging.getLogger(__name__)
-LOG.setLevel(logging.INFO)
 
 
 class AdaptiveDataParallel(DistributedDataParallel):
@@ -71,6 +66,21 @@ class AdaptiveDataParallel(DistributedDataParallel):
         adaptdl.checkpoint.load_state(self._state)
 
         self._sync_start = None
+
+    def forward(self, *args, **kwargs):
+        # Do not do gradient synchronization during gradient accumulation
+        # Otherwise, exactly the same as DistributedDataParallel's forward
+        dataloader = current_dataloader()
+        grad_acc_steps = dataloader.grad_acc_steps
+        # TODO: move this to the dataloader.__iter__
+        self.adascale.set_grad_acc_steps(grad_acc_steps)
+        if (self.adascale.is_accumulation_step()):
+            with super().no_sync():
+                dataloader.is_accumulation_step = True
+                return super().forward(*args, **kwargs)
+        else:
+            dataloader.is_accumulation_step = False
+            return super().forward(*args, **kwargs)
 
     def _backward_hook(self, param, grad):
         # This method should be invoked once for each parameter during the
@@ -122,11 +132,9 @@ class AdaptiveDataParallel(DistributedDataParallel):
         dataloader.train()
 
         scale = dataloader.current_batch_size / dataloader.batch_size
-        grad_acc_steps = dataloader.grad_acc_steps
-        self.adascale.set_scale(scale * grad_acc_steps)
-        self.adascale.set_grad_acc_steps(grad_acc_steps)
+        self.adascale.set_scale(scale)
         self._state.gain = self.adascale.gain()
-        adaptdl.torch._metrics.update_progress(self._state.gain)
+        adaptdl.torch._metrics.update_progress(self.adascale.get_progress())
         if dataloader.max_batch_size and \
                 dataloader.max_batch_size > dataloader.batch_size:
             adaptdl.torch._metrics.update_grad_params(
