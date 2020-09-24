@@ -23,7 +23,10 @@ registry:
 build:
 	docker build -f docker/Dockerfile . -t $(LOCAL_REPO):$(IMAGE_TAG)
 
-push: registry build
+check-requirements:
+	@python3 adaptdl_cli/check_requirements.py
+
+push: check-requirements registry build
 	python3 adaptdl_cli/adaptdl_cli/proxy.py -p $(LOCAL_PORT) $(NAMESPACE) \
 		adaptdl-registry:registry docker push $(LOCAL_REPO):$(IMAGE_TAG)
 
