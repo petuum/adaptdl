@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-validator
+  labels:
+    app: adaptdl-validator
+    release: {{ .Release.Name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: adaptdl-validator
+      release: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: adaptdl-validator
+        release: {{ .Release.Name }}
+    spec:
+      volumes:
+        - name: certs
+          secret:
+            secretName: {{.Release.Name }}-validator
+      containers:
+        - name: server
+          image: {{ .Values.image.repository }}{{ empty .Values.image.digest | ternary ":" "@" }}{{ coalesce .Values.image.digest .Values.image.tag .Chart.AppVersion }}
+          imagePullPolicy: Always
+          args: ["python", "-m", "adaptdl_sched.validator"]
+          volumeMounts:
+            - name: certs
+              mountPath: /etc/webhook/certs
+              readOnly: true
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: https
+              containerPort: 8443
+#          livenessProbe:
+#            httpGet:
+#              path: /healthz
+#              port: https
+#          readinessProbe:
+#            httpGet:
+#              path: /healthz
+#              port: https
+      imagePullSecrets:
+      - name: {{ .Values.image.secrets.name }}
+    {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+
