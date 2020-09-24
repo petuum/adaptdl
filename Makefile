@@ -1,8 +1,10 @@
+# Set ADAPTDL_DEV_REPO to use an external docker registry.
+# Set ADAPTDL_DEV_REPO_CREDS to the name of registry secret.
 RELEASE_NAME = adaptdl
-LOCAL_PORT=59283
-REMOTE_PORT=32000
-LOCAL_REPO = localhost:$(LOCAL_PORT)/adaptdl-sched
-REMOTE_REPO = localhost:$(REMOTE_PORT)/adaptdl-sched
+LOCAL_PORT = 59283
+REMOTE_PORT = 32000
+LOCAL_REPO = $(or $(ADAPTDL_DEV_REPO),localhost:$(LOCAL_PORT)/adaptdl-sched)
+REMOTE_REPO = $(or $(ADAPTDL_DEV_REPO),localhost:$(REMOTE_PORT)/adaptdl-sched)
 IMAGE_TAG = latest
 IMAGE_DIGEST = $(shell docker images --format='{{.Repository}}:{{.Tag}} {{.Digest}}' | \
                        grep '^$(LOCAL_REPO):$(IMAGE_TAG) ' | awk '{ printf $$2 }')
@@ -28,12 +30,14 @@ push: registry build
 deploy: push .values.yaml
 	helm dep up helm/adaptdl
 	helm upgrade $(RELEASE_NAME) helm/adaptdl --install --wait \
+        $(and $(ADAPTDL_DEV_REPO_CREDS),--set 'image.pullSecrets[0].name=$(ADAPTDL_DEV_REPO_CREDS)') \
 		--set image.repository=$(REMOTE_REPO) \
 		--set image.digest=$(IMAGE_DIGEST) \
 		--values .values.yaml
 
 delete:
 	helm delete $(RELEASE_NAME)
+	helm delete adaptdl-registry
 
 config: .values.yaml
 	$(or $(shell git config --get core.editor),editor) .values.yaml
