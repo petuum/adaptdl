@@ -15,6 +15,7 @@
 
 import kubernetes_asyncio as kubernetes
 from aiohttp import web
+import json
 import logging
 import ssl
 
@@ -27,16 +28,38 @@ class Validator(object):
     def __init__(self, port, host='0.0.0.0'):
         self._host = host
         self._port = port
+        self._core_api = kubernetes.client.CoreV1Api()
 
     async def _handle_healthz(self, request):
         # Health check.
-        LOG.info("healthz")
         return web.Response()
 
     async def _handle_mutate(self, request):
-        LOG.info("mutate")
         review = await request.json()
         LOG.info(review)
+        job = review["request"]["object"]
+        namespace = review["request"]["namespace"]
+        template = {
+            "metadata": {"name": "spec.template", "namespace": namespace},
+            "template": job["spec"]["template"],
+        }
+        try:
+            await self._core_api.create_namespaced_pod_template(
+                namespace, template, dry_run="All")
+        except kubernetes.client.rest.ApiException as exc:
+            return web.json_response({
+                "apiVersion": "admission.k8s.io/v1",
+                "kind": "AdmissionReview",
+                "response": {
+                    "uid": review["request"]["uid"],
+                    "allowed": False,
+                    "status": {
+                        "code": 403,
+                        "reason": "Invalid",
+                        "message": json.loads(exc.body).get("message"),
+                    }
+                }
+            })
         return web.json_response({
             "apiVersion": "admission.k8s.io/v1",
             "kind": "AdmissionReview",

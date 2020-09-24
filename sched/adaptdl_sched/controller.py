@@ -212,18 +212,6 @@ class AdaptDLController(object):
             # Assuming empty status section means this is a newly created job.
             JOB_SUBMISSION_COUNT.inc()
             patch_status = {"phase": "Pending"}
-            # Validate pod template using a dry run.
-            template = {
-                "metadata": {"name": name, "namespace": namespace},
-                "template": job["spec"]["template"],
-            }
-            try:
-                await self._core_api.create_namespaced_pod_template(
-                    namespace, template, dry_run="All")
-            except kubernetes.client.rest.ApiException as exc:
-                patch_status["phase"] = "Failed"
-                patch_status["reason"] = "Invalid"
-                patch_status["message"] = json.loads(exc.body).get("message")
         # Validate pods for job.
         group_list = []
         replicas_list = []
