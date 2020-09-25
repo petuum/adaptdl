@@ -3,20 +3,7 @@ entries:
   adaptdl:
   - apiVersion: v1
     appVersion: 0.2.2
-    created: "2020-09-25T19:09:11.509554453Z"
-    dependencies:
-    - condition: docker-registry.enabled
-      name: docker-registry
-      repository: '@stable'
-      version: 1.9.4
-    digest: 9a30bc6b0e5220d19354162ff6949900858a55c9b222efff18700f8f9ca2e5ac
-    name: adaptdl
-    urls:
-    - adaptdl-sched-0.2.2.tgz
-    version: 0.2.2
-  - apiVersion: v1
-    appVersion: 0.2.2
-    created: "2020-09-25T19:09:11.500777621Z"
+    created: "2020-09-25T15:33:01.500342791-04:00"
     dependencies:
     - condition: docker-registry.enabled
       name: docker-registry
@@ -29,20 +16,7 @@ entries:
     version: 0.2.2
   - apiVersion: v1
     appVersion: 0.2.1
-    created: "2020-09-25T19:09:11.505191289Z"
-    dependencies:
-    - condition: docker-registry.enabled
-      name: docker-registry
-      repository: '@stable'
-      version: 1.9.4
-    digest: 811bbe2b503468678084fc262d54f999d7527e34e7721d35bc6077c06b851713
-    name: adaptdl
-    urls:
-    - adaptdl-sched-0.2.1.tgz
-    version: 0.2.1
-  - apiVersion: v1
-    appVersion: 0.2.1
-    created: "2020-09-25T19:09:11.499204954Z"
+    created: "2020-09-25T15:33:01.499241747-04:00"
     dependencies:
     - condition: docker-registry.enabled
       name: docker-registry
@@ -55,20 +29,7 @@ entries:
     version: 0.2.1
   - apiVersion: v1
     appVersion: 0.2.0
-    created: "2020-09-25T19:09:11.503725734Z"
-    dependencies:
-    - condition: docker-registry.enabled
-      name: docker-registry
-      repository: '@stable'
-      version: 1.9.4
-    digest: 7c5514c5ff71f73b409c5d38bf0faa33b2d282aaab2a77a3009795dd2253470c
-    name: adaptdl
-    urls:
-    - adaptdl-sched-0.2.0.tgz
-    version: 0.2.0
-  - apiVersion: v1
-    appVersion: 0.2.0
-    created: "2020-09-25T19:09:11.497678692Z"
+    created: "2020-09-25T15:33:01.49744512-04:00"
     dependencies:
     - condition: docker-registry.enabled
       name: docker-registry
@@ -81,20 +42,7 @@ entries:
     version: 0.2.0
   - apiVersion: v1
     appVersion: 0.1.6
-    created: "2020-09-25T19:09:11.50227898Z"
-    dependencies:
-    - condition: docker-registry.enabled
-      name: docker-registry
-      repository: '@stable'
-      version: 1.9.4
-    digest: a3347a8b10b6cdb187c8a451b547f9ef9f870aa81427720d6340a4f0d37533aa
-    name: adaptdl
-    urls:
-    - adaptdl-sched-0.1.6.tgz
-    version: 0.1.6
-  - apiVersion: v1
-    appVersion: 0.1.6
-    created: "2020-09-25T19:09:11.496183133Z"
+    created: "2020-09-25T15:33:01.496230373-04:00"
     dependencies:
     - condition: docker-registry.enabled
       name: docker-registry
@@ -108,7 +56,7 @@ entries:
   adaptdl-sched:
   - apiVersion: v1
     appVersion: 0.2.3
-    created: "2020-09-25T19:09:11.518704224Z"
+    created: "2020-09-25T15:33:01.505346603-04:00"
     dependencies:
     - condition: docker-registry.enabled
       name: docker-registry
@@ -119,4 +67,56 @@ entries:
     urls:
     - adaptdl-sched-0.2.3.tgz
     version: 0.2.3
-generated: "2020-09-25T19:09:11.47156092Z"
+  - apiVersion: v1
+    appVersion: 0.2.2
+    created: "2020-09-25T15:33:01.504323219-04:00"
+    dependencies:
+    - condition: docker-registry.enabled
+      name: docker-registry
+      repository: '@stable'
+      version: 1.9.4
+    digest: 4169507205e9a135585a8283eb051bbb3e5fdb7bd64ec36e96f5df203397b942
+    name: adaptdl-sched
+    urls:
+    - adaptdl-sched-0.2.2.tgz
+    version: 0.2.2
+  - apiVersion: v1
+    appVersion: 0.2.1
+    created: "2020-09-25T15:33:01.503349664-04:00"
+    dependencies:
+    - condition: docker-registry.enabled
+      name: docker-registry
+      repository: '@stable'
+      version: 1.9.4
+    digest: 2c33284e7d4a3dde6fac17ca8490d2d8413c3f670fb7dcab57fd079c347b2065
+    name: adaptdl-sched
+    urls:
+    - adaptdl-sched-0.2.1.tgz
+    version: 0.2.1
+  - apiVersion: v1
+    appVersion: 0.2.0
+    created: "2020-09-25T15:33:01.502383485-04:00"
+    dependencies:
+    - condition: docker-registry.enabled
+      name: docker-registry
+      repository: '@stable'
+      version: 1.9.4
+    digest: 15577bcc7a852623ccb42bb73fdf8de915974edf18267f23dd320c1c8db6de31
+    name: adaptdl-sched
+    urls:
+    - adaptdl-sched-0.2.0.tgz
+    version: 0.2.0
+  - apiVersion: v1
+    appVersion: 0.1.6
+    created: "2020-09-25T15:33:01.501423896-04:00"
+    dependencies:
+    - condition: docker-registry.enabled
+      name: docker-registry
+      repository: '@stable'
+      version: 1.9.4
+    digest: 7eea08a79a9cd73f0fd7c213012283f8462a188c0844d23535f5732cf7a82d15
+    name: adaptdl-sched
+    urls:
+    - adaptdl-sched-0.1.6.tgz
+    version: 0.1.6
+generated: "2020-09-25T15:33:01.49480031-04:00"
