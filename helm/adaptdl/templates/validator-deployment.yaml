@@ -18,31 +18,36 @@ spec:
         release: {{ .Release.Name }}
     spec:
       volumes:
-        - name: certs
+        - name: tls
           secret:
             secretName: {{.Release.Name }}-validator
       containers:
         - name: server
           image: {{ .Values.image.repository }}{{ empty .Values.image.digest | ternary ":" "@" }}{{ coalesce .Values.image.digest .Values.image.tag .Chart.AppVersion }}
           imagePullPolicy: Always
-          args: ["python", "-m", "adaptdl_sched.validator"]
+          command: ["python", "-m", "adaptdl_sched.validator"]
+          args:
+            - --host=0.0.0.0
+            - --port=8443
+            - --tls-crt=/mnt/tls.crt
+            - --tls-key=/mnt/tls.key
           volumeMounts:
-            - name: certs
-              mountPath: /etc/webhook/certs
+            - name: tls
+              mountPath: /mnt
               readOnly: true
           ports:
-            - name: http
-              containerPort: 8080
             - name: https
               containerPort: 8443
-#          livenessProbe:
-#            httpGet:
-#              path: /healthz
-#              port: https
-#          readinessProbe:
-#            httpGet:
-#              path: /healthz
-#              port: https
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: https
+              scheme: HTTPS
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: https
+              scheme: HTTPS
       imagePullSecrets:
       - name: {{ .Values.image.secrets.name }}
     {{- with .Values.tolerations }}

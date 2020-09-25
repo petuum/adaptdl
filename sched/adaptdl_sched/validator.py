@@ -12,23 +12,30 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
-import kubernetes_asyncio as kubernetes
-from aiohttp import web
+import argparse
 import json
 import logging
 import ssl
 
+import kubernetes_asyncio as kubernetes
+
+from aiohttp import web
 
 LOG = logging.getLogger(__name__)
 LOG.setLevel(logging.INFO)
 
 
 class Validator(object):
-    def __init__(self, port, host='0.0.0.0'):
-        self._host = host
-        self._port = port
+    def __init__(self):
         self._core_api = kubernetes.client.CoreV1Api()
+        self._app = web.Application()
+        self._app.add_routes([
+            web.get('/healthz', self._handle_healthz),
+            web.post('/mutate', self._handle_mutate),
+        ])
+
+    def get_app(self):
+        return self._app
 
     async def _handle_healthz(self, request):
         # Health check.
@@ -54,7 +61,7 @@ class Validator(object):
                     "uid": review["request"]["uid"],
                     "allowed": False,
                     "status": {
-                        "code": 403,
+                        "code": 400,
                         "reason": "Invalid",
                         "message": json.loads(exc.body).get("message"),
                     }
@@ -69,23 +76,27 @@ class Validator(object):
             }
         })
 
-    def run(self):
-        self.app = web.Application()
-        self.app.add_routes([
-            web.get('/healthz', self._handle_healthz),
-            web.post('/mutate', self._handle_mutate),
-        ])
-        LOG.info("%s %s", self._host, self._port)
-        ssl_ctx = ssl.SSLContext()
-        ssl_ctx.load_cert_chain("/etc/webhook/certs/tls.crt",
-                                "/etc/webhook/certs/tls.key")
-        web.run_app(self.app, host=self._host, port=self._port,
-                    ssl_context=ssl_ctx)
+    def run(self, host, port, ssl_context=None):
+        web.run_app(self.get_app(), host=host, port=port, 
+                    ssl_context=ssl_context)
 
 
 if __name__ == "__main__":
     logging.basicConfig()
     kubernetes.config.load_incluster_config()
 
-    validator = Validator(8443)
-    validator.run()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--host", type=str, default="0.0.0.0")
+    parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument("--tls-crt", type=str)
+    parser.add_argument("--tls-key", type=str)
+    args = parser.parse_args()
+
+    if args.tls_crt and args.tls_key:
+        ssl_context = ssl.SSLContext()
+        ssl_context.load_cert_chain(args.tls_crt, args.tls_key)
+    else:
+        ssl_context = None
+
+    validator = Validator()
+    validator.run(args.host, args.port, ssl_context=ssl_context)
