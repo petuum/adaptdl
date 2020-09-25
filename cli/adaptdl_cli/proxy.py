@@ -104,3 +104,31 @@ class _Addon(object):
             if url.path.startswith(self.prefix):
                 url = url._replace(path=url.path[len(self.prefix):])
             flow.response.headers["location"] = url.geturl()
+
+
+if __name__ == "__main__":
+    import argparse
+    import subprocess
+    import time
+    parser = argparse.ArgumentParser()
+    parser.add_argument("namespace", type=str)
+    parser.add_argument("service", type=str)
+    parser.add_argument("--listen-host", type=str, default="127.0.0.1")
+    parser.add_argument("-p", "--listen-port", type=int)
+    parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument("command", nargs=argparse.REMAINDER)
+    args = parser.parse_args()
+    with service_proxy(args.namespace, args.service,
+                       listen_host=args.listen_host,
+                       listen_port=args.listen_port,
+                       verbose=args.verbose) as addr:
+        if args.verbose:
+            print(f"Proxy to {args.namespace}/{args.service} at {addr}")
+        try:
+            if args.command:
+                subprocess.check_call(args.command)
+            else:
+                while True:
+                    time.sleep(1000000)
+        except (KeyboardInterrupt, subprocess.CalledProcessError):
+            raise SystemExit
