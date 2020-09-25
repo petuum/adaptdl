@@ -140,7 +140,7 @@ class SpeedupFunction(object):
             max_local_bsz = np.floor(self._max_batch_size / replicas)
             min_local_bsz = np.ceil(self._init_batch_size / replicas)
             if (self._max_local_bsz is not None and
-                not self._gradient_accumulation):
+                    not self._gradient_accumulation):
                 max_local_bsz = np.minimum(self._max_local_bsz, max_local_bsz)
             if self._min_local_bsz is not None:
                 min_local_bsz = np.maximum(self._min_local_bsz, min_local_bsz)
