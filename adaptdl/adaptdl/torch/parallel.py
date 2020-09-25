@@ -59,7 +59,7 @@ class AdaptiveDataParallel(DistributedDataParallel):
             param.register_hook(functools.partial(self._backward_hook, param))
 
         # Setup for AdaScale, must be after registering backward hooks!
-        self.adascale = AdaScale(optimizer, lr_scheduler, patch_optimizer=True)
+        self.adascale = AdaScale(optimizer, patch_optimizer=True)
 
         self._state = _AdaptiveDataParallelState(model, optimizer,
                                                  lr_scheduler, name)

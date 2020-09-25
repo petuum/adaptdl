@@ -19,6 +19,12 @@ import numpy as np
 import torch.distributed
 import torch.optim
 from torch.autograd import Variable
+import logging
+
+logging.basicConfig(level=logging.INFO)
+LOG = logging.getLogger(__name__)
+LOG.setLevel(logging.INFO)
+
 __all__ = ["AdaScale"]
 
 
@@ -206,6 +212,7 @@ class AdaScale(object):
         if self._norms is None:
             self._norms = torch.zeros((self._grad_acc_steps, self._num_params),
                                       device=grad[0].device)
+        LOG.info("step: {}/{}".format(self._current_grad_acc_step, self._grad_acc_steps))
         if self._prev_acc_grad is not None:
             self._norms[self._current_grad_acc_step][idx] = \
                 (grad - self._prev_acc_grad[idx]).pow(2).sum()
