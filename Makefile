@@ -16,7 +16,7 @@ RELEASE_NAME = adaptdl
 	@uuidgen > .devtag
 
 .values.yaml:
-	@awk '{print "#" $$0}' helm/adaptdl/values.yaml > .values.yaml
+	@awk '{print "#" $$0}' helm/adaptdl-sched/values.yaml > .values.yaml
 
 check-reg:
 ifeq ($(ADAPTDL_DEV_REPO),)
@@ -33,8 +33,8 @@ push: build
 
 deploy: push .values.yaml
 	$(info Using $(IMAGE_REPOSITORY) and $(REPO_CREDS))
-	helm dep up helm/adaptdl
-	helm upgrade $(RELEASE_NAME) helm/adaptdl --install --wait \
+	helm dep up helm/adaptdl-sched
+	helm upgrade $(RELEASE_NAME) helm/adaptdl-sched --install --wait \
 		--set image.repository=$(IMAGE_REPOSITORY) \
 		--set image.digest=$(IMAGE_DIGEST) \
 		--set image.secrets.name=$(REPO_CREDS) \
