@@ -106,10 +106,10 @@ class AdaptDLController(object):
         if job is None:  # Not Found, presumably was deleted.
             await self._delete_pods(pods)
             return
+        # Use ChainMap to record updates to the job status fields.
+        job["status"] = collections.ChainMap({}, job.get("status", {}))
         # Get the current phase of the job, None if no phase was set.
         allocation = job["status"].get("allocation", [])
-        # Use ChainMap to record updates to the job status fields.
-        job["status"] = collections.ChainMap({}, job["status"])
         phase = job["status"].setdefault("phase", "Pending")
         replicas = job["status"].get("replicas", 0)
         if (completion_status := self._detect_completion(pods)):
