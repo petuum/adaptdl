@@ -13,14 +13,11 @@ data:
   tls.key: {{ $cert.Key | b64enc }}
 ---
 apiVersion: admissionregistration.k8s.io/v1
-kind: MutatingWebhookConfiguration
+kind: ValidatingWebhookConfiguration
 metadata:
   name: {{ .Release.Name }}-validator
   labels:
     app: {{ .Release.Name }}-validator
-  annotations:
-    "helm.sh/hook": "pre-install"
-    "helm.sh/hook-delete-policy": "before-hook-creation"
 webhooks:
   - name: {{ .Release.Name }}-validator.{{ .Release.Namespace }}.svc.cluster.local
     clientConfig:
@@ -28,9 +25,9 @@ webhooks:
       service:
         name: {{ .Release.Name }}-validator
         namespace: {{ .Release.Namespace }}
-        path: "/mutate"
+        path: "/validate"
     rules:
-      - operations: ["CREATE"]
+      - operations: ["CREATE", "UPDATE"]
         apiGroups: ["adaptdl.petuum.com"]
         apiVersions: ["v1"]
         resources: ["adaptdljobs"]

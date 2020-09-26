@@ -31,21 +31,43 @@ class Validator(object):
         self._app = web.Application()
         self._app.add_routes([
             web.get('/healthz', self._handle_healthz),
-            web.post('/mutate', self._handle_mutate),
+            web.post('/validate', self._handle_validate),
         ])
 
     def get_app(self):
         return self._app
 
+    def run(self, host, port, ssl_context=None):
+        web.run_app(self.get_app(), host=host, port=port, 
+                    ssl_context=ssl_context)
+
     async def _handle_healthz(self, request):
         # Health check.
         return web.Response()
 
-    async def _handle_mutate(self, request):
-        review = await request.json()
-        LOG.info(review)
-        job = review["request"]["object"]
-        namespace = review["request"]["namespace"]
+    async def _handle_validate(self, request):
+        request_json = await request.json()
+        if request_json["request"]["operation"] == "CREATE":
+            response = await self._validate_create(request_json["request"])
+        elif request_json["request"]["operation"] == "UPDATE":
+            response = await self._validate_update(request_json["request"])
+        else:
+            response = {"allowed": True}
+        LOG.info("%s %s/%s: %s",
+                 request_json["request"]["operation"],
+                 request_json["request"]["namespace"],
+                 request_json["request"].get("name", "<none>"),
+                 response)
+        response["uid"] = request_json["request"]["uid"]
+        return web.json_response({
+            "apiVersion": "admission.k8s.io/v1",
+            "kind": "AdmissionReview",
+            "response": response,
+        })
+
+    async def _validate_create(self, request):
+        job = request["object"]
+        namespace = request["namespace"]
         template = {
             "metadata": {"name": "spec.template", "namespace": namespace},
             "template": job["spec"]["template"],
@@ -54,32 +76,27 @@ class Validator(object):
             await self._core_api.create_namespaced_pod_template(
                 namespace, template, dry_run="All")
         except kubernetes.client.rest.ApiException as exc:
-            return web.json_response({
-                "apiVersion": "admission.k8s.io/v1",
-                "kind": "AdmissionReview",
-                "response": {
-                    "uid": review["request"]["uid"],
-                    "allowed": False,
-                    "status": {
-                        "code": 400,
-                        "reason": "Invalid",
-                        "message": json.loads(exc.body).get("message"),
-                    }
-                }
-            })
-        return web.json_response({
-            "apiVersion": "admission.k8s.io/v1",
-            "kind": "AdmissionReview",
-            "response": {
-                "uid": review["request"]["uid"],
-                "allowed": True,
+            return {
+               "allowed": False,
+               "status": {
+                   "code": 400,
+                   "reason": "Invalid",
+                   "message": json.loads(exc.body).get("message"),
+               }
             }
-        })
+        return {"allowed": True}
 
-    def run(self, host, port, ssl_context=None):
-        web.run_app(self.get_app(), host=host, port=port, 
-                    ssl_context=ssl_context)
-
+    async def _validate_update(self, request):
+        if request["object"]["spec"] != request["oldObject"]["spec"]:
+            return {
+                "allowed": False,
+                "status": {
+                    "code": 422,
+                    "reason": "Forbidden",
+                    "message": "updates to job spec are forbidden",
+                }
+            }
+        return {"allowed": True}
 
 if __name__ == "__main__":
     logging.basicConfig()

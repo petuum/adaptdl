@@ -102,7 +102,7 @@ class AdaptDLController(object):
         current_ts = datetime.now(timezone.utc)
         job, pods = await self._get_job_and_pods(namespace, job_name)
         if job is not None:
-            job = await self._validate_job(job, pods, current_ts)
+            job = await self._validate_pods(job, pods, current_ts)
         if job is None:  # Not Found, presumably was deleted.
             await self._delete_pods(pods)
             return
@@ -110,7 +110,7 @@ class AdaptDLController(object):
         allocation = job["status"].get("allocation", [])
         # Use ChainMap to record updates to the job status fields.
         job["status"] = collections.ChainMap({}, job["status"])
-        phase = job["status"]["phase"]
+        phase = job["status"].setdefault("phase", "Pending")
         replicas = job["status"].get("replicas", 0)
         if (completion_status := self._detect_completion(pods)):
             # Job is already completed.
@@ -204,14 +204,10 @@ class AdaptDLController(object):
             raise  # Unexpected error.
         return job, pods
 
-    async def _validate_job(self, job, pods, current_ts):
+    async def _validate_pods(self, job, pods, current_ts):
         namespace = job["metadata"]["namespace"]
         name = job["metadata"]["name"]
         patch_status = {}
-        if not job.get("status"):
-            # Assuming empty status section means this is a newly created job.
-            JOB_SUBMISSION_COUNT.inc()
-            patch_status = {"phase": "Pending"}
         # Validate pods for job.
         group_list = []
         replicas_list = []

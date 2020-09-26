@@ -48,10 +48,12 @@ spec:
               path: /healthz
               port: https
               scheme: HTTPS
+      {{- with .Values.image.pullSecrets }}
       imagePullSecrets:
-      - name: {{ .Values.image.secrets.name }}
-    {{- with .Values.tolerations }}
+        {{ toYaml . | indent 8 }}
+      {{- end -}}
+      {{- with .Values.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
-    {{- end }}
+      {{- end }}
 
