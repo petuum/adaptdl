@@ -319,7 +319,7 @@ def _obj_fn(params, nodes, replicas, local_bsz, grad_acc_steps,
     log_pred_step_time, pred_step_time_compute, _ = \
         _predict_log(params, nodes, replicas, local_bsz, grad_acc_steps)
     # Error of total step time predictions.
-    err1 = _rmse(log_pred_step_time, np.log(step_time))
+    err1 = _rmse(log_pred_step_time, np.log(step_time + grad_acc_time * grad_acc_steps))
     # Error of compute time predictions.
     err2 = _rmse(np.log(pred_step_time_compute), np.log(step_time_compute))
     # L2 regularization towards a smaller gamma, because it's easier to

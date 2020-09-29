@@ -41,7 +41,7 @@ def test_profile(num_replicas, grad_acc_steps):
         profile_step_commit()
         # Ensure profile is updated correctly.
         profile = _metrics_state().profile
-        key = (1, 1, 2)
+        key = (1, 1, 2, grad_acc_steps)
         assert len(profile) == 1
         assert profile[key]["count"] == 1
         assert profile[key]["sync_time"] == 3.0
@@ -52,7 +52,7 @@ def test_profile(num_replicas, grad_acc_steps):
     elif num_restarts() == 1:
         profile = _metrics_state().profile
         # Ensure checkpoint is loaded correctly.
-        key = (1, 1, 2)
+        key = (1, 1, 2, grad_acc_steps)
         assert len(profile) == 1
         assert profile[key]["count"] == 1
         assert profile[key]["sync_time"] == 3.0
@@ -62,7 +62,7 @@ def test_profile(num_replicas, grad_acc_steps):
         profile_sync_time(2.0)
         profile_sync_time(3.0)
         profile_step_commit()
-        key = (1, num_replicas, 3)
+        key = (1, num_replicas, 3, grad_acc_steps)
         old_step_time = profile[key]["step_time"]
         profile_step_start(3, grad_acc_steps)
         profile_sync_time(3.0)

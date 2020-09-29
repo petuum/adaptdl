@@ -26,7 +26,7 @@ import adaptdl.collective
 import adaptdl.env
 from adaptdl.torch.epoch import current_epoch
 from adaptdl.torch._metrics import (
-    profile_step_start, profile_step_commit, profile_accumulation_commit,
+    profile_step_start, profile_step_commit,
     set_batch_size, get_speedup_fn, get_progress)
 from adaptdl._signal import get_exit_flag
 
@@ -296,14 +296,11 @@ class AdaptiveDataLoaderHelper(object):
             exit(143)  # Standard exit code response to SIGTERM.
         self.future_exit = adaptdl.collective.allreduce_async(
                     get_exit_flag(), lambda a, b: a or b)
-        profile_step_start(self.current_local_bsz, self.grad_acc_steps)
+        profile_step_start(self.current_local_bsz, self.grad_acc_steps - 1)
         yield
         # Don't profile the first batch since it may be slower.
         if self.training and self.current_index > self.current_batch_size:
-            if self.is_accumulation_step:
-                profile_accumulation_commit()
-            else:
-                profile_step_commit()
+            profile_step_commit(self.is_accumulation_step)
 
     @contextmanager
     def context(self):
