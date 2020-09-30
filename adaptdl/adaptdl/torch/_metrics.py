@@ -148,6 +148,7 @@ def _report_sched_hints():
         sched_hints["gradParams"]["norm"] = state.grad_params[0]
         sched_hints["gradParams"]["var"] = state.grad_params[1]
     sched_hints["maxProfiledReplicas"] = max(key[1] for key in state.profile)
+    sched_hints["gradientAccumulation"] = state.gradient_accumulation
     post_sched_hints(sched_hints, adaptdl.env.job_id())
 
 
@@ -160,6 +161,7 @@ class _MetricsState(adaptdl.checkpoint.State):
         self.init_batch_size = None
         self.max_batch_size = None
         self.local_bsz_bounds = None
+        self.gradient_accumulation = False
         self.progress = 0.0  # Progress in scale-invariant iterations.
 
     def save(self, fileobj):
@@ -169,6 +171,7 @@ class _MetricsState(adaptdl.checkpoint.State):
         pickle.dump(self.init_batch_size, fileobj)
         pickle.dump(self.max_batch_size, fileobj)
         pickle.dump(self.local_bsz_bounds, fileobj)
+        pickle.dump(self.gradient_accumulation, fileobj)
         pickle.dump(self.progress, fileobj)
 
     def load(self, fileobj):
@@ -178,6 +181,7 @@ class _MetricsState(adaptdl.checkpoint.State):
         self.init_batch_size = pickle.load(fileobj)
         self.max_batch_size = pickle.load(fileobj)
         self.local_bsz_bounds = pickle.load(fileobj)
+        self.gradient_accumulation = pickle.load(fileobj)
         self.progress = pickle.load(fileobj)
 
 

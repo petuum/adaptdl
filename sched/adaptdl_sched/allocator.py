@@ -149,6 +149,7 @@ class AdaptDLAllocator(object):
                     hints.get("initBatchSize"),
                     hints.get("maxBatchSize"),
                     hints.get("localBszBounds", [None, None]),
+                    hints.get("gradientAccumulation", False),
                     elastic_bsz=elastic)
             else:
                 speedup_fn = lambda n, r: r  # noqa: E731

@@ -81,9 +81,13 @@ class SpeedupFunction(object):
         else:
             self._params = None
         if params is not None and init_batch_size is not None:
-            base_step_time, _, _ = _predict_log(
-                self._params, np.array([1]), np.array([1]),
-                init_batch_size, 1)
+            if gradient_accumulation:
+                max_steps = int(self._max_batch_size / init_batch_size)
+            else:
+                max_steps = 1
+            base_step_time = np.max(_predict_log(
+                self._params, np.ones((max_steps,)), np.ones((max_steps,)),
+                init_batch_size, np.asarray(range(max_steps)))[0])
             base_step_time = base_step_time.item()
             self._base_goodput = 1.0 / np.exp(base_step_time)
         else:
@@ -95,8 +99,9 @@ class SpeedupFunction(object):
         self._mem_local_bsz = np.full((self._mem_size, self._mem_size), -1)
         self._mem_speedup[0, 0] = 0.0  # replicas = 0  ==>  speedup = 0
         self._mem_local_bsz[0, 0] = 0
-        self._mem_speedup[1, 1] = 1.0  # replicas = 1  ==>  speedup = 1
-        self._mem_local_bsz[1, 1] = self._init_batch_size
+        if not gradient_accumulation:
+            self._mem_speedup[1, 1] = 1.0  # replicas = 1  ==>  speedup = 1
+            self._mem_local_bsz[1, 1] = self._init_batch_size
 
     def __call__(self, nodes, replicas, return_local_bsz=False):
         # nodes and replicas must have the same shape, dtype=int
@@ -255,8 +260,8 @@ def fit(nodes, replicas, local_bsz, grad_acc_steps,
         params[5] = upper[5] = lower[5]
     if not any(replicas > 2):
         # Fix beta_n and beta_r if no replicas > 2.
-        params[3] = upper[3] = lower[5]
-        params[5] = upper[5] = lower[3]
+        params[3] = upper[3] = lower[3]
+        params[5] = upper[5] = lower[5]
     bounds = scipy.optimize.Bounds(lower, upper, keep_feasible=True)
     args = (nodes, replicas, local_bsz, grad_acc_steps,
             step_time, step_time_compute, grad_acc_time)
@@ -319,7 +324,8 @@ def _obj_fn(params, nodes, replicas, local_bsz, grad_acc_steps,
     log_pred_step_time, pred_step_time_compute, _ = \
         _predict_log(params, nodes, replicas, local_bsz, grad_acc_steps)
     # Error of total step time predictions.
-    err1 = _rmse(log_pred_step_time, np.log(step_time + grad_acc_time * grad_acc_steps))
+    err1 = _rmse(log_pred_step_time,
+                 np.log(step_time + grad_acc_time * grad_acc_steps))
     # Error of compute time predictions.
     err2 = _rmse(np.log(pred_step_time_compute), np.log(step_time_compute))
     # L2 regularization towards a smaller gamma, because it's easier to

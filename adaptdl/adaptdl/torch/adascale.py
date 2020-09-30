@@ -72,7 +72,6 @@ class AdaScale(object):
                               else torch.distributed.get_world_size())
         self._num_params = \
             int(sum(len(pg["params"]) for pg in optimizer.param_groups))
-        self._prev_acc_grad = None
         self._prev_full_grad = None
         self._norms = None
         self._made_step = False
@@ -208,12 +207,8 @@ class AdaScale(object):
         if self._norms is None:
             self._norms = torch.zeros((self._grad_acc_steps, self._num_params),
                                       device=grad[0].device)
-        if self._prev_acc_grad is not None:
-            self._norms[self._current_grad_acc_step][idx] = \
-                (grad - self._prev_acc_grad[idx]).pow(2).sum()
-        else:
-            self._norms[self._current_grad_acc_step][idx] = \
-                grad.pow(2).sum()
+        self._norms[self._current_grad_acc_step][idx] = \
+            grad.pow(2).sum()
         self._final_callback_queued = False
         Variable._execution_engine.queue_callback(self._queue_callback)
 
@@ -240,7 +235,6 @@ class AdaScale(object):
             grad.extend([p.grad.detach().clone() / total_steps
                          for p in group["params"]])
         if (self.is_accumulation_step()):
-            self._prev_acc_grad = grad
             return
 
         theta = self._smoothing ** self._scale
@@ -292,7 +286,6 @@ class AdaScale(object):
                 self._update_avg('norm_avg', norm, theta)
                 self._update_avg('var_avg', var, theta)
         self._norms = None
-        self._prev_acc_grad = None
         self._prev_full_grad = grad
 
     def step(self, *args, **kwargs):
