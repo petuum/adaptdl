@@ -27,7 +27,6 @@ from pymoo.algorithms.nsga2 import NSGA2
 from pymoo.operators.crossover.util import crossover_mask
 from pymoo.util.nds.non_dominated_sorting import NonDominatedSorting
 
-
 LOG = logging.getLogger(__name__)
 LOG.setLevel(logging.INFO)
 
@@ -361,10 +360,13 @@ class Problem(pymoo.model.problem.Problem):
         # Copy previous allocations for non-preemptible jobs
         states[:, self._nonpreemptible_indices] = \
             self._base_state[self._nonpreemptible_indices, :]
-        # Enforce at most one distributed job per node.
+        # Enforce at most one distributed job per node. Exclude all
+        # nonpreemptible jobs.
         distributed = np.count_nonzero(states, axis=2) > 1
         mask = states * np.expand_dims(distributed, axis=-1) > 0
         mask = mask.cumsum(axis=1) > 1
+        np_indices = [i for i, j in enumerate(self._jobs) if not j.preemptible]
+        mask[:, np_indices] = False
         states[mask] = 0
         # Enforce no more than max replicas per job.
         # max_replicas: (num_jobs x 1)
