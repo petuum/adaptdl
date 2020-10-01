@@ -264,7 +264,7 @@ class AdaptiveDataLoaderHelper(object):
             # No autoscale batch size, just divide batch size evenly.
             self._current_local_bsz = math.ceil(self.batch_size /
                                                 adaptdl.env.num_replicas())
-            self._grad_acc_steps = 1
+            self._grad_acc_steps = 0
         else:
             # Autoscale batch size, compute on rank 0 and broadcast.
             speedup_fn = get_speedup_fn()
@@ -274,7 +274,7 @@ class AdaptiveDataLoaderHelper(object):
                 return_local_bsz=True)
             (self._current_local_bsz, self._grad_acc_steps) = \
                 adaptdl.collective.broadcast((local_bsz, grad_acc_steps))
-        self.is_accumulation_step = self._grad_acc_steps != 1
+        self.is_accumulation_step = self._grad_acc_steps != 0
         return self.current_local_bsz
 
     @property
@@ -324,7 +324,7 @@ class AdaptiveDataLoaderHelper(object):
 
     @property
     def current_batch_size(self):
-        return (self.current_local_bsz * self.grad_acc_steps *
+        return (self.current_local_bsz * (self.grad_acc_steps + 1) *
                 adaptdl.env.num_replicas())
 
     def skipdone(self):
@@ -448,11 +448,11 @@ class AdaptiveDataLoader(DataLoader, AdaptiveDataLoaderMixin):
             while not done:
                 self.sampler.set_epoch(epoch, index=self._elastic.current_index)  # noqa: E501
                 self.batch_sampler.batch_size = self._elastic._sync_local_bsz()
-                base_iterations = (len(self.sampler)
-                                   / self.batch_sampler.batch_size)
+                base_iterations = int(len(self.sampler)
+                                      / self.batch_sampler.batch_size)
                 iterations = int(
                     base_iterations -
-                    base_iterations % self._elastic._grad_acc_steps)
+                    base_iterations % int(self._elastic._grad_acc_steps + 1))
                 for idx, batch in enumerate(super().__iter__()):
                     if idx > iterations:
                         break

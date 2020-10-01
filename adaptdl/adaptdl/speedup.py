@@ -84,10 +84,11 @@ class SpeedupFunction(object):
             if gradient_accumulation:
                 max_steps = int(self._max_batch_size / init_batch_size)
             else:
-                max_steps = 1
+                max_steps = 0
             base_step_time = np.max(_predict_log(
-                self._params, np.ones((max_steps,)), np.ones((max_steps,)),
-                init_batch_size, np.asarray(range(max_steps)))[0])
+                self._params, np.ones((max_steps + 1,)),
+                np.ones((max_steps + 1,)), init_batch_size,
+                np.asarray(range(max_steps + 1)))[0])
             base_step_time = base_step_time.item()
             self._base_goodput = 1.0 / np.exp(base_step_time)
         else:
@@ -161,7 +162,7 @@ class SpeedupFunction(object):
         else:
             local_bsz = np.ceil(self._init_batch_size / replicas).astype(int)
             log_pred_step_time, _, _ = \
-                _predict_log(self._params, nodes, replicas, local_bsz, 1)
+                _predict_log(self._params, nodes, replicas, local_bsz, 0)
             goodput = 1.0 / np.exp(log_pred_step_time)
         speedup = goodput / self._base_goodput
 
@@ -200,9 +201,9 @@ class SpeedupFunction(object):
                 1)
             true_local_bsz = np.minimum(self._max_local_bsz,
                                         np.ceil(local_bsz / grad_acc_steps))
-            return true_local_bsz.astype(int), grad_acc_steps.astype(int)
+            return true_local_bsz.astype(int), grad_acc_steps.astype(int) - 1
         else:
-            return local_bsz, np.asarray([1])
+            return local_bsz, np.asarray([0])
 
     def _goodput(self, nodes, replicas, local_bsz):
         local_bsz, grad_acc_steps = self._partition_local_bsz(local_bsz)
@@ -210,7 +211,7 @@ class SpeedupFunction(object):
             _predict_log(self._params, nodes, replicas,
                          local_bsz, grad_acc_steps)
         var, norm = self._grad_params['var'], self._grad_params['norm']
-        global_bsz = replicas * local_bsz * grad_acc_steps
+        global_bsz = replicas * local_bsz * (grad_acc_steps + 1)
         gain = np.where(
             (var / global_bsz * self._init_batch_size + norm) == 0.0,
             1.0,

@@ -142,6 +142,7 @@ class AdaScale(object):
             grad_acc_steps (int): new number of batches sampled before
                                   stepping.
         """
+        grad_acc_steps = grad_acc_steps + 1
         if grad_acc_steps != self._grad_acc_steps:
             self._current_grad_acc_step = 0
             self._grad_acc_steps = int(grad_acc_steps)
