@@ -128,30 +128,28 @@ class PolluxPolicy(object):
                 in the form of a list of a node key for each replica.
         """
 
-        # Consider job preemptible only if it already has an allocation
+        # Consider job nonpreemptible only if it already has an allocation
         def isnonpreemptible(key, job):
             return not job.preemptible and \
-                    base_allocations.get(key, []) != []
+                base_allocations.get(key, []) != []
 
         # Sort jobs in FIFO order. Prioritize non-preemptible jobs
         jobs = OrderedDict(sorted(jobs.items(),
-                           key=lambda kv: (not isnonpreemptible(kv[0], kv[1]),
-                                           kv[1].creation_timestamp)))
+                                  key=lambda kv: (not isnonpreemptible(kv[0],
+                                                  kv[1]),
+                                                  kv[1].creation_timestamp)))
         nodes = OrderedDict(  # Sort preemptible nodes last.
             sorted(nodes.items(), key=lambda kv: (kv[1].preemptible, kv[0])))
         base_state = np.concatenate(
             (self._allocations_to_state(base_allocations, jobs, nodes),
              np.zeros((len(jobs), len(nodes)), dtype=np.int)), axis=1)
-        # Precompute indices for non-preemptible jobs
-        nonpreemptible_indices = [i for i, key in enumerate(jobs)
-                                  if isnonpreemptible(key, jobs[key])]
+
         if self._prev_states is None:
             states = np.expand_dims(base_state, 0)
         else:
             states = self._adapt_prev_states(jobs, nodes)
         problem = Problem(list(jobs.values()), list(nodes.values()) +
-                          len(nodes) * [node_template], base_state,
-                          nonpreemptible_indices)
+                          len(nodes) * [node_template], base_state)
         algorithm = NSGA2(
             pop_size=100,
             # pymoo expects a flattened 2-D array.
@@ -186,7 +184,7 @@ class PolluxPolicy(object):
 
 
 class Problem(pymoo.model.problem.Problem):
-    def __init__(self, jobs, nodes, base_state, nonpreemptible_indices):
+    def __init__(self, jobs, nodes, base_state):
         """
         Multi-objective optimization problem used by PolluxPolicy to determine
         resource allocations and desired cluster size. Optimizes for the best
@@ -205,15 +203,15 @@ class Problem(pymoo.model.problem.Problem):
                 cluster, in decreasing order of allocation preference.
             base_state (numpy.array): base optimization state corresponding to
                 the current cluster allocations. Shape: (num_jobs x num_nodes).
-            nonpreemptible_indices (list): list of non-preemptible jobs
-                indices for jobs array
         """
         assert base_state.shape == (len(jobs), len(nodes))
         self._jobs = jobs
         self._nodes = nodes
         self._base_state = base_state
-        self._nonpreemptible_indices = nonpreemptible_indices
-
+        self._nonpreemptible_indices = [i for i, job in
+                                        enumerate(self._jobs)
+                                        if not job.preemptible and
+                                        np.any(self._base_state[i])]
         # Find which resource types are requested by at least one job.
         rtypes = sorted(set.union(*[set(job.resources) for job in jobs]))
         # Build array of job resources: <num_jobs> x <num_rtypes>. Each entry
@@ -236,10 +234,31 @@ class Problem(pymoo.model.problem.Problem):
         for j, job in enumerate(jobs):
             for n, node in enumerate(nodes):
                 self._max_replicas[j, n] = min(
-                    node.resources.get(rtype, 0) // job.resources[rtype]
+                    self._get_avail_resource(
+                        n, node, rtype) // job.resources[rtype]
                     for rtype in rtypes if job.resources.get(rtype, 0) > 0)
         self._restart_penalty = 0.1
+        # Lower bound each job by min_replicas from job spec
+        self._min_replicas = np.zeros(base_state.shape, dtype=np.int)
+        for j, job in enumerate(jobs):
+            min_replicas = self._jobs[j].min_replicas
+            for n, node in enumerate(nodes):
+                self._min_replicas[j, n] = min(min_replicas,
+                                               self._max_replicas[j, n])
+                min_replicas -= self._min_replicas[j, n]
         super().__init__(n_var=self._base_state.size, n_obj=2, type_var=np.int)
+
+    def _get_avail_resource(self, node_idx, node, rtype):
+        # Cutoff node's maximum alloweable resources by amount already used by
+        # non-preemptible jobs.
+        resource = node.resources.get(rtype, 0)
+        allocs = self._base_state[self._nonpreemptible_indices]
+        for job_idx, alloc in enumerate(allocs):
+            resource -= alloc[node_idx] * \
+                self._jobs[self._nonpreemptible_indices[job_idx]] \
+                .resources.get(rtype, 0)
+        assert resource >= 0
+        return resource
 
     def get_cluster_utilities(self, states):
         """
@@ -327,8 +346,13 @@ class Problem(pymoo.model.problem.Problem):
         prob = 1.0 / np.where(states > 0, num_nonzero, num_zero)
         prob = prob.reshape(states.shape)
         m = np.random.random(states.shape) < prob
-        r = np.random.randint(np.iinfo(np.int16).max, size=states.shape)
+        r = np.random.randint(self._min_replicas, self._max_replicas + 1,
+                              size=states.shape)
         states = (states + m * r) % (self._max_replicas + 1)
+        # Assign minimum allowable replicas for jobs
+        min_replicas_idx = [i for i, j in enumerate(self._jobs)
+                            if j.min_replicas > 0]
+        states[:, min_replicas_idx] = self._min_replicas[min_replicas_idx]
         return states.reshape(states.shape[0], -1)
 
     def _repair(self, pop, **kwargs):
