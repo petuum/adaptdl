@@ -132,9 +132,16 @@ class PolluxPolicy(object):
         def ispinned(key, job):
             return not job.preemptible and base_allocations.get(key, []) != []
 
-        # Sort jobs in FIFO order. Push pinned jobs to front.
+        # We sort the jobs based on min_replicas and then creation_timestamp,
+        # so jobs wanting lower or no min_replicas guarantees are prioritized
+        # ahead of those wanting higher min_replicas guarantees to avoid
+        # underutilization of cluster. Within a same min_replicas value, they
+        # will follow FIFO order. Pinned jobs are aggregated at front because
+        # they already have an allocation and won't affect allocations of the
+        # rest of the jobs.
         jobs = OrderedDict(sorted(jobs.items(),
                                   key=lambda kv: (not ispinned(kv[0], kv[1]),
+                                                  kv[1].min_replicas,
                                                   kv[1].creation_timestamp)))
         nodes = OrderedDict(  # Sort preemptible nodes last.
             sorted(nodes.items(), key=lambda kv: (kv[1].preemptible, kv[0])))
@@ -363,8 +370,6 @@ class Problem(pymoo.model.problem.Problem):
         distributed = np.count_nonzero(states, axis=2) > 1
         mask = states * np.expand_dims(distributed, axis=-1) > 0
         mask = mask.cumsum(axis=1) > 1
-        np_indices = [i for i, j in enumerate(self._jobs) if not j.preemptible]
-        mask[:, np_indices] = False
         states[mask] = 0
         # Enforce no more than max replicas per job.
         # max_replicas: (num_jobs x 1)
