@@ -127,15 +127,14 @@ class PolluxPolicy(object):
                 in the form of a list of a node key for each replica.
         """
 
-        # Consider job nonpreemptible only if it already has an allocation
-        def isnonpreemptible(key, job):
-            return not job.preemptible and \
-                base_allocations.get(key, []) != []
+        # A job is considered pinned if it's non-preemptible *and* already has
+        # an allocation.
+        def ispinned(key, job):
+            return not job.preemptible and base_allocations.get(key, []) != []
 
-        # Sort jobs in FIFO order. Prioritize non-preemptible jobs
+        # Sort jobs in FIFO order. Push pinned jobs to front.
         jobs = OrderedDict(sorted(jobs.items(),
-                                  key=lambda kv: (not isnonpreemptible(kv[0],
-                                                  kv[1]),
+                                  key=lambda kv: (not ispinned(kv[0], kv[1]),
                                                   kv[1].creation_timestamp)))
         nodes = OrderedDict(  # Sort preemptible nodes last.
             sorted(nodes.items(), key=lambda kv: (kv[1].preemptible, kv[0])))
@@ -207,10 +206,9 @@ class Problem(pymoo.model.problem.Problem):
         self._jobs = jobs
         self._nodes = nodes
         self._base_state = base_state
-        self._nonpreemptible_indices = [i for i, job in
-                                        enumerate(self._jobs)
-                                        if not job.preemptible and
-                                        np.any(self._base_state[i])]
+        self._pinned_indices = [i for i, job in enumerate(self._jobs)
+                                if not job.preemptible and
+                                np.any(self._base_state[i])]
         # Find which resource types are requested by at least one job.
         rtypes = sorted(set.union(*[set(job.resources) for job in jobs]))
         # Build array of job resources: <num_jobs> x <num_rtypes>. Each entry
@@ -248,13 +246,13 @@ class Problem(pymoo.model.problem.Problem):
         super().__init__(n_var=self._base_state.size, n_obj=2, type_var=np.int)
 
     def _get_avail_resource(self, node_idx, node, rtype):
-        # Cutoff node's maximum alloweable resources by amount already used by
-        # non-preemptible jobs.
+        # Cutoff node's maximum allowable resources by amount already used by
+        # pinned jobs.
         resource = node.resources.get(rtype, 0)
-        allocs = self._base_state[self._nonpreemptible_indices]
+        allocs = self._base_state[self._pinned_indices]
         for job_idx, alloc in enumerate(allocs):
             resource -= alloc[node_idx] * \
-                self._jobs[self._nonpreemptible_indices[job_idx]] \
+                self._jobs[self._pinned_indices[job_idx]] \
                 .resources.get(rtype, 0)
         assert resource >= 0
         return resource
@@ -357,9 +355,9 @@ class Problem(pymoo.model.problem.Problem):
     def _repair(self, pop, **kwargs):
         states = pop.get("X")
         states = states.reshape(states.shape[0], *self._base_state.shape)
-        # Copy previous allocations for non-preemptible jobs
-        states[:, self._nonpreemptible_indices] = \
-            self._base_state[self._nonpreemptible_indices, :]
+        # Copy previous allocations for pinned jobs
+        states[:, self._pinned_indices] = \
+            self._base_state[self._pinned_indices, :]
         # Enforce at most one distributed job per node. Exclude all
         # nonpreemptible jobs.
         distributed = np.count_nonzero(states, axis=2) > 1
