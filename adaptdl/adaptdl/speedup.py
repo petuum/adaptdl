@@ -31,7 +31,7 @@ import scipy.stats
 # linearly with the total number of replicas.
 Params = collections.namedtuple("Params", [
     # T_compute ~ alpha_c + beta_c * local_bsz +
-    #             (alpha_a + beta_a * local_bsz) * grad_acc_steps
+    #             (alpha_a + beta_a * local_bsz) * accumulation_steps
     "alpha_c",  # Constant term of compute time
     "beta_c",   # Multiplicative factor of compute time
     # If inter-node: T_network ~ alpha_n + beta_n * replicas
@@ -182,36 +182,38 @@ class SpeedupFunction(object):
         self._mem_speedup[mem_indices] = speedup[ret_indices]
         self._mem_local_bsz[mem_indices] = local_bsz[ret_indices]
 
-        ret_local_bsz, ret_acc_steps = self._partition_local_bsz(ret_local_bsz)
+        ret_dataloader_bsz, ret_accumulation_steps = \
+            self._partition_local_bsz(ret_local_bsz)
 
         if isscalar:
             ret_speedup = ret_speedup.item()
-            ret_local_bsz = int(ret_local_bsz.item())
-            ret_acc_steps = int(ret_acc_steps.item())
+            ret_dataloader_bsz = int(ret_dataloader_bsz.item())
+            ret_accumulation_steps = int(ret_accumulation_steps.item())
         if return_local_bsz:
-            return (ret_speedup, (ret_local_bsz, ret_acc_steps))
+            return (ret_speedup, (ret_dataloader_bsz, ret_accumulation_steps))
         else:
             return ret_speedup
 
     def _partition_local_bsz(self, local_bsz):
         if (self._max_local_bsz is not None and
                 np.any(self._max_local_bsz < local_bsz)):
-            grad_acc_steps = np.maximum(
+            accumulation_steps = np.maximum(
                 np.floor(local_bsz / self._max_local_bsz),
                 1)
-            true_local_bsz = np.minimum(self._max_local_bsz,
-                                        np.ceil(local_bsz / grad_acc_steps))
-            return true_local_bsz.astype(int), grad_acc_steps.astype(int) - 1
+            dataloader_bsz = np.minimum(
+                self._max_local_bsz, np.ceil(local_bsz / accumulation_steps))
+            return (dataloader_bsz.astype(int),
+                    accumulation_steps.astype(int) - 1)
         else:
             return local_bsz, np.asarray([0])
 
     def _goodput(self, nodes, replicas, local_bsz):
-        local_bsz, grad_acc_steps = self._partition_local_bsz(local_bsz)
+        local_bsz, accumulation_steps = self._partition_local_bsz(local_bsz)
         log_pred_step_time, _, _, = \
             _predict_log(self._params, nodes, replicas,
-                         local_bsz, grad_acc_steps)
+                         local_bsz, accumulation_steps)
         var, norm = self._grad_params['var'], self._grad_params['norm']
-        global_bsz = replicas * local_bsz * (grad_acc_steps + 1)
+        global_bsz = replicas * local_bsz * (accumulation_steps + 1)
         gain = np.where(
             (var / global_bsz * self._init_batch_size + norm) == 0.0,
             1.0,
@@ -222,11 +224,11 @@ class SpeedupFunction(object):
         return self._params
 
 
-def fit(nodes, replicas, local_bsz, grad_acc_steps,
-        step_time, step_time_compute, grad_acc_time):
+def fit(nodes, replicas, local_bsz, accumulation_steps,
+        step_time, step_time_compute, accumulation_time):
     # Fit the performance model given step time and compute time measurements
     # for different configurations of nodes, replicas, local_bsz, and
-    # grad_acc_steps.
+    # accumulation_steps.
 
     # HACK: We want to use the original numpy module for calls from the
     # SpeedupFunction for performance reasons, but also need those functions to
@@ -240,7 +242,7 @@ def fit(nodes, replicas, local_bsz, grad_acc_steps,
     local_bsz = np.array(local_bsz)
     step_time = np.array(step_time)
     step_time_compute = np.array(step_time_compute)
-    grad_acc_time = np.array(grad_acc_time)
+    accumulation_time = np.array(accumulation_time)
 
     # Set initial params to reasonable values.
     params = [1e-1, 1e-2] * 3 + [1.0 + 1e-3]
@@ -264,8 +266,8 @@ def fit(nodes, replicas, local_bsz, grad_acc_steps,
         params[3] = upper[3] = lower[3]
         params[5] = upper[5] = lower[5]
     bounds = scipy.optimize.Bounds(lower, upper, keep_feasible=True)
-    args = (nodes, replicas, local_bsz, grad_acc_steps,
-            step_time, step_time_compute, grad_acc_time)
+    args = (nodes, replicas, local_bsz, accumulation_steps,
+            step_time, step_time_compute, accumulation_time)
     # FIXME: need to handle optimization failures and propagate to the Trainer.
     grad_fn = autograd.grad(_obj_fn)
     result = scipy.optimize.minimize(_obj_fn, params, args=args,
@@ -275,7 +277,7 @@ def fit(nodes, replicas, local_bsz, grad_acc_steps,
     return Params(*params)
 
 
-def _predict_log(params, nodes, replicas, local_bsz, grad_acc_steps):
+def _predict_log(params, nodes, replicas, local_bsz, accumulation_steps):
     params = Params(*params)
     step_time_compute = _predict_compute(params, local_bsz)
     step_time_network = _predict_network(params, nodes, replicas)
@@ -285,7 +287,7 @@ def _predict_log(params, nodes, replicas, local_bsz, grad_acc_steps):
     # in autograd and optimization.
     step_time = np.log(
         ((step_time_compute) ** gamma + step_time_network ** gamma) **
-        (1 / gamma) + step_time_accumulation * grad_acc_steps)
+        (1 / gamma) + step_time_accumulation * accumulation_steps)
     return (
         step_time,
         step_time_compute,
@@ -319,14 +321,14 @@ def _rmse(pred, true):
     return np.sqrt(((pred - true) ** 2).mean())
 
 
-def _obj_fn(params, nodes, replicas, local_bsz, grad_acc_steps,
-            step_time, step_time_compute, grad_acc_time):
+def _obj_fn(params, nodes, replicas, local_bsz, accumulation_steps,
+            step_time, step_time_compute, accumulation_time):
     params = Params(*params)
     log_pred_step_time, pred_step_time_compute, _ = \
-        _predict_log(params, nodes, replicas, local_bsz, grad_acc_steps)
+        _predict_log(params, nodes, replicas, local_bsz, accumulation_steps)
     # Error of total step time predictions.
     err1 = _rmse(log_pred_step_time,
-                 np.log(step_time + grad_acc_time * grad_acc_steps))
+                 np.log(step_time + accumulation_time * accumulation_steps))
     # Error of compute time predictions.
     err2 = _rmse(np.log(pred_step_time_compute), np.log(step_time_compute))
     # L2 regularization towards a smaller gamma, because it's easier to

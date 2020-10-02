@@ -124,7 +124,7 @@ def test_optimization_3():
                                                  atol=0.01))
 
 
-def test_grad_acc_optimization_1():
+def test_gradient_accumulation_optimization_1():
 
     def rosenbrock(tensor):
         x, y = tensor
@@ -137,7 +137,7 @@ def test_grad_acc_optimization_1():
     schedule = torch.optim.lr_scheduler.MultiStepLR(sgd, [1000])
     obj = adascale.AdaScale(sgd, scale=6.0, num_replicas=1,
                             patch_optimizer=True)
-    obj.set_grad_acc_steps(6)
+    obj.set_accumulation_steps(6)
     i = 0.0
     j = 0
     while i < 100000 and not params.allclose(torch.tensor([1.0, 1.0]),
@@ -153,7 +153,7 @@ def test_grad_acc_optimization_1():
     assert(params.allclose(torch.tensor([1.0, 1.0]), atol=0.01))
 
 
-def test_grad_acc_optimization_2():
+def test_gradient_accumulation_optimization_2():
 
     def rosenbrock_noisy(tensor):
         x, y = tensor
@@ -167,7 +167,7 @@ def test_grad_acc_optimization_2():
     schedule = torch.optim.lr_scheduler.MultiStepLR(sgd, [1000])
     obj = adascale.AdaScale(sgd, scale=6.0, num_replicas=1,
                             patch_optimizer=True)
-    obj.set_grad_acc_steps(6)
+    obj.set_accumulation_steps(6)
     i = 0.0
     j = 0
     while i < 100000 and not params.allclose(torch.tensor([1.0, 1.0]),

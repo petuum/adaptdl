@@ -141,7 +141,7 @@ class AdaptiveDataLoaderHelper(object):
         self._max_batch_size = None
         self._local_bsz_bounds = None
         self._current_local_bsz = None
-        self._grad_acc_steps = None
+        self._accumulation_steps = None
         # Create and load state.
         self._state = _AdaptiveDataLoaderState()
         adaptdl.checkpoint.load_state(self._state)
@@ -206,12 +206,12 @@ class AdaptiveDataLoaderHelper(object):
         return self._current_local_bsz
 
     @property
-    def grad_acc_steps(self):
+    def accumulation_steps(self):
         """
         The number of batches returned by the dataloader before a
         step is taken.
         """
-        return self._grad_acc_steps
+        return self._accumulation_steps
 
     @property
     def is_accumulation_step(self):
@@ -264,17 +264,17 @@ class AdaptiveDataLoaderHelper(object):
             # No autoscale batch size, just divide batch size evenly.
             self._current_local_bsz = math.ceil(self.batch_size /
                                                 adaptdl.env.num_replicas())
-            self._grad_acc_steps = 0
+            self._accumulation_steps = 0
         else:
             # Autoscale batch size, compute on rank 0 and broadcast.
             speedup_fn = get_speedup_fn()
-            _, (local_bsz, grad_acc_steps) = speedup_fn(
+            _, (local_bsz, accumulation_steps) = speedup_fn(
                 adaptdl.env.num_nodes(),
                 adaptdl.env.num_replicas(),
                 return_local_bsz=True)
-            (self._current_local_bsz, self._grad_acc_steps) = \
-                adaptdl.collective.broadcast((local_bsz, grad_acc_steps))
-        self.is_accumulation_step = self._grad_acc_steps != 0
+            (self._current_local_bsz, self._accumulation_steps) = \
+                adaptdl.collective.broadcast((local_bsz, accumulation_steps))
+        self.is_accumulation_step = self._accumulation_steps != 0
         return self.current_local_bsz
 
     @property
@@ -296,7 +296,7 @@ class AdaptiveDataLoaderHelper(object):
             exit(143)  # Standard exit code response to SIGTERM.
         self.future_exit = adaptdl.collective.allreduce_async(
                     get_exit_flag(), lambda a, b: a or b)
-        profile_step_start(self.current_local_bsz, self.grad_acc_steps - 1)
+        profile_step_start(self.current_local_bsz, self.accumulation_steps - 1)
         yield
         # Don't profile the first batch since it may be slower.
         if self.training and self.current_index > self.current_batch_size:
@@ -324,7 +324,7 @@ class AdaptiveDataLoaderHelper(object):
 
     @property
     def current_batch_size(self):
-        return (self.current_local_bsz * (self.grad_acc_steps + 1) *
+        return (self.current_local_bsz * (self.accumulation_steps + 1) *
                 adaptdl.env.num_replicas())
 
     def skipdone(self):
@@ -373,12 +373,12 @@ class AdaptiveDataLoaderMixin(object):
         return self._elastic.current_local_bsz
 
     @property
-    def grad_acc_steps(self):
+    def accumulation_steps(self):
         """
         The number of batches returned by the dataloader before a
         step is taken.
         """
-        return self._elastic.grad_acc_steps
+        return self._elastic.accumulation_steps
 
     @property
     def current_batch_size(self):
@@ -452,7 +452,8 @@ class AdaptiveDataLoader(DataLoader, AdaptiveDataLoaderMixin):
                                       / self.batch_sampler.batch_size)
                 iterations = int(
                     base_iterations -
-                    base_iterations % int(self._elastic._grad_acc_steps + 1))
+                    base_iterations %
+                    int(self._elastic._accumulation_steps + 1))
                 for idx, batch in enumerate(super().__iter__()):
                     if idx > iterations:
                         break

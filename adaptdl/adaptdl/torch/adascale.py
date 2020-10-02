@@ -75,8 +75,8 @@ class AdaScale(object):
         self._prev_full_grad = None
         self._norms = None
         self._made_step = False
-        self._grad_acc_steps = 1
-        self._current_grad_acc_step = 0
+        self._accumulation_steps = 1
+        self._current_accumulation_step = 0
 
         self._optimizer.state.setdefault("adascale", {
             "norm": np.zeros(self._num_params),
@@ -132,24 +132,24 @@ class AdaScale(object):
         self._scale = scale
         self._state['replicas'] = self._num_replicas
 
-    def set_grad_acc_steps(self, grad_acc_steps):
+    def set_accumulation_steps(self, accumulation_steps):
         """
         Set the number of batches sampled before performing an optimizer
         step for gradient accumulation. Also resets the current step number
         for gradient accumulation to 0
 
         Arguments:
-            grad_acc_steps (int): new number of batches sampled before
+            accumulation_steps (int): new number of batches sampled before
                                   stepping.
         """
-        grad_acc_steps = grad_acc_steps + 1
-        if grad_acc_steps != self._grad_acc_steps:
-            self._current_grad_acc_step = 0
-            self._grad_acc_steps = int(grad_acc_steps)
+        accumulation_steps = accumulation_steps + 1
+        if accumulation_steps != self._accumulation_steps:
+            self._current_accumulation_step = 0
+            self._accumulation_steps = int(accumulation_steps)
             self._norms = None
 
     def is_accumulation_step(self):
-        return self._current_grad_acc_step != self._grad_acc_steps - 1
+        return self._current_accumulation_step != self._accumulation_steps - 1
 
     def norm_avg(self):
         """
@@ -206,9 +206,10 @@ class AdaScale(object):
         # This method should be invoked once for each parameter during the
         # backward pass, before gradients are synchronized between replicas.
         if self._norms is None:
-            self._norms = torch.zeros((self._grad_acc_steps, self._num_params),
+            self._norms = torch.zeros((self._accumulation_steps,
+                                       self._num_params),
                                       device=grad[0].device)
-        self._norms[self._current_grad_acc_step][idx] = \
+        self._norms[self._current_accumulation_step][idx] = \
             grad.pow(2).sum()
         self._final_callback_queued = False
         Variable._execution_engine.queue_callback(self._queue_callback)
@@ -231,7 +232,7 @@ class AdaScale(object):
         # gradients have been synchronized between each replica.
         self._final_callback_queued = False
         grad = []
-        total_steps = self._grad_acc_steps
+        total_steps = self._accumulation_steps
         for group in self._optimizer.param_groups:
             grad.extend([p.grad.detach().clone() / total_steps
                          for p in group["params"]])
@@ -299,11 +300,11 @@ class AdaScale(object):
             kwargs: Keyword arguments passed to ``optimizer.step``.
         """
         if (self.is_accumulation_step()):
-            self._current_grad_acc_step += 1
+            self._current_accumulation_step += 1
             self._made_step = False
             return
 
-        self._current_grad_acc_step = 0
+        self._current_accumulation_step = 0
         self._made_step = True
         initial_lr = [pg["lr"] for pg in self._optimizer.param_groups]
         offset = 0
@@ -316,7 +317,7 @@ class AdaScale(object):
             offset += size
         for group in self._optimizer.param_groups:
             for p in group["params"]:
-                p.grad /= self._grad_acc_steps
+                p.grad /= self._accumulation_steps
         self._optimizer_step(*args, **kwargs)
         for lr, param_group in zip(initial_lr, self._optimizer.param_groups):
             param_group["lr"] = lr

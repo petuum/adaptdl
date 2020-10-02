@@ -71,9 +71,9 @@ class AdaptiveDataParallel(DistributedDataParallel):
         # Do not do gradient synchronization during gradient accumulation
         # Otherwise, exactly the same as DistributedDataParallel's forward
         dataloader = current_dataloader()
-        grad_acc_steps = dataloader.grad_acc_steps
+        accumulation_steps = dataloader.accumulation_steps
         # TODO: move this to the dataloader.__iter__
-        self.adascale.set_grad_acc_steps(grad_acc_steps)
+        self.adascale.set_accumulation_steps(accumulation_steps)
         if (self.adascale.is_accumulation_step()):
             with super().no_sync():
                 dataloader.is_accumulation_step = True
