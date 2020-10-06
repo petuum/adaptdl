@@ -150,9 +150,19 @@ class SpeedupFunction(object):
                 max_local_bsz = np.minimum(self._max_local_bsz, max_local_bsz)
             if self._min_local_bsz is not None:
                 min_local_bsz = np.maximum(self._min_local_bsz, min_local_bsz)
+            if self._gradient_accumulation:
+                original_min_local_bsz = min_local_bsz
+                min_local_bsz = np.where(replicas == 1,
+                                         self._max_local_bsz,
+                                         min_local_bsz)
             assert np.all(max_local_bsz >= min_local_bsz)
             # Sample a bunch of potential local_bsz values
             local_bsz = np.geomspace(min_local_bsz, max_local_bsz, num=100)
+            if self._gradient_accumulation:
+                local_bsz = np.append(
+                    np.broadcast_to(original_min_local_bsz,
+                                    (1, min_local_bsz.size)),
+                    local_bsz, axis=0)
             # Should get broadcast to (num_samples, replicas.size).
             goodput = self._goodput(nodes, replicas, local_bsz)
             local_bsz = local_bsz[np.argmax(goodput, axis=0),
@@ -198,7 +208,7 @@ class SpeedupFunction(object):
         if (self._max_local_bsz is not None and
                 np.any(self._max_local_bsz < local_bsz)):
             accumulation_steps = np.maximum(
-                np.floor(local_bsz / self._max_local_bsz),
+                np.ceil(local_bsz / self._max_local_bsz),
                 1)
             dataloader_bsz = np.minimum(
                 self._max_local_bsz, np.ceil(local_bsz / accumulation_steps))
@@ -251,8 +261,10 @@ def fit(nodes, replicas, local_bsz, accumulation_steps,
     lower = [1e-8, 1e-8] * 3 + [1.0]
     upper = [np.inf, np.inf] * 3 + [10.0]
     if len(np.unique(local_bsz)) == 1:
-        # Fix alpha_c if only observed a single local batch size.
-        params[0] = upper[0] = lower[0]
+        # Fix beta_c if only observed a single local batch size.
+        # This makes the speedup model optimistic with respect to 
+        # scaling up the batchsize
+        params[1] = upper[1] = lower[1]
     if not any(nodes > 1):
         # Fix alpha_n and beta_n if no multi-node observations.
         params[2] = upper[2] = lower[2]

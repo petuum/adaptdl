@@ -209,6 +209,7 @@ class AdaScale(object):
             self._norms = torch.zeros((self._accumulation_steps,
                                        self._num_params),
                                       device=grad[0].device)
+        grad /= self._accumulation_steps
         self._norms[self._current_accumulation_step][idx] = \
             grad.pow(2).sum()
         self._final_callback_queued = False
@@ -315,9 +316,6 @@ class AdaScale(object):
             gain = (grad_var + grad_sqr) / (grad_var / self.scale + grad_sqr)
             param_group["lr"] = gain * param_group["lr"]
             offset += size
-        for group in self._optimizer.param_groups:
-            for p in group["params"]:
-                p.grad /= self._accumulation_steps
         self._optimizer_step(*args, **kwargs)
         for lr, param_group in zip(initial_lr, self._optimizer.param_groups):
             param_group["lr"] = lr
