@@ -262,7 +262,7 @@ def fit(nodes, replicas, local_bsz, accumulation_steps,
     upper = [np.inf, np.inf] * 3 + [10.0]
     if len(np.unique(local_bsz)) == 1:
         # Fix beta_c if only observed a single local batch size.
-        # This makes the speedup model optimistic with respect to 
+        # This makes the speedup model optimistic with respect to
         # scaling up the batchsize
         params[1] = upper[1] = lower[1]
     if not any(nodes > 1):
