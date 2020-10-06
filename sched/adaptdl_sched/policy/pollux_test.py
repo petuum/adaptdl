@@ -67,3 +67,35 @@ def test_optimize(num_nodes, total_devices=16):
         for node_key, count in node_count.items():
             assert count <= nodes[node_key].resources["nvidia.com/gpu"]
             assert count <= nodes[node_key].resources["pods"]
+
+
+def test_unusable_node():
+    # Test where one of the nodes can't be used due to one resource type.
+    nodes = {
+        0: NodeInfo({"gpu": 1, "cpu": 500, "pods": 32}, preemptible=False),
+        1: NodeInfo({"gpu": 1, "cpu": 8000, "pods": 32}, preemptible=False),
+        2: NodeInfo({"gpu": 1, "cpu": 8000, "pods": 32}, preemptible=False),
+    }
+    template = NodeInfo({"gpu": 1, "cpu": 8000, "pods": 32}, preemptible=True)
+    params = Params(0.121, 0.00568, 0.0236, 0.00634, 0.0118, 0.00317, 1.14)
+    grad_params = {"norm": 0.00136, "var": 0.000502}
+    speedup_fn = SpeedupFunction(
+            params, grad_params, init_batch_size=128, max_batch_size=1280,
+            local_bsz_bounds=(64, 256), elastic_bsz=True)
+    now = datetime.now()
+    jobs = {
+        0: JobInfo({"gpu": 1, "cpu": 1000, "pods": 1}, speedup_fn,
+                   now + timedelta(minutes=0), max_replicas=1),
+        1: JobInfo({"gpu": 1, "cpu": 1000, "pods": 1}, speedup_fn,
+                   now + timedelta(minutes=1), max_replicas=1),
+        2: JobInfo({"gpu": 1, "cpu": 1000, "pods": 1}, speedup_fn,
+                   now + timedelta(minutes=2), max_replicas=1),
+    }
+    policy = PolluxPolicy()
+    allocations, desired_nodes = policy.optimize(jobs, nodes, {}, template)
+    # Check that more nodes are asked for.
+    assert desired_nodes > 3
+    # Check no job was allocated more than 1 replica.
+    assert max(len(alloc) for alloc in allocations.values()) == 1
+    # Check two jobs were allocated.
+    assert sum(len(alloc) for alloc in allocations.values()) == 2

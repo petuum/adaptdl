@@ -42,7 +42,7 @@ Launch the AdaptDL TensorBoard deployment with
 
 ::
 
-   adaptdl tensorboard create tensorboard-deployment --nodeport
+   adaptdl tensorboard create my-tensorboard
 
 This will create a deployment running tensorboard and a service to
 expose tensorboard’s port.
@@ -51,45 +51,26 @@ Attaching TensorBoard
 ---------------------
 
 When creating your AdaptDL job via the adaptdl cli, use the flag
-``--tensorboard tensorboard-deployment``. This will attach the necessary
+``--tensorboard my-tensorboard``. This will attach the necessary
 persistent volume claims and environment variables to your AdaptDL job.
 
 For example, to launch the Tensorboard MNIST example from above, run the following in your command line.
 
 ::
 
-    adaptdl submit . --tensorboard tensorboard-deployment -d tutorial/Dockerfile -f tutorial/adaptdljob.yaml
+    adaptdl submit . --tensorboard my-tensorboard -d tutorial/Dockerfile -f tutorial/adaptdljob.yaml
 
-Accessing the TensorBoard GUI
------------------------------
+Accessing TensorBoard
+---------------------
 
-Using an external IP and the nodeport service
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-If you have an external IP address for your cluster, you may use the nodeport service
-created in part 2 by the ``--nodeport`` flag. To access this, run
+To access the GUI of your TensorBoard instance running in Kubernetes, you can
+start a proxy to it locally:
 
 ::
 
-   kubectl describe services | grep tensorboard
+    $ adaptdl tensorboard proxy my-tensorboard -p 8080
+    Proxying to TensorBoard instance my-tensorboard at http://localhost:8080
 
-Once you have located the tensorboard service, look for the ``Port`` parameter. Tensorboard
-will be available on ``http://<external-ip>:<port>``. Follow `this guide <https://kubernetes.io/docs/tutorials/stateless-application/expose-external-ip-address/>`__
-for more detailed information.
-
-Using port-forwarding
-^^^^^^^^^^^^^^^^^^^^^
-
-If you do not have any external IP addresses for your cluster, you may
-use ``kubectl port-forward`` to gain access to your TensorBoard UI.
-
-The deployment created in part 2 of this guide has a single tensorboard
-pod, with the name in the format of
-``adaptdl-tensorboard-tensorboard-deployment-<some-unique-id>``. Find out the
-exact name of the pod with
-``kubectl get pods | grep tensorboard-deployment``.
-
-Once you have the name of your pod, run
-``kubectl port-forward <pod-name> 6006:6006``. This will
-start a long running process which will serve the TensorBoard UI on
-``http://localhost:6006``
+The proxy will keep running until you manually stop it by sending an interrupt.
+Now, you can view your TensorBoard instance by pointing your favorite browser
+to ``http://localhost:8080``.

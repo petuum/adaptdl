@@ -19,7 +19,7 @@ The AdaptDL scheduler can be installed in just one command using Helm:
 
 .. code-block::
 
-   $ helm install adaptdl adaptdl --repo https://github.com/petuum/adaptdl/raw/helm-repo \
+   $ helm install adaptdl adaptdl-sched --repo https://github.com/petuum/adaptdl/raw/helm-repo \
      --namespace adaptdl --create-namespace --set docker-registry.enabled=true
 
 The above command installs Kubernetes deployments for the AdaptDL scheduler
