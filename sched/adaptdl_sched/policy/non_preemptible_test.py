@@ -62,11 +62,11 @@ def test_optimize(num_nodes, total_devices=16):
         for i in PREEMPTIBLE_IDXS:
             creation_timestamp = now + timedelta(minutes=i),
             jobs[i] = JobInfo(job_resources, speedup_fn, creation_timestamp,
-                              max_replicas=8)
+                              min_replicas=0, max_replicas=8)
         for i in NON_PREEMPTIBLE_IDXS:
             creation_timestamp = now + timedelta(minutes=i),
             jobs[i] = JobInfo(job_resources, speedup_fn, creation_timestamp,
-                              max_replicas=4, min_replicas=2,
+                              min_replicas=2, max_replicas=4,
                               preemptible=False)
         start = time.time()
         assert len(jobs) > 0

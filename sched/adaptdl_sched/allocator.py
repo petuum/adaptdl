@@ -157,8 +157,8 @@ class AdaptDLAllocator(object):
             namespace = job["metadata"]["namespace"]
             name = job["metadata"]["name"]
             job_infos[(namespace, name)] = JobInfo(
-                    resources, speedup_fn, creation_ts, max_replicas,
-                    min_replicas, preemptible)
+                    resources, speedup_fn, creation_ts, min_replicas,
+                    max_replicas, preemptible)
         return job_infos
 
     def _allocate(self, jobs, nodes, prev_allocations, node_template):

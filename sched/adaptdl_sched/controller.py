@@ -19,6 +19,7 @@ import copy
 import json
 import kubernetes_asyncio as kubernetes
 import logging
+import sys
 
 import adaptdl_sched.k8s_templates as templates
 import adaptdl_sched.config as config
@@ -35,10 +36,10 @@ LOG.setLevel(logging.INFO)
 # Prometheus metrics
 METRICS_KWARGS = dict(namespace="adaptdl", subsystem="sched")
 JOB_SUBMISSION_COUNT = Counter(
-        "job_submission_count", "Number of submitted jobs", **METRICS_KWARGS)
+    "job_submission_count", "Number of submitted jobs", **METRICS_KWARGS)
 JOB_COMPLETION_TIME = Summary(
-        "job_completion_time", "Duration of completed jobs",
-        labelnames=["status"], **METRICS_KWARGS)
+    "job_completion_time", "Duration of completed jobs",
+    labelnames=["status"], **METRICS_KWARGS)
 
 
 class AdaptDLController(object):
@@ -112,13 +113,14 @@ class AdaptDLController(object):
         job["status"] = collections.ChainMap({}, job["status"])
         phase = job["status"]["phase"]
         replicas = job["status"].get("replicas", 0)
-        if (completion_status := self._detect_completion(pods)):
+        preemptible = job["spec"].get("preemptible", True)
+        if (completion_status := self._detect_completion(pods, preemptible)):
             # Job is already completed.
             job["status"].update(completion_status)
             job["status"].setdefault("completionTimestamp", current_ts)
             job["status"]["allocation"] = allocation = []
             await self._delete_pods(  # Keep failed pods for debug purposes.
-                    [pod for pod in pods if pod.status.phase != "Failed"])
+                [pod for pod in pods if pod.status.phase != "Failed"])
         elif phase == "Pending":
             if allocation and not pods:
                 # Start the next group of pods.
@@ -212,6 +214,14 @@ class AdaptDLController(object):
             # Assuming empty status section means this is a newly created job.
             JOB_SUBMISSION_COUNT.inc()
             patch_status = {"phase": "Pending"}
+            # if maxReplicas is provided, it should be >= minReplicas
+            if job["spec"].get("maxReplicas", sys.maxsize) < \
+                    job["spec"].get("minReplicas", 0):
+                patch_status["phase"] = "Failed"
+                patch_status["reason"] = "Invalid"
+                patch_status["message"] = "maxReplicas should be greater " \
+                                          "or equal to minReplicas in the " \
+                                          "job Spec"
             # Validate pod template using a dry run.
             template = {
                 "metadata": {"name": name, "namespace": namespace},
@@ -264,7 +274,7 @@ class AdaptDLController(object):
                                           {"status": patch_status})
         return job
 
-    def _detect_completion(self, pods):
+    def _detect_completion(self, pods, preemptible):
         if not pods:
             return {}
 
@@ -303,7 +313,8 @@ class AdaptDLController(object):
                 # we might be temporarily out of pods on this node
                 LOG.warning(f"Pod {pod.metadata.name} is {pod.status.reason} "
                             f"on {pod.spec.node_name}")
-            elif pod.metadata.deletion_timestamp is not None or any143(pod):
+            elif preemptible and (pod.metadata.deletion_timestamp is not None
+                                  or any143(pod)):
                 # This pod was intentionally terminated.
                 LOG.warning(f"Pod {pod.metadata.name} terminated")
             else:

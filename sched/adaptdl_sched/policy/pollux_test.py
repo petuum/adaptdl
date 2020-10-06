@@ -41,9 +41,10 @@ def test_optimize(num_nodes, total_devices=16):
     for i in range(16):
         creation_timestamp = now + timedelta(minutes=len(jobs)),
         max_replicas = 8
+        min_replicas = 0
         key = len(jobs)
         jobs[key] = JobInfo(job_resources, speedup_fn, creation_timestamp,
-                            max_replicas)
+                            min_replicas, max_replicas)
     # Add a few nodes.
     node_resources = {"nvidia.com/gpu": num_devices, "pods": 32}
     nodes = {i: NodeInfo(node_resources, preemptible=False)
