@@ -88,12 +88,12 @@ if device == 'cuda':
     cudnn.benchmark = True
 
 criterion = nn.CrossEntropyLoss()
-optimizer = optim.SGD([{"params": [param]} for param in net.parameters()],
-                      lr=args.lr, momentum=0.9, weight_decay=5e-4)
+#optimizer = optim.SGD([{"params": [param]} for param in net.parameters()],
+#                      lr=args.lr, momentum=0.9, weight_decay=5e-4)
+optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
 lr_scheduler = MultiStepLR(optimizer, [30, 45], 0.1)
 
-adaptdl.torch.init_process_group("nccl" if torch.cuda.is_available()
-                                     else "gloo")
+adaptdl.torch.init_process_group("nccl" if torch.cuda.is_available() else "gloo")
 net = adl.AdaptiveDataParallel(net, optimizer, lr_scheduler)
 
 # Training
@@ -114,6 +114,8 @@ def train(epoch):
         stats["total"] += targets.size(0)
         stats["correct"] += predicted.eq(targets).sum().item()
 
+        writer.add_scalar("Throughput/Norm", optimizer.state["adascale"]["norm_avg"].sum(), epoch)
+        writer.add_scalar("Throughput/Var", optimizer.state["adascale"]["var_avg"].sum(), epoch)
         writer.add_scalar("Throughput/Gain", net.gain, epoch)
         writer.add_scalar("Throughput/Global_Batchsize",
                           trainloader.current_batch_size, epoch)
