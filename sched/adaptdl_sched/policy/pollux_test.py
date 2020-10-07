@@ -83,13 +83,14 @@ def test_unusable_node():
             params, grad_params, init_batch_size=128, max_batch_size=1280,
             local_bsz_bounds=(64, 256), elastic_bsz=True)
     now = datetime.now()
+    min_replicas = 0
     jobs = {
         0: JobInfo({"gpu": 1, "cpu": 1000, "pods": 1}, speedup_fn,
-                   now + timedelta(minutes=0), max_replicas=1),
+                   now + timedelta(minutes=0), min_replicas, max_replicas=1),
         1: JobInfo({"gpu": 1, "cpu": 1000, "pods": 1}, speedup_fn,
-                   now + timedelta(minutes=1), max_replicas=1),
+                   now + timedelta(minutes=1), min_replicas, max_replicas=1),
         2: JobInfo({"gpu": 1, "cpu": 1000, "pods": 1}, speedup_fn,
-                   now + timedelta(minutes=2), max_replicas=1),
+                   now + timedelta(minutes=2), min_replicas, max_replicas=1),
     }
     policy = PolluxPolicy()
     allocations, desired_nodes = policy.optimize(jobs, nodes, {}, template)
