@@ -352,10 +352,12 @@ class Problem(pymoo.model.problem.Problem):
         r = np.random.randint(self._min_replicas, self._max_replicas + 1,
                               size=states.shape)
         states = (states + m * r) % (self._max_replicas + 1)
-        # Assign minimum allowable replicas for jobs
+        # We need at least min_replicas for jobs with min_replicas > 0
         min_replicas_idx = [i for i, j in enumerate(self._jobs)
                             if j.min_replicas > 0]
-        states[:, min_replicas_idx] = self._min_replicas[min_replicas_idx]
+        states[:, min_replicas_idx] = np.maximum(
+                                          states[:, min_replicas_idx],
+                                          self._min_replicas[min_replicas_idx])
         return states.reshape(states.shape[0], -1)
 
     def _repair(self, pop, **kwargs):
