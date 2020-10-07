@@ -36,7 +36,7 @@ spec:
       - name: main
         command:
         - python3
-        - /root/examples/pytorch-cifar/main-min-replicas.py
+        - /root/examples/pytorch-cifar/main.py
         - --model=ResNet18
         - --bs=128
         - --lr=0.1
