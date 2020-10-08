@@ -48,6 +48,11 @@ spec:
             maxReplicas:
               type: integer
               minimum: 1
+            minReplicas:
+              type: integer
+              minimum: 0
+            preemptible:
+              type: boolean
             template:
               type: object
           required: ["template"]

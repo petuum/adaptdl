@@ -15,6 +15,8 @@
 
 import pytest
 import time
+import random
+import copy
 
 from collections import Counter
 from datetime import datetime, timedelta
@@ -23,11 +25,19 @@ from adaptdl_sched.policy.utils import JobInfo, NodeInfo
 from adaptdl.speedup import Params, SpeedupFunction
 
 
-@pytest.mark.parametrize("num_nodes", [1, 2, 4, 8, 16])
+@pytest.mark.parametrize("num_nodes", [1, 2, 4, 8])
 def test_optimize(num_nodes, total_devices=16):
+    # Globals
+    N_JOBS = 10
+    JOBS = list(range(N_JOBS))
+    random.shuffle(JOBS)
+
+    PREEMPTIBLE_IDXS = JOBS[:len(JOBS)//2]
+    NON_PREEMPTIBLE_IDXS = JOBS[len(JOBS)//2:]
+
     assert total_devices % num_nodes == 0
     num_devices = total_devices // num_nodes
-    print("{}x{} nodes:".format(num_nodes, num_devices))
+    print(f"{num_nodes}x{num_devices} nodes:")
     # Make up a realistic speedup function.
     params = Params(0.121, 0.00568, 0.0236, 0.00634, 0.0118, 0.00317, 1.14)
     grad_params = {"norm": 0.00136, "var": 0.000502}
@@ -35,68 +45,58 @@ def test_optimize(num_nodes, total_devices=16):
             params, grad_params, init_batch_size=128, max_batch_size=1280,
             local_bsz_bounds=(64, 256), elastic_bsz=True)
     now = datetime.now()
-    jobs = {}
-    # Add a few jobs.
+    # Add a node template.
+    policy = PolluxPolicy()
     job_resources = {"nvidia.com/gpu": 1, "pods": 1}
-    for i in range(16):
-        creation_timestamp = now + timedelta(minutes=len(jobs)),
-        max_replicas = 8
-        min_replicas = 0
-        key = len(jobs)
-        jobs[key] = JobInfo(job_resources, speedup_fn, creation_timestamp,
-                            min_replicas, max_replicas)
     # Add a few nodes.
     node_resources = {"nvidia.com/gpu": num_devices, "pods": 32}
     nodes = {i: NodeInfo(node_resources, preemptible=False)
              for i in range(num_nodes)}
-    # Add a node template.
     node_template = NodeInfo(node_resources, preemptible=True)
-    policy = PolluxPolicy()
-    prev_allocs = {}
-    for i in range(3):
+
+    # Empty allocations
+    prev_allocs = {i: [] for i in JOBS}
+    for cycle in range(3):
+        # Start allocation cycle
+        jobs = {}
+        for i in PREEMPTIBLE_IDXS:
+            creation_timestamp = now + timedelta(minutes=i),
+            jobs[i] = JobInfo(job_resources, speedup_fn, creation_timestamp,
+                              min_replicas=0, max_replicas=8)
+        for i in NON_PREEMPTIBLE_IDXS:
+            creation_timestamp = now + timedelta(minutes=i),
+            jobs[i] = JobInfo(job_resources, speedup_fn, creation_timestamp,
+                              min_replicas=2, max_replicas=4,
+                              preemptible=False)
         start = time.time()
+        assert len(jobs) > 0
         allocations, desired_nodes = \
             policy.optimize(jobs, nodes, prev_allocs, node_template)
         duration = time.time() - start
-        print("optimize {}x ({}s sec):".format(i + 1, duration))
+        print(f"optimize {cycle + 1}x ({duration}s sec)")
         node_count = Counter()
         for job_key, placement in allocations.items():
             assert len(placement) <= jobs[job_key].max_replicas
+            if placement:
+                assert len(placement) >= jobs[job_key].min_replicas
             for node_key in placement:
                 node_count[node_key] += 1
         for node_key, count in node_count.items():
             assert count <= nodes[node_key].resources["nvidia.com/gpu"]
             assert count <= nodes[node_key].resources["pods"]
 
+        # Check if we are maintaining allocations for non-preemptible jobs
+        for i in NON_PREEMPTIBLE_IDXS:
+            if (i in allocations) and prev_allocs[i]:
+                assert allocations[i] == prev_allocs[i]
 
-def test_unusable_node():
-    # Test where one of the nodes can't be used due to one resource type.
-    nodes = {
-        0: NodeInfo({"gpu": 1, "cpu": 500, "pods": 32}, preemptible=False),
-        1: NodeInfo({"gpu": 1, "cpu": 8000, "pods": 32}, preemptible=False),
-        2: NodeInfo({"gpu": 1, "cpu": 8000, "pods": 32}, preemptible=False),
-    }
-    template = NodeInfo({"gpu": 1, "cpu": 8000, "pods": 32}, preemptible=True)
-    params = Params(0.121, 0.00568, 0.0236, 0.00634, 0.0118, 0.00317, 1.14)
-    grad_params = {"norm": 0.00136, "var": 0.000502}
-    speedup_fn = SpeedupFunction(
-            params, grad_params, init_batch_size=128, max_batch_size=1280,
-            local_bsz_bounds=(64, 256), elastic_bsz=True)
-    now = datetime.now()
-    min_replicas = 0
-    jobs = {
-        0: JobInfo({"gpu": 1, "cpu": 1000, "pods": 1}, speedup_fn,
-                   now + timedelta(minutes=0), min_replicas, max_replicas=1),
-        1: JobInfo({"gpu": 1, "cpu": 1000, "pods": 1}, speedup_fn,
-                   now + timedelta(minutes=1), min_replicas, max_replicas=1),
-        2: JobInfo({"gpu": 1, "cpu": 1000, "pods": 1}, speedup_fn,
-                   now + timedelta(minutes=2), min_replicas, max_replicas=1),
-    }
-    policy = PolluxPolicy()
-    allocations, desired_nodes = policy.optimize(jobs, nodes, {}, template)
-    # Check that more nodes are asked for.
-    assert desired_nodes > 3
-    # Check no job was allocated more than 1 replica.
-    assert max(len(alloc) for alloc in allocations.values()) == 1
-    # Check two jobs were allocated.
-    assert sum(len(alloc) for alloc in allocations.values()) == 2
+        prev_allocs = copy.deepcopy(allocations)
+        # Remove one random job
+        remove = random.sample(allocations.keys(), 1)[0]
+        if remove in NON_PREEMPTIBLE_IDXS:
+            NON_PREEMPTIBLE_IDXS.remove(remove)
+            print(f"Deleting non-preemptible job {remove}")
+        else:
+            PREEMPTIBLE_IDXS.remove(remove)
+            print(f"Deleting preemptible job {remove}")
+        prev_allocs.pop(remove)
