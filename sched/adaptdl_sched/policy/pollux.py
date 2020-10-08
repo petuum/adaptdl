@@ -351,7 +351,7 @@ class Problem(pymoo.model.problem.Problem):
         m = np.random.random(states.shape) < prob
         r = np.random.randint(self._min_replicas, self._max_replicas + 1,
                               size=states.shape)
-        states = (states + m * r) % (self._max_replicas + 1)
+        states[m] = r[m]
         # We need at least min_replicas for jobs with min_replicas > 0
         min_replicas_idx = [i for i, j in enumerate(self._jobs)
                             if j.min_replicas > 0]
