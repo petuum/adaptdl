@@ -16,6 +16,7 @@ import argparse
 import json
 import logging
 import ssl
+import sys
 
 import kubernetes_asyncio as kubernetes
 
@@ -82,6 +83,18 @@ class Validator(object):
                    "code": 400,
                    "reason": "Invalid",
                    "message": json.loads(exc.body).get("message"),
+               }
+            }
+        # If maxReplicas is provided, it should be >= minReplicas
+        if job["spec"].get("maxReplicas", sys.maxsize) < \
+                job["spec"].get("minReplicas", 0):
+            return {
+               "allowed": False,
+               "status": {
+                   "code": 400,
+                   "reason": "Invalid",
+                   "message": ("spec.maxReplicas must be greater "
+                               "than or equal to spec.minReplicas")
                }
             }
         return {"allowed": True}
