@@ -21,6 +21,7 @@ import sys
 import kubernetes_asyncio as kubernetes
 
 from aiohttp import web
+from http import HTTPStatus
 
 LOG = logging.getLogger(__name__)
 LOG.setLevel(logging.INFO)
@@ -80,7 +81,7 @@ class Validator(object):
             return {
                "allowed": False,
                "status": {
-                   "code": 400,
+                   "code": HTTPStatus.UNPROCESSABLE_ENTITY,
                    "reason": "Invalid",
                    "message": json.loads(exc.body).get("message"),
                }
@@ -91,7 +92,7 @@ class Validator(object):
             return {
                "allowed": False,
                "status": {
-                   "code": 400,
+                   "code": HTTPStatus.UNPROCESSABLE_ENTITY,
                    "reason": "Invalid",
                    "message": ("spec.maxReplicas must be greater "
                                "than or equal to spec.minReplicas")
@@ -104,7 +105,7 @@ class Validator(object):
             return {
                 "allowed": False,
                 "status": {
-                    "code": 422,
+                    "code": HTTPStatus.UNPROCESSABLE_ENTITY,
                     "reason": "Forbidden",
                     "message": "updates to job spec are forbidden",
                 }
