@@ -18,6 +18,9 @@ metadata:
   name: {{ .Release.Name }}-validator
   labels:
     app: {{ .Release.Name }}-validator
+  annotations:
+    "helm.sh/hook": "pre-install"
+    "helm.sh/hook-delete-policy": "before-hook-creation"
 webhooks:
   - name: {{ .Release.Name }}-validator.{{ .Release.Namespace }}.svc.cluster.local
     clientConfig:
