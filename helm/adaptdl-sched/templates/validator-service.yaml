@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-validator
+  labels:
+    app: adaptdl-validator
+    release: {{ .Release.Name }}
+spec:
+  ports:
+    - port: 443
+      targetPort: https
+      name: https
+  selector:
+    app: adaptdl-validator
+    release: {{ .Release.Name }}

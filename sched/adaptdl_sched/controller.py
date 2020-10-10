@@ -103,15 +103,15 @@ class AdaptDLController(object):
         current_ts = datetime.now(timezone.utc)
         job, pods = await self._get_job_and_pods(namespace, job_name)
         if job is not None:
-            job = await self._validate_job(job, pods, current_ts)
+            job = await self._validate_pods(job, pods, current_ts)
         if job is None:  # Not Found, presumably was deleted.
             await self._delete_pods(pods)
             return
+        # Use ChainMap to record updates to the job status fields.
+        job["status"] = collections.ChainMap({}, job.get("status", {}))
         # Get the current phase of the job, None if no phase was set.
         allocation = job["status"].get("allocation", [])
-        # Use ChainMap to record updates to the job status fields.
-        job["status"] = collections.ChainMap({}, job["status"])
-        phase = job["status"]["phase"]
+        phase = job["status"].setdefault("phase", "Pending")
         replicas = job["status"].get("replicas", 0)
         preemptible = job["spec"].get("preemptible", True)
         if (completion_status := self._detect_completion(pods, preemptible)):
@@ -206,34 +206,10 @@ class AdaptDLController(object):
             raise  # Unexpected error.
         return job, pods
 
-    async def _validate_job(self, job, pods, current_ts):
+    async def _validate_pods(self, job, pods, current_ts):
         namespace = job["metadata"]["namespace"]
         name = job["metadata"]["name"]
         patch_status = {}
-        if not job.get("status"):
-            # Assuming empty status section means this is a newly created job.
-            JOB_SUBMISSION_COUNT.inc()
-            patch_status = {"phase": "Pending"}
-            # if maxReplicas is provided, it should be >= minReplicas
-            if job["spec"].get("maxReplicas", sys.maxsize) < \
-                    job["spec"].get("minReplicas", 0):
-                patch_status["phase"] = "Failed"
-                patch_status["reason"] = "Invalid"
-                patch_status["message"] = "maxReplicas should be greater " \
-                                          "or equal to minReplicas in the " \
-                                          "job Spec"
-            # Validate pod template using a dry run.
-            template = {
-                "metadata": {"name": name, "namespace": namespace},
-                "template": job["spec"]["template"],
-            }
-            try:
-                await self._core_api.create_namespaced_pod_template(
-                    namespace, template, dry_run="All")
-            except kubernetes.client.rest.ApiException as exc:
-                patch_status["phase"] = "Failed"
-                patch_status["reason"] = "Invalid"
-                patch_status["message"] = json.loads(exc.body).get("message")
         # Validate pods for job.
         group_list = []
         replicas_list = []
