@@ -296,7 +296,7 @@ class AdaptiveDataLoaderHelper(object):
             exit(143)  # Standard exit code response to SIGTERM.
         self.future_exit = adaptdl.collective.allreduce_async(
                     get_exit_flag(), lambda a, b: a or b)
-        profile_step_start(self.current_local_bsz, self.accumulation_steps - 1)
+        profile_step_start(self.current_local_bsz, self.accumulation_steps)
         yield
         # Don't profile the first batch since it may be slower.
         if self.training and self.current_index > self.current_batch_size:

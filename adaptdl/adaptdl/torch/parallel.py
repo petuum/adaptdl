@@ -141,6 +141,12 @@ class AdaptiveDataParallel(DistributedDataParallel):
                 self._key, self.adascale.norm_avg(), self.adascale.var_avg())
         self._sync_start = None
 
+    def zero_grad(self, *args, **kwargs):
+        if self.adascale.is_accumulation_step():
+            return
+        else:
+            return super().zero_grad(*args, **kwargs)
+
     @property
     def gain(self):  # TODO: should be tracked in the metrics module instead.
         """

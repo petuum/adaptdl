@@ -1,8 +1,28 @@
+# Copyright 2020 Petuum, Inc. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
 import adaptdl.speedup as speedup
 import numpy as np
 
 
 def test_fit_1():
+    # Tests speedup.fit's ability to fit to data generated
+    # by its own model class with random parameters, without
+    # gradient accumulation. Serves as a sanity check
+    # that the speedup model fitting works in the most
+    # optimistic case.
     size = (1000,)
     nodes = np.random.randint(low=1, high=11, size=size)
     replicas = np.random.randint(low=1, high=nodes+1, size=size)
@@ -34,6 +54,11 @@ def test_fit_1():
 
 
 def test_fit_2():
+    # Tests speedup.fit's ability to fit to data generated
+    # by its own model class with random parameters, with
+    # gradient accumulation. Serves as a sanity check
+    # that the speedup model fitting works in the most
+    # optimistic case.
     size = (1000,)
     nodes = np.random.randint(low=1, high=11, size=size)
     replicas = np.random.randint(low=1, high=nodes+1, size=size)

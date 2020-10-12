@@ -192,15 +192,15 @@ class SpeedupFunction(object):
         self._mem_speedup[mem_indices] = speedup[ret_indices]
         self._mem_local_bsz[mem_indices] = local_bsz[ret_indices]
 
-        ret_dataloader_bsz, ret_accumulation_steps = \
+        ret_atomic_bsz, ret_accumulation_steps = \
             self._partition_local_bsz(ret_local_bsz)
 
         if isscalar:
             ret_speedup = ret_speedup.item()
-            ret_dataloader_bsz = int(ret_dataloader_bsz.item())
+            ret_atomic_bsz = int(ret_atomic_bsz.item())
             ret_accumulation_steps = int(ret_accumulation_steps.item())
         if return_local_bsz:
-            return (ret_speedup, (ret_dataloader_bsz, ret_accumulation_steps))
+            return (ret_speedup, (ret_atomic_bsz, ret_accumulation_steps))
         else:
             return ret_speedup
 
@@ -210,20 +210,20 @@ class SpeedupFunction(object):
             accumulation_steps = np.maximum(
                 np.ceil(local_bsz / self._max_local_bsz),
                 1)
-            dataloader_bsz = np.minimum(
+            atomic_bsz = np.minimum(
                 self._max_local_bsz, np.ceil(local_bsz / accumulation_steps))
-            return (dataloader_bsz.astype(int),
+            return (atomic_bsz.astype(int),
                     accumulation_steps.astype(int) - 1)
         else:
             return local_bsz, np.asarray([0])
 
     def _goodput(self, nodes, replicas, local_bsz):
-        local_bsz, accumulation_steps = self._partition_local_bsz(local_bsz)
+        atomic_bsz, accumulation_steps = self._partition_local_bsz(local_bsz)
         log_pred_step_time, _, _, = \
             _predict_log(self._params, nodes, replicas,
-                         local_bsz, accumulation_steps)
+                         atomic_bsz, accumulation_steps)
         var, norm = self._grad_params['var'], self._grad_params['norm']
-        global_bsz = replicas * local_bsz * (accumulation_steps + 1)
+        global_bsz = replicas * atomic_bsz * (accumulation_steps + 1)
         gain = np.where(
             (var / global_bsz * self._init_batch_size + norm) == 0.0,
             1.0,

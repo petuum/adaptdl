@@ -236,6 +236,8 @@ class AdaScale(object):
         total_steps = self._accumulation_steps
         for group in self._optimizer.param_groups:
             grad.extend([p.grad.detach().clone() / total_steps
+                         if p.grad is not None else
+                         torch.zeros([1], dtype=torch.float64)
                          for p in group["params"]])
         if (self.is_accumulation_step()):
             return

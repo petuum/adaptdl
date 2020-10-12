@@ -118,6 +118,7 @@ def _fit_perf_params():
     local_bsz = np.array([key[2] for key in state.profile])
     accumulation_steps = np.array([key[3] for key in state.profile])
     values = state.profile.values()
+    values = [value for value in values if value["count"] > 0]
     step_time = np.array([val["step_time"] / val["count"] for val in values])
     sync_time = np.array([val["sync_time"] / val["count"] for val in values])
     accumulation_time = np.array(
