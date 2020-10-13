@@ -278,10 +278,13 @@ def fit(nodes, replicas, local_bsz, accumulation_steps,
     lower = [1e-8, 1e-8] * 3 + [1.0]
     upper = [np.inf, np.inf] * 3 + [10.0]
     if len(np.unique(local_bsz)) == 1:
-        # Fix beta_c if only observed a single local batch size.
+        # Fix alpha_c if only observed a single local batch size.
         # This makes the speedup model optimistic with respect to
-        # scaling up the batchsize
-        params[1] = upper[1] = lower[1]
+        # scaling up the batchsize. This will assign equal weight
+        # to the constant and multplicative factors for compute time
+        # if there is only a single datapoint (which is by far the
+        # most likely case for this scenario)
+        params[0] = upper[0] = lower[0] = np.mean(step_time_compute) / 2
     if not any(nodes > 1):
         # Fix alpha_n and beta_n if no multi-node observations.
         params[2] = upper[2] = lower[2]
