@@ -51,6 +51,7 @@ def profile_step_commit(accumulation_step=False):
            state.local_bsz, state.gradient_accumulation_steps)
     if accumulation_step:
         state.profile[key]["accumulation_step_time"] += step_time
+        state.profile[key]["accumulation_count"] += 1
     else:
         state.profile[key]["step_time"] += step_time
         state.profile[key]["sync_time"] += state.sync_time
@@ -122,12 +123,11 @@ def _fit_perf_params():
     step_time = np.array([val["step_time"] / val["count"] for val in values])
     sync_time = np.array([val["sync_time"] / val["count"] for val in values])
     accumulation_time = np.array(
-        [val["accumulation_step_time"] / val["count"] for val in values])
+            [val["accumulation_step_time"] / val["accumulation_count"]
+             for val in values])
     compute_time = step_time - sync_time
     accumulation_time = np.where(
-        accumulation_steps > 0,
-        accumulation_time / accumulation_steps,
-        compute_time)
+        accumulation_steps > 0, accumulation_time, compute_time)
     state.perf_params = adaptdl.speedup.fit(
         num_nodes, num_replicas, local_bsz, accumulation_steps,
         step_time, compute_time, accumulation_time)
