@@ -221,6 +221,21 @@ class AdaptiveDataLoaderHelper(object):
     def is_accumulation_step(self, value: bool):
         self._is_accumulation_step = value
 
+    def increment_index(self):
+        """
+        Increment the index by the global batchsize of one optimizer step
+        """
+        self.current_index += \
+            self._current_local_bsz * adaptdl.env.num_replicas()
+
+    def iterations(self, dataset_size):
+        base_iterations = int(dataset_size / self.current_local_bsz)
+        # Need to make the number of iterations divisible by the number
+        # of accumulation steps so that we end on a synchronization step
+        iterations = int(base_iterations -
+                         base_iterations % int(self.accumulation_steps + 1))
+        return iterations
+
     def train(self):
         """
         Set this data loader to be the one used for training. Only one data
@@ -448,21 +463,13 @@ class AdaptiveDataLoader(DataLoader, AdaptiveDataLoaderMixin):
             while not done:
                 self.sampler.set_epoch(epoch, index=self._elastic.current_index)  # noqa: E501
                 self.batch_sampler.batch_size = self._elastic._sync_local_bsz()
-                base_iterations = int(len(self.sampler)
-                                      / self.batch_sampler.batch_size)
-                iterations = int(
-                    base_iterations -
-                    base_iterations %
-                    int(self._elastic._accumulation_steps + 1))
+                iterations = self._elastic.get_iterations(len(self.sampler))
                 for idx, batch in enumerate(super().__iter__()):
                     if idx > iterations:
                         break
                     with self._elastic.profile():
                         yield batch
-                        # Increment by the number of data samples processed
-                        self._elastic.current_index += (
-                            self._elastic._current_local_bsz
-                            * adaptdl.env.num_replicas())
+                        self._elastic.increment_index()
                         if self._elastic.max_batch_size is not None and \
                            get_progress() >= len(self.dataset) * \
                            (epoch + 1) / self.batch_size:
