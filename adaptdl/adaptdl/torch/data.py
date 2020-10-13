@@ -271,7 +271,7 @@ class AdaptiveDataLoaderHelper(object):
             _, (local_bsz, accumulation_steps) = speedup_fn(
                 adaptdl.env.num_nodes(),
                 adaptdl.env.num_replicas(),
-                return_local_bsz=True)
+                return_config=True)
             (self._current_local_bsz, self._accumulation_steps) = \
                 adaptdl.collective.broadcast((local_bsz, accumulation_steps))
         self.is_accumulation_step = self._accumulation_steps != 0

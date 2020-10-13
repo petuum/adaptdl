@@ -58,15 +58,6 @@ class AdaptDLAllocator(object):
             LOG.info("Sleep for 60 seconds")
             await asyncio.sleep(60)
 
-    def _get_allocations(self, job_list):
-        ret = {}
-        for job in job_list["items"]:
-            if "allocation" in job.get("status", {}):
-                namespace = job["metadata"]["namespace"]
-                name = job["metadata"]["name"]
-                ret[namespace, name] = list(job["status"]["allocation"])
-        return ret
-
     async def _update_allocations(self, allocations):
         job_list = await self._objs_api.list_namespaced_custom_object(
             "adaptdl.petuum.com", "v1", "", "adaptdljobs")

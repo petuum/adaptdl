@@ -25,21 +25,21 @@ def test_no_bounds():
         grad_params = {"norm": grad_params[0], "var": grad_params[1]}
         fun = SpeedupFunction(params, grad_params, 128,
                               None, None, False, False)
-        speedup, (bsz, steps) = fun(1, 3, return_local_bsz=True)
+        speedup, (bsz, steps) = fun(1, 3, return_config=True)
         assert(bsz == 128//3 + 1), "expected bsz = 43, got {}".format(bsz)
         assert(isinstance(speedup, float))
 
         replicas = np.asarray([1, 2, 3, 4, 5])
         # single-node
         speedup, (bsz, steps) = fun(np.ones_like(replicas), replicas,
-                                    return_local_bsz=True)
+                                    return_config=True)
         assert(bsz.shape == (5,))
         assert(np.all(bsz == np.ceil(128 / replicas).astype(int)))
         assert(speedup.shape == (5,))
         assert(bsz[0] == 128)
         assert(np.all(steps == 0))
         # multi-node
-        speedup, (bsz, steps) = fun(replicas, replicas, return_local_bsz=True)
+        speedup, (bsz, steps) = fun(replicas, replicas, return_config=True)
         assert(bsz.shape == (5,))
         assert(np.all(bsz == np.ceil(128 / replicas).astype(int)))
         assert(speedup.shape == (5,))
@@ -55,14 +55,14 @@ def test_local_bounds():
         grad_params = {"norm": grad_params[0], "var": grad_params[1]}
         fun = SpeedupFunction(params, grad_params, 128, None, (64, 256),
                               False, True)
-        speedup, (bsz, steps) = fun(1, 1, return_local_bsz=True)
+        speedup, (bsz, steps) = fun(1, 1, return_config=True)
         assert(bsz == 128), "expected bsz = 128, got {}".format(bsz)
         assert(isinstance(speedup, float))
 
         replicas = np.asarray(range(1, 100))
         # single-node
         speedup, (bsz, steps) = fun(np.ones_like(replicas), replicas,
-                                    return_local_bsz=True)
+                                    return_config=True)
         assert(np.all(bsz >= np.ceil(128 / replicas).astype(int)))
         assert(np.all(np.logical_or(bsz >= (64), speedup == 0.0)))
         assert(np.all(bsz <= (256)))
@@ -70,7 +70,7 @@ def test_local_bounds():
         assert(bsz[0] == 128)
         assert(np.all(steps == 0))
         # multi-node
-        speedup, (bsz, steps) = fun(replicas, replicas, return_local_bsz=True)
+        speedup, (bsz, steps) = fun(replicas, replicas, return_config=True)
         assert(np.all(bsz >= np.ceil(128 / replicas).astype(int)))
         assert(np.all(np.logical_or(bsz >= (64), speedup == 0.0)))
         assert(np.all(bsz <= (256)))
@@ -87,20 +87,20 @@ def test_max_bounds():
         grad_params = {"norm": grad_params[0], "var": grad_params[1]}
         fun = SpeedupFunction(params, grad_params, 128, 1280,
                               None, False, True)
-        speedup, (bsz, steps) = fun(1, 1, return_local_bsz=True)
+        speedup, (bsz, steps) = fun(1, 1, return_config=True)
         assert(bsz == 128), "expected bsz = 128, got {}".format(bsz)
         assert(isinstance(speedup, float))
 
         replicas = np.asarray(range(1, 100))
         # single-node
         speedup, (bsz, steps) = fun(np.ones_like(replicas), replicas,
-                                    return_local_bsz=True)
+                                    return_config=True)
         assert(np.all(bsz >= np.ceil(128 / replicas).astype(int)))
         assert(np.all(bsz * replicas <= 1280))
         assert(bsz[0] == 128)
         assert(np.all(steps == 0))
         # multi-node
-        speedup, (bsz, steps) = fun(replicas, replicas, return_local_bsz=True)
+        speedup, (bsz, steps) = fun(replicas, replicas, return_config=True)
         assert(np.all(bsz >= np.ceil(128 / replicas).astype(int)))
         assert(np.all(bsz * replicas <= 1280))
         assert(bsz[0] == 128)
@@ -115,14 +115,14 @@ def test_all_bounds():
         grad_params = {"norm": grad_params[0], "var": grad_params[1]}
         fun = SpeedupFunction(params, grad_params, 128, 1280, (64, 256),
                               False, True)
-        speedup, (bsz, steps) = fun(1, 1, return_local_bsz=True)
+        speedup, (bsz, steps) = fun(1, 1, return_config=True)
         assert(bsz == 128), "expected bsz = 128, got {}".format(bsz)
         assert(isinstance(speedup, float))
 
         replicas = np.asarray(range(1, 20))
         # single-node
         speedup, (bsz, steps) = fun(np.ones_like(replicas), replicas,
-                                    return_local_bsz=True)
+                                    return_config=True)
         assert(np.all(np.logical_or(bsz >= np.ceil(128 / replicas).astype(int),
                                     speedup == 0.0)))
         assert(np.all(np.logical_or(bsz >= (64),
@@ -133,7 +133,7 @@ def test_all_bounds():
         assert(bsz[0] == 128)
         assert(np.all(steps == 0))
         # multi-node
-        speedup, (bsz, steps) = fun(replicas, replicas, return_local_bsz=True)
+        speedup, (bsz, steps) = fun(replicas, replicas, return_config=True)
         assert(np.all(np.logical_or(bsz >= np.ceil(128 / replicas).astype(int),
                                     speedup == 0.0)))
         assert(np.all(np.logical_or(bsz >= (64),
@@ -153,13 +153,13 @@ def test_gradient_accumulation():
         grad_params = {"norm": grad_params[0], "var": grad_params[1]}
         fun = SpeedupFunction(params, grad_params, 128, 1280, (64, 256),
                               True, True)
-        speedup, (bsz, steps) = fun(1, 1, return_local_bsz=True)
+        speedup, (bsz, steps) = fun(1, 1, return_config=True)
         assert(isinstance(speedup, float))
 
         replicas = np.asarray(range(1, 20))
         # single-node
         speedup, (bsz, steps) = fun(np.ones_like(replicas), replicas,
-                                    return_local_bsz=True)
+                                    return_config=True)
         assert(np.all(np.logical_or(bsz >= np.ceil(128 / replicas).astype(int),
                                     speedup == 0.0)))
         assert(np.all(np.logical_or(bsz >= (64),
@@ -172,7 +172,7 @@ def test_gradient_accumulation():
         assert(np.all(np.logical_or(np.multiply(steps, bsz) >= 256,
                                     steps == 0)))
         # multi-node
-        speedup, (bsz, steps) = fun(replicas, replicas, return_local_bsz=True)
+        speedup, (bsz, steps) = fun(replicas, replicas, return_config=True)
         assert(np.all(np.logical_or(bsz >= np.ceil(128 / replicas).astype(int),
                                     speedup == 0.0)))
         assert(np.all(np.logical_or(bsz >= (64),

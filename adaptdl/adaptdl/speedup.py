@@ -55,6 +55,9 @@ class SpeedupFunction(object):
     def __init__(self, params, grad_params=None, init_batch_size=None,
                  max_batch_size=None, local_bsz_bounds=None,
                  gradient_accumulation=False, elastic_bsz=False):
+        assert(not gradient_accumulation or elastic_bsz), \
+            ("Cannot have gradient accumulation without"
+             "elastic batchsize scaling")
         self._grad_params = grad_params
         self._init_batch_size = init_batch_size
 
@@ -74,7 +77,7 @@ class SpeedupFunction(object):
         else:
             self._max_batch_size = init_batch_size
 
-        self._gradient_accumulation = gradient_accumulation
+        self._accumulation = gradient_accumulation
 
         if params is not None:
             self._params = Params(*params)
@@ -85,6 +88,7 @@ class SpeedupFunction(object):
                 max_steps = int(self._max_batch_size / init_batch_size)
             else:
                 max_steps = 0
+            # TODO: fix this
             base_step_time = np.max(_predict_log(
                 self._params, np.ones((max_steps + 1,)),
                 np.ones((max_steps + 1,)), init_batch_size,
@@ -100,11 +104,11 @@ class SpeedupFunction(object):
         self._mem_local_bsz = np.full((self._mem_size, self._mem_size), -1)
         self._mem_speedup[0, 0] = 0.0  # replicas = 0  ==>  speedup = 0
         self._mem_local_bsz[0, 0] = 0
+        self._mem_speedup[1, 1] = 1.0  # replicas = 1  ==>  speedup = 1
         if not gradient_accumulation:
-            self._mem_speedup[1, 1] = 1.0  # replicas = 1  ==>  speedup = 1
             self._mem_local_bsz[1, 1] = self._init_batch_size
 
-    def __call__(self, nodes, replicas, return_local_bsz=False):
+    def __call__(self, nodes, replicas, return_config=False):
         # nodes and replicas must have the same shape, dtype=int
         assert np.shape(nodes) == np.shape(replicas)
         assert np.all(np.less_equal(0, nodes))
@@ -146,11 +150,11 @@ class SpeedupFunction(object):
             max_local_bsz = np.floor(self._max_batch_size / replicas)
             min_local_bsz = np.ceil(self._init_batch_size / replicas)
             if (self._max_local_bsz is not None and
-                    not self._gradient_accumulation):
+                    not self._accumulation):
                 max_local_bsz = np.minimum(self._max_local_bsz, max_local_bsz)
             if self._min_local_bsz is not None:
                 min_local_bsz = np.maximum(self._min_local_bsz, min_local_bsz)
-            if self._gradient_accumulation:
+            if self._accumulation:
                 original_min_local_bsz = min_local_bsz
                 min_local_bsz = np.where(replicas == 1,
                                          self._max_local_bsz,
@@ -158,7 +162,7 @@ class SpeedupFunction(object):
             assert np.all(max_local_bsz >= min_local_bsz)
             # Sample a bunch of potential local_bsz values
             local_bsz = np.geomspace(min_local_bsz, max_local_bsz, num=100)
-            if self._gradient_accumulation:
+            if self._accumulation:
                 local_bsz = np.append(
                     np.broadcast_to(original_min_local_bsz,
                                     (1, min_local_bsz.size)),
@@ -199,7 +203,7 @@ class SpeedupFunction(object):
             ret_speedup = ret_speedup.item()
             ret_atomic_bsz = int(ret_atomic_bsz.item())
             ret_accumulation_steps = int(ret_accumulation_steps.item())
-        if return_local_bsz:
+        if return_config:
             return (ret_speedup, (ret_atomic_bsz, ret_accumulation_steps))
         else:
             return ret_speedup
