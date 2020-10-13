@@ -215,10 +215,17 @@ class AdaptiveDataLoaderHelper(object):
 
     @property
     def is_accumulation_step(self):
+        """
+        True iff the current step is a gradient accumulation step:
+        I.e. if the model parameters aren't updated
+        """
         return self._is_accumulation_step
 
     @is_accumulation_step.setter
     def is_accumulation_step(self, value: bool):
+        """
+        Supports mutation of is_accumulation_step
+        """
         self._is_accumulation_step = value
 
     def increment_index(self):
@@ -228,7 +235,12 @@ class AdaptiveDataLoaderHelper(object):
         self.current_index += \
             self._current_local_bsz * adaptdl.env.num_replicas()
 
-    def iterations(self, dataset_size):
+    def get_iterations(self, dataset_size):
+        """
+        Returns the number of iterations for the dataloader given the input
+        dataset size. Only call this function if _sync_local_bsz has been
+        called recently
+        """
         base_iterations = int(dataset_size / self.current_local_bsz)
         # Need to make the number of iterations divisible by the number
         # of accumulation steps so that we end on a synchronization step
