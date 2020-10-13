@@ -88,12 +88,12 @@ class SpeedupFunction(object):
                 max_steps = int(self._max_batch_size / init_batch_size)
             else:
                 max_steps = 0
-            # TODO: fix this
-            base_step_time = np.max(_predict_log(
+            step_times = _predict_log(
                 self._params, np.ones((max_steps + 1,)),
                 np.ones((max_steps + 1,)), init_batch_size,
-                np.asarray(range(max_steps + 1)))[0])
-            base_step_time = base_step_time.item()
+                np.asarray(range(max_steps + 1)))[0]
+            base_step_time = np.max(step_times).item()
+            base_accumulation_steps = np.argmax(step_times)
             self._base_goodput = 1.0 / np.exp(base_step_time)
         else:
             self._base_goodput = 1.0
@@ -107,6 +107,9 @@ class SpeedupFunction(object):
         self._mem_speedup[1, 1] = 1.0  # replicas = 1  ==>  speedup = 1
         if not gradient_accumulation:
             self._mem_local_bsz[1, 1] = self._init_batch_size
+        else:
+            self._mem_local_bsz[1, 1] = self._init_batch_size * \
+                (base_accumulation_steps + 1)
 
     def __call__(self, nodes, replicas, return_config=False):
         # nodes and replicas must have the same shape, dtype=int
