@@ -84,7 +84,7 @@ class SpeedupFunction(object):
         else:
             self._params = None
         if params is not None and init_batch_size is not None:
-            if gradient_accumulation:
+            if self._accumulation:
                 max_steps = int(self._max_batch_size / init_batch_size)
             else:
                 max_steps = 0
@@ -157,19 +157,13 @@ class SpeedupFunction(object):
                 max_local_bsz = np.minimum(self._max_local_bsz, max_local_bsz)
             if self._min_local_bsz is not None:
                 min_local_bsz = np.maximum(self._min_local_bsz, min_local_bsz)
-            if self._accumulation:
-                original_min_local_bsz = min_local_bsz
-                min_local_bsz = np.where(replicas == 1,
-                                         self._max_local_bsz,
-                                         min_local_bsz)
             assert np.all(max_local_bsz >= min_local_bsz)
             # Sample a bunch of potential local_bsz values
             local_bsz = np.geomspace(min_local_bsz, max_local_bsz, num=100)
-            if self._accumulation:
-                local_bsz = np.append(
-                    np.broadcast_to(original_min_local_bsz,
-                                    (1, min_local_bsz.size)),
-                    local_bsz, axis=0)
+            for (i, replica) in enumerate(replicas):
+                if replica == 1:
+                    local_bsz[:, i] = np.geomspace(
+                        self._init_batch_size, max_local_bsz[i], 100)
             # Should get broadcast to (num_samples, replicas.size).
             goodput = self._goodput(nodes, replicas, local_bsz)
             local_bsz = local_bsz[np.argmax(goodput, axis=0),
@@ -200,7 +194,7 @@ class SpeedupFunction(object):
         self._mem_local_bsz[mem_indices] = local_bsz[ret_indices]
 
         ret_atomic_bsz, ret_accumulation_steps = \
-            self._partition_local_bsz(ret_local_bsz)
+            self._partition_local_bsz(ret_local_bsz, replicas)
 
         if isscalar:
             ret_speedup = ret_speedup.item()
@@ -211,21 +205,33 @@ class SpeedupFunction(object):
         else:
             return ret_speedup
 
-    def _partition_local_bsz(self, local_bsz):
-        if (self._max_local_bsz is not None and
-                np.any(self._max_local_bsz < local_bsz)):
+    def _partition_local_bsz(self, local_bsz, replicas):
+        if (self._max_local_bsz is not None and (
+                np.any(self._max_local_bsz < local_bsz)
+                or np.any(replicas == 1))):
             accumulation_steps = np.maximum(
                 np.ceil(local_bsz / self._max_local_bsz),
                 1)
             atomic_bsz = np.minimum(
                 self._max_local_bsz, np.ceil(local_bsz / accumulation_steps))
+            for i, replica in enumerate(replicas):
+                if replica == 1:
+                    if local_bsz[i] == self._init_batch_size:
+                        accumulation_steps[i] = 1
+                        atomic_bsz[i] = self._init_batch_size
+                    else:
+                        accumulation_steps[i] = min(2, accumulation_steps[i])
+                        atomic_bsz = min(
+                            self._max_local_bsz,
+                            np.ceil(local_bsz / accumulation_steps[i]))
             return (atomic_bsz.astype(int),
                     accumulation_steps.astype(int) - 1)
         else:
             return local_bsz, np.asarray([0])
 
     def _goodput(self, nodes, replicas, local_bsz):
-        atomic_bsz, accumulation_steps = self._partition_local_bsz(local_bsz)
+        atomic_bsz, accumulation_steps = self._partition_local_bsz(local_bsz,
+                                                                   replicas)
         log_pred_step_time, _, _, = \
             _predict_log(self._params, nodes, replicas,
                          atomic_bsz, accumulation_steps)
