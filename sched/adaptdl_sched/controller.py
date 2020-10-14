@@ -344,7 +344,7 @@ class AdaptDLController(object):
         pod["metadata"]["annotations"]["adaptdl/rank"] = str(rank)
         pod["metadata"]["annotations"]["adaptdl/node"] = node.metadata.name
         # To enable 10 Gi Network
-        if MACVLAN.lower() == "true":
+        if MACVLAN.lower() == "enable":
             pod["metadata"]["annotations"]["k8s.v1.cni.cncf.io/networks"] = "macvlan-conf"
         pod["spec"].setdefault("nodeSelector", {})
         pod["spec"]["hostname"] = f"{job_metadata['name']}-{group}-{rank}"

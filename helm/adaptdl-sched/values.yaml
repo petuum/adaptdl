@@ -67,4 +67,4 @@ docker-registry:
 
 config:
   networkInterface: "default"
-  macvlan: "false"
+  macvlan: "default"
