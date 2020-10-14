@@ -100,6 +100,7 @@ class SpeedupFunction(object):
             base_accumulation_steps = np.argmax(goodputs)
             self._base_goodput = goodput
         else:
+            base_accumulation_steps = 0
             self._base_goodput = 1.0
         self._elastic_bsz = elastic_bsz
         # Memoization for fast repeated queries.

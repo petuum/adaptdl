@@ -124,6 +124,7 @@ def _fit_perf_params():
     sync_time = np.array([val["sync_time"] / val["count"] for val in values])
     accumulation_time = np.array(
             [val["accumulation_step_time"] / val["accumulation_count"]
+             if val["accumulation_count"] > 0 else 0.0
              for val in values])
     compute_time = step_time - sync_time
     accumulation_time = np.where(
