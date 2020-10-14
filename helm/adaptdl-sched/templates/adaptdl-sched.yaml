@@ -30,9 +30,9 @@ spec:
         image: {{ .Values.image.repository }}{{ empty .Values.image.digest | ternary ":" "@" }}{{ coalesce .Values.image.digest .Values.image.tag .Chart.AppVersion }}
         env:
         - name: NETWORK_INTERFACE
-          value: {{ .Values.cluster-config.networkInterface }}
+          value: {{ .Values.config.networkInterface }}
         - name: MACVLAN
-          value: {{ .Values.cluster-config.macvlan }}
+          value: {{ .Values.config.macvlan }}
         args: ["python", "-m", "adaptdl_sched"]
         envFrom:
         - configMapRef:

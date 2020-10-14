@@ -65,6 +65,6 @@ docker-registry:
     nodePort: 32000
     port: 5000
 
-cluster-config:
+config:
   networkInterface: "default"
   macvlan: "false"
