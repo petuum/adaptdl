@@ -28,7 +28,7 @@ from datetime import datetime, timezone
 from prometheus_client import Counter, Summary
 
 from adaptdl_sched.resources import set_default_resources
-from adaptdl_sched.utils import patch_job_status
+from adaptdl_sched.utils import patch_job_status, NETWORK_INTERFACE, MACVLAN
 
 LOG = logging.getLogger(__name__)
 LOG.setLevel(logging.INFO)
@@ -343,6 +343,9 @@ class AdaptDLController(object):
         pod["metadata"]["annotations"]["adaptdl/group"] = str(group)
         pod["metadata"]["annotations"]["adaptdl/rank"] = str(rank)
         pod["metadata"]["annotations"]["adaptdl/node"] = node.metadata.name
+        # To enable 10 Gi Network
+        if MACVLAN.lower() == "true":
+            pod["metadata"]["annotations"]["k8s.v1.cni.cncf.io/networks"] = "macvlan-conf"
         pod["spec"].setdefault("nodeSelector", {})
         pod["spec"]["hostname"] = f"{job_metadata['name']}-{group}-{rank}"
         pod["spec"]["nodeSelector"]["kubernetes.io/hostname"] = \
@@ -363,6 +366,15 @@ class AdaptDLController(object):
                 "mountPath": "/dev/shm",
             })
             container.setdefault("env", [])
+            if NETWORK_INTERFACE != "default":
+                container["env"].append({
+                    "name": "NCCL_SOCKET_IFNAME",
+                    "value": NETWORK_INTERFACE
+                })
+                container["env"].append({
+                    "name": "NCCL_DEBUG",
+                    "value": "INFO"
+                })
             container["env"].append({
                 "name": "ADAPTDL_JOB_ID",
                 "value": "{}/{}".format(job_metadata["namespace"],

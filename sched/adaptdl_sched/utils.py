@@ -13,7 +13,12 @@
 # limitations under the License.
 
 
+import os
 import kubernetes_asyncio as kubernetes
+
+
+NETWORK_INTERFACE = os.getenv("NETWORK_INTERFACE", None)
+MACVLAN = os.getenv("MACVLAN", None)
 
 
 async def patch_job_status(obj_api, namespace, name, patch):
