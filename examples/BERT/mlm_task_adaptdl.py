@@ -8,9 +8,11 @@ from utils import run_demo, run_ddp, wrap_up
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter # Added for tensorboard
 
 import adaptdl # Changed in step 1
 import adaptdl.torch # Changed in step 1
+import os # Added for tensorboard
 
 def collate_batch(batch_data, args, mask_id, cls_id):
     batch_data = torch.tensor(batch_data).long().view(args.batch_size, -1).t().contiguous()
@@ -34,19 +36,23 @@ def process_raw_data(raw_data, args):
     return raw_data
 
 
-def evaluate(data_source, model, vocab, ntokens, criterion, args, device):
+def evaluate(data_source, model, vocab, ntokens, criterion, args, device, test = False, epoch = None, writer = None):
     # Turn on evaluation mode which disables dropout.
     model.eval()
-    # total_loss = 0. # original
-    stats = adaptdl.torch.Accumulator() # Changed in step 5
+    if test:
+        total_loss = 0. # original
+    else: 
+        stats = adaptdl.torch.Accumulator() # Changed in step 5
 
     mask_id = vocab.stoi['<MASK>']
     cls_id = vocab.stoi['<cls>']
-    # dataloader = DataLoader(data_source, batch_size=args.batch_size * args.bptt, # original
-    #                         shuffle=False, collate_fn=lambda b: collate_batch(b, args, mask_id, cls_id)) # original
 
-    dataloader = adaptdl.torch.AdaptiveDataLoader(data_source, drop_last=True, batch_size=args.batch_size * args.bptt,
-                            shuffle=False, collate_fn=lambda b: collate_batch(b, args, mask_id, cls_id)) # Changed in step 2
+    if test:
+        dataloader = DataLoader(data_source, batch_size=args.batch_size * args.bptt, # original
+                                shuffle=False, collate_fn=lambda b: collate_batch(b, args, mask_id, cls_id)) # original
+    else:
+        dataloader = adaptdl.torch.AdaptiveDataLoader(data_source, drop_last=True, batch_size=args.batch_size * args.bptt,
+                                shuffle=False, collate_fn=lambda b: collate_batch(b, args, mask_id, cls_id)) # Changed in step 2
 
     with torch.no_grad():
         for batch, (data, lm_mask, targets) in enumerate(dataloader):
@@ -60,20 +66,28 @@ def evaluate(data_source, model, vocab, ntokens, criterion, args, device):
             output = model(data)
             output = torch.stack([output[i] for i in range(lm_mask.size(0)) if lm_mask[i]])
             output_flat = output.view(-1, ntokens)
-            # total_loss += criterion(output_flat, targets).item()
-            stats['test_loss'] += criterion(output_flat, targets).item() # Changed in step 5
+            if test:
+                total_loss += criterion(output_flat, targets).item()
+            else:
+                stats['test_loss'] += criterion(output_flat, targets).item() # Changed in step 5
+                stats['total'] += targets.size(0)
+
+    if test:
+        return total_loss / ((len(data_source) - 1) / args.bptt / args.batch_size)
+
 
     with stats.synchronized(): # Changed in step 5
-        test_loss = stats['test_loss'] / ((len(data_source) - 1) / args.bptt / args.batch_size) # Changed in step 5
+        test_loss = stats['test_loss'] / (stats['total'] / args.bptt) # Changed in step 5
+        writer.add_scalar("Loss/valid", test_loss, epoch) # Added for tensorboard
 
     # return total_loss / ((len(data_source) - 1) / args.bptt / args.batch_size) # original
     return test_loss # Changed in step 5
 
 
 def train(model, vocab, train_loss_log, train_data,
-          optimizer, criterion, ntokens, epoch, scheduler, args, device, rank=None):
+          optimizer, criterion, ntokens, epoch, scheduler, args, device, rank=None, batch_size_log = None, writer = None):
     model.train()
-    total_loss = 0.
+    total_loss = 0
     start_time = time.time()
     mask_id = vocab.stoi['<MASK>']
     cls_id = vocab.stoi['<cls>']
@@ -84,11 +98,11 @@ def train(model, vocab, train_loss_log, train_data,
     dataloader = adaptdl.torch.AdaptiveDataLoader(train_data, drop_last=True, batch_size=args.batch_size * args.bptt, 
                             shuffle=False, collate_fn=lambda b: collate_batch(b, args, mask_id, cls_id)) # Changed in step 2
 
-    dataloader.autoscale_batch_size(2 * args.batch_size * args.bptt) # Changed in step 3
-
+    # dataloader.autoscale_batch_size(16 * args.batch_size * args.bptt) # Changed in step 3
     for batch, (data, lm_mask, targets) in enumerate(dataloader):
         optimizer.zero_grad()
         if args.parallel == 'DDP':
+            print("DDP")
             data = data.to(device[0])
             targets = targets.to(device[0])
         else:
@@ -104,17 +118,23 @@ def train(model, vocab, train_loss_log, train_data,
         total_loss += loss.item()
         if batch % args.log_interval == 0 and batch > 0:
             cur_loss = total_loss / args.log_interval
+            cur_bs = dataloader.current_batch_size
             elapsed = time.time() - start_time
             if (rank is None) or rank == 0:
                 train_loss_log[-1] = cur_loss
                 print('| epoch {:3d} | {:5d}/{:5d} batches | lr {:05.5f} | ms/batch {:5.2f} | '
-                      'loss {:5.2f} | ppl {:8.2f}'.format(epoch, batch,
+                      'loss {:5.2f} | ppl {:8.2f} | batch_size {:5d}'.format(epoch, batch,
                                                           len(train_data) // (args.bptt * args.batch_size),
                                                           scheduler.get_last_lr()[0],
                                                           elapsed * 1000 / args.log_interval,
-                                                          cur_loss, math.exp(cur_loss)))
+                                                          cur_loss, math.exp(cur_loss),
+                                                          dataloader.current_batch_size))
             total_loss = 0
             start_time = time.time()
+    writer.add_scalar("Loss/train", cur_loss, epoch) # Added for tensorboard
+    writer.add_scalar("Throughput/Gain", model.gain, epoch) # Added for tensorboard
+    writer.add_scalar("Throughput/Global_Batchsize", cur_bs, epoch) # Added for tensorboard
+    batch_size_log.append(dataloader.current_batch_size)
 
 
 def run_main(args, rank=None):
@@ -172,10 +192,10 @@ def run_main(args, rank=None):
         train_dataset, test_dataset, valid_dataset = BookCorpus(vocab)
 
     train_data = process_raw_data(train_dataset.data, args)
-    if rank is not None:
-        # Chunk training data by rank for different gpus
-        chunk_len = len(train_data) // args.world_size
-        train_data = train_data[(rank * chunk_len):((rank + 1) * chunk_len)]
+    # if rank is not None:
+    #     # Chunk training data by rank for different gpus
+    #     chunk_len = len(train_data) // args.world_size
+    #     train_data = train_data[(rank * chunk_len):((rank + 1) * chunk_len)]
     val_data = process_raw_data(valid_dataset.data, args)
     test_data = process_raw_data(test_dataset.data, args)
 
@@ -197,14 +217,17 @@ def run_main(args, rank=None):
     model = adaptdl.torch.AdaptiveDataParallel(model, optimizer, scheduler) # Changed
 
     best_val_loss = None
-    train_loss_log, val_loss_log = [], []
+    train_loss_log, val_loss_log, batch_size_log = [], [], []
 
+    # tensorboard_dir = os.path.join(os.getenv("ADAPTDL_TENSORBOARD_LOGDIR", "/tmp"), adaptdl.env.job_id()) # Added for tensorboard
+    tensorboard_dir = os.path.join(os.getenv("ADAPTDL_TENSORBOARD_LOGDIR", "/tmp") if adaptdl.env.replica_rank() == 0 else "/tmp", adaptdl.env.job_id())
+    writer =  SummaryWriter(tensorboard_dir)# Added for tensorboard
     # for epoch in range(1, args.epochs + 1): # original
     for epoch in adaptdl.torch.remaining_epochs_until(args.epochs): # Changed
         epoch_start_time = time.time()
         train(model, train_dataset.vocab, train_loss_log, train_data,
-              optimizer, criterion, ntokens, epoch, scheduler, args, device, rank)
-        val_loss = evaluate(val_data, model, train_dataset.vocab, ntokens, criterion, args, device)
+              optimizer, criterion, ntokens, epoch, scheduler, args, device, rank, batch_size_log, writer)
+        val_loss = evaluate(val_data, model, train_dataset.vocab, ntokens, criterion, args, device , test = False, epoch = epoch, writer = writer) # Changed for tensorboard
         if (rank is None) or (rank == 0):
             val_loss_log.append(val_loss)
             print('-' * 89)
@@ -229,14 +252,17 @@ def run_main(args, rank=None):
         map_location = {'cuda:%d' % x: 'cuda:%d' % y for x, y in device_pairs}
         model.load_state_dict(
             torch.load(args.save, map_location=map_location))
+        model = adaptdl.torch.AdaptiveDataParallel(model, optimizer, scheduler) # Changed
         test_loss = evaluate(test_data, model, train_dataset.vocab, ntokens, criterion, args, device)
         if rank == 0:
-            wrap_up(train_loss_log, val_loss_log, test_loss, args, model.module, 'mlm_loss.txt', 'full_mlm_model.pt')
+            wrap_up(train_loss_log, val_loss_log, test_loss, args, model.module, 'mlm_loss.txt', 'full_mlm_model.pt', batch_size_log)
     else:
         with open(args.save, 'rb') as f:
-            model = torch.load(f)
-        test_loss = evaluate(test_data, model, train_dataset.vocab, ntokens, criterion, args, device)
-        wrap_up(train_loss_log, val_loss_log, test_loss, args, model, 'mlm_loss.txt', 'full_mlm_model.pt')
+            model.module.load_state_dict(torch.load(f)) # Changed
+            # model = torch.load(f)
+        # model = adaptdl.torch.AdaptiveDataParallel(model, optimizer, scheduler) # Changed
+        test_loss = evaluate(test_data, model, train_dataset.vocab, ntokens, criterion, args, device, True)
+        wrap_up(train_loss_log, val_loss_log, test_loss, args, model.module, 'mlm_loss.txt', 'full_mlm_model.pt')
 
 
 if __name__ == "__main__":
@@ -284,4 +310,6 @@ if __name__ == "__main__":
     if args.parallel == 'DDP':
         run_demo(run_ddp, run_main, args)
     else:
-        run_main(args)
+        # print("RANK: {}".format(str(adaptdl.env.replica_rank())))
+        run_main(args, adaptdl.env.replica_rank())
+        time.sleep(100)

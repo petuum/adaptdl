@@ -33,7 +33,7 @@ def run_ddp(rank, main_fn, args):
     cleanup()
 
 
-def print_loss_log(file_name, train_loss, val_loss, test_loss, args=None):
+def print_loss_log(file_name, train_loss, val_loss, test_loss, batch_size=None, args=None):
     with open(file_name, 'w') as f:
         if args:
             for item in args.__dict__:
@@ -44,14 +44,21 @@ def print_loss_log(file_name, train_loss, val_loss, test_loss, args=None):
         for idx in range(len(val_loss)):
             f.write('epoch {:3d} | val loss {:8.5f}'.format(idx + 1,
                                                             val_loss[idx]) + '\n')
+        if batch_size:
+            for idx in range(len(batch_size)):
+                f.write('epoch {:3d} | batch size {:8.5f}'.format(idx + 1,
+                                                              batch_size[idx]) + '\n')
         f.write('test loss {:8.5f}'.format(test_loss) + '\n')
 
 
-def wrap_up(train_loss_log, val_loss_log, test_loss, args, model, ns_loss_log, model_filename):
+def wrap_up(train_loss_log, val_loss_log, test_loss, args, model, ns_loss_log, model_filename, batch_size_log=None):
     print('=' * 89)
     print('| End of training | test loss {:8.5f} | test ppl {:8.5f}'.format(test_loss, math.exp(test_loss)))
     print('=' * 89)
-    print_loss_log(ns_loss_log, train_loss_log, val_loss_log, test_loss)
+    if batch_size_log:
+        print_loss_log(ns_loss_log, train_loss_log, val_loss_log, test_loss, batch_size_log)
+    else:
+        print_loss_log(ns_loss_log, train_loss_log, val_loss_log, test_loss)
     with open(args.save, 'wb') as f:
         torch.save(model.bert_model.state_dict(), f)
     with open(model_filename, 'wb') as f:

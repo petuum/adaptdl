@@ -1,0 +1,18 @@
+apiVersion: adaptdl.petuum.com/v1
+kind: AdaptDLJob
+metadata:
+  generateName: mlm-task-
+spec:
+  template:
+    spec:
+      containers:
+      - name: main
+        command:
+        - python3
+        - /root/mlm_task_adaptdl.py
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "true"
+        resources:
+          limits:
+            nvidia.com/gpu: 1
