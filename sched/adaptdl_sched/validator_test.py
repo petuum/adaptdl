@@ -1,11 +1,9 @@
 import json
 import kubernetes_asyncio as kubernetes
-import pytest
 import uuid
 
-from aiohttp.test_utils import TestClient, TestServer, loop_context
 from http import HTTPStatus
-from unittest.mock import AsyncMock, ANY
+from unittest.mock import AsyncMock
 
 from adaptdl_sched.validator import Validator
 
