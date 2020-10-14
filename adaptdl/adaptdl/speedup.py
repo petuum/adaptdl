@@ -86,15 +86,19 @@ class SpeedupFunction(object):
         if params is not None and init_batch_size is not None:
             if self._accumulation:
                 max_steps = int(self._max_batch_size / init_batch_size)
+                candidates = np.arange(init_batch_size,
+                                       self._max_batch_size + 1,
+                                       init_batch_size)
             else:
-                max_steps = 0
-            step_times = _predict_log(
-                self._params, np.ones((max_steps + 1,)),
-                np.ones((max_steps + 1,)), init_batch_size,
-                np.asarray(range(max_steps + 1)))[0]
-            base_step_time = np.max(step_times).item()
-            base_accumulation_steps = np.argmax(step_times)
-            self._base_goodput = 1.0 / np.exp(base_step_time)
+                max_steps = 1
+                candidates = np.asarray([init_batch_size])
+            goodputs = self._goodput(
+                np.ones((max_steps,)),
+                np.ones((max_steps,)),
+                candidates)
+            goodput = np.max(goodputs).item()
+            base_accumulation_steps = np.argmax(goodputs)
+            self._base_goodput = goodput
         else:
             self._base_goodput = 1.0
         self._elastic_bsz = elastic_bsz
@@ -176,9 +180,9 @@ class SpeedupFunction(object):
             goodput = np.amax(goodput, axis=0)
         else:
             local_bsz = np.ceil(self._init_batch_size / replicas).astype(int)
-            log_pred_step_time, _, _ = \
-                _predict_log(self._params, nodes, replicas, local_bsz, 0)
-            goodput = 1.0 / np.exp(log_pred_step_time)
+            pred_step_time, _, _ = \
+                _predict(self._params, nodes, replicas, local_bsz, 0)
+            goodput = 1.0 / pred_step_time
         speedup = goodput / self._base_goodput
 
         # Undo unique.
@@ -224,8 +228,9 @@ class SpeedupFunction(object):
                         accumulation_steps[i] = 1
                         atomic_bsz[i] = self._init_batch_size
                     else:
-                        accumulation_steps[i] = min(2, accumulation_steps[i])
-                        atomic_bsz = min(
+                        accumulation_steps[i] = np.minimum(
+                            2, accumulation_steps[i])
+                        atomic_bsz = np.minimum(
                             self._max_local_bsz,
                             np.ceil(local_bsz / accumulation_steps[i]))
             return (atomic_bsz.astype(int),
@@ -236,16 +241,16 @@ class SpeedupFunction(object):
     def _goodput(self, nodes, replicas, local_bsz):
         atomic_bsz, accumulation_steps = self._partition_local_bsz(local_bsz,
                                                                    replicas)
-        log_pred_step_time, _, _, = \
-            _predict_log(self._params, nodes, replicas,
-                         atomic_bsz, accumulation_steps)
+        pred_step_time, _, _, = \
+            _predict(self._params, nodes, replicas,
+                     atomic_bsz, accumulation_steps)
         var, norm = self._grad_params['var'], self._grad_params['norm']
         global_bsz = replicas * atomic_bsz * (accumulation_steps + 1)
         gain = np.where(
             (var / global_bsz * self._init_batch_size + norm) == 0.0,
             1.0,
             (var + norm) / (var / global_bsz * self._init_batch_size + norm))
-        return gain / np.exp(log_pred_step_time)
+        return gain / pred_step_time
 
     def params(self):
         return self._params
@@ -309,7 +314,7 @@ def fit(nodes, replicas, local_bsz, accumulation_steps,
     return Params(*params)
 
 
-def _predict_log(params, nodes, replicas, local_bsz, accumulation_steps):
+def _predict(params, nodes, replicas, local_bsz, accumulation_steps):
     params = Params(*params)
     step_time_compute = _predict_compute(params, local_bsz)
     step_time_network = _predict_network(params, nodes, replicas)
@@ -317,9 +322,10 @@ def _predict_log(params, nodes, replicas, local_bsz, accumulation_steps):
     gamma = params.gamma
     # Return predicted total step time in log-space to avoid numerical issues
     # in autograd and optimization.
-    step_time = np.log(
+    step_time = (
         ((step_time_compute) ** gamma + step_time_network ** gamma) **
-        (1 / gamma) + step_time_accumulation * accumulation_steps)
+        (1 / gamma)
+        + step_time_accumulation * accumulation_steps)
     return (
         step_time,
         step_time_compute,
@@ -356,10 +362,10 @@ def _rmse(pred, true):
 def _obj_fn(params, nodes, replicas, local_bsz, accumulation_steps,
             step_time, step_time_compute, accumulation_time):
     params = Params(*params)
-    log_pred_step_time, pred_step_time_compute, _ = \
-        _predict_log(params, nodes, replicas, local_bsz, accumulation_steps)
+    pred_step_time, pred_step_time_compute, _ = \
+        _predict(params, nodes, replicas, local_bsz, accumulation_steps)
     # Error of total step time predictions.
-    err1 = _rmse(log_pred_step_time,
+    err1 = _rmse(np.log(pred_step_time),
                  np.log(step_time + accumulation_time * accumulation_steps))
     # Error of compute time predictions.
     err2 = _rmse(np.log(pred_step_time_compute), np.log(step_time_compute))
