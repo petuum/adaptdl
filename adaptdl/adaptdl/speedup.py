@@ -215,8 +215,11 @@ class SpeedupFunction(object):
             atomic_bsz = np.minimum(
                 self._max_local_bsz, np.ceil(local_bsz / accumulation_steps))
 
-            # Need to prevent a single replica from scaling up the
+            # The following code prevents a single replica from scaling up the
             # batch size without using gradient accumulation
+
+            # When on a single replica, iff single_step_predicate is true,
+            # then don't perform gradient accumulation
             single_replica_predicate = replicas == 1
             single_step_predicate = np.logical_or(
                 local_bsz == self._init_batch_size,
@@ -237,6 +240,10 @@ class SpeedupFunction(object):
                     np.minimum(self._max_local_bsz,
                                np.ceil(local_bsz / accumulation_steps))),
                 atomic_bsz)
+
+            # For this function, accumulation steps include the final 
+            # sync step to make the math easier. Outside of this function,
+            # that step isn't included, so need to subtract 1
             return (atomic_bsz.astype(int),
                     accumulation_steps.astype(int) - 1)
         else:
