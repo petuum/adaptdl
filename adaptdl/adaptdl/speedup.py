@@ -202,6 +202,21 @@ class SpeedupFunction(object):
         else:
             return ret_speedup
 
+    # If gradient accumulation is enabled, and batch of local_bsz size
+    # exceeds the maximum local batch size, split up the batch
+    # into a number of batches to form (atomic_bsz, steps)
+    # such that (atomic_bsz * (steps + 1)) is close to local_bsz
+    #
+    # A few other invariants are maintained:
+    #
+    #   1. atomic_bsz >= min_local_bsz
+    #   2. atomic_bsz * (steps + 1) <= max_batch_size
+    #
+    # When replicas == 1, then there is the additional constraint
+    # that atomic_bsz be different from init_batch_size when steps > 0
+    #
+    # local_bsz, replicas should be numpy arrays of the same dimension,
+    # and the partitioning is performed vectorized over the arrays
     def _partition_local_bsz(self, local_bsz, replicas):
         if (self._max_local_bsz is not None and self._accumulation and (
                 np.any(self._max_local_bsz < local_bsz)
