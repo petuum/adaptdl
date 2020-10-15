@@ -228,26 +228,6 @@ class AdaptiveDataLoaderHelper(object):
         """
         self._is_accumulation_step = value
 
-    def increment_index(self):
-        """
-        Increment the index by the global batchsize of one optimizer step
-        """
-        self.current_index += \
-            self._current_local_bsz * adaptdl.env.num_replicas()
-
-    def get_iterations(self, dataset_size):
-        """
-        Returns the number of iterations for the dataloader given the input
-        dataset size. Only call this function if _sync_local_bsz has been
-        called recently
-        """
-        base_iterations = int(dataset_size / self.current_local_bsz)
-        # Need to make the number of iterations divisible by the number
-        # of accumulation steps so that we end on a synchronization step
-        iterations = int(base_iterations -
-                         base_iterations % int(self.accumulation_steps + 1))
-        return iterations
-
     def train(self):
         """
         Set this data loader to be the one used for training. Only one data
