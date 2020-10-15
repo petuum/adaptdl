@@ -96,11 +96,12 @@ class SpeedupFunction(object):
                 np.ones((max_steps,)),
                 np.ones((max_steps,)),
                 candidates)
-            goodput = np.max(goodputs).item()
-            base_accumulation_steps = np.argmax(goodputs)
+            best_index = np.argmax(goodputs)
+            goodput = goodputs[best_index].item()
+            base_batch_size = candidates[best_index]
             self._base_goodput = goodput
         else:
-            base_accumulation_steps = 0
+            base_batch_size = self._init_batch_size
             self._base_goodput = 1.0
         self._elastic_bsz = elastic_bsz
         # Memoization for fast repeated queries.
@@ -110,11 +111,7 @@ class SpeedupFunction(object):
         self._mem_speedup[0, 0] = 0.0  # replicas = 0  ==>  speedup = 0
         self._mem_local_bsz[0, 0] = 0
         self._mem_speedup[1, 1] = 1.0  # replicas = 1  ==>  speedup = 1
-        if not gradient_accumulation:
-            self._mem_local_bsz[1, 1] = self._init_batch_size
-        else:
-            self._mem_local_bsz[1, 1] = self._init_batch_size * \
-                (base_accumulation_steps + 1)
+        self._mem_local_bsz[1, 1] = base_batch_size
 
     def __call__(self, nodes, replicas, return_config=False):
         # nodes and replicas must have the same shape, dtype=int
@@ -166,6 +163,7 @@ class SpeedupFunction(object):
             assert np.all(max_local_bsz >= min_local_bsz)
             # Sample a bunch of potential local_bsz values
             local_bsz = np.geomspace(min_local_bsz, max_local_bsz, num=100)
+            print(local_bsz)
             # Should get broadcast to (num_samples, replicas.size).
             goodput = self._goodput(nodes, replicas, local_bsz)
             local_bsz = local_bsz[np.argmax(goodput, axis=0),
@@ -178,7 +176,6 @@ class SpeedupFunction(object):
                 _predict(self._params, nodes, replicas, local_bsz, 0)
             goodput = 1.0 / pred_step_time
         speedup = goodput / self._base_goodput
-
         # Undo unique.
         nodes = nodes[unique_indices]
         replicas = replicas[unique_indices]
@@ -194,10 +191,11 @@ class SpeedupFunction(object):
         mem_indices = (nodes[ret_indices], replicas[ret_indices])
         self._mem_speedup[mem_indices] = speedup[ret_indices]
         self._mem_local_bsz[mem_indices] = local_bsz[ret_indices]
+        print(ret_local_bsz)
 
         ret_atomic_bsz, ret_accumulation_steps = \
             self._partition_local_bsz(ret_local_bsz, ret_replicas)
-
+        print(ret_atomic_bsz)
         if isscalar:
             ret_speedup = ret_speedup.item()
             ret_atomic_bsz = int(ret_atomic_bsz.item())
