@@ -217,8 +217,8 @@ def test_partition_local_bsz():
         assert(np.all(steps * atomic_bsz <= max_batch_size))
         # Ensure that the atomic batch size is greater than the minimum
         assert(np.all(atomic_bsz > 16))
-        # Ensure that when replicas > 1, the partition is close to the
-        # original value
+        # Ensure that when replicas > 1, the partitioned batch szie
+        # is close to the original value
         assert(np.all(np.logical_or(
             replicas == 1,
             np.abs(atomic_bsz * (steps + 1) - batch_sizes) < (steps + 1))))
