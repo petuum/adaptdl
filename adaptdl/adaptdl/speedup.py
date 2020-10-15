@@ -190,11 +190,9 @@ class SpeedupFunction(object):
         mem_indices = (nodes[ret_indices], replicas[ret_indices])
         self._mem_speedup[mem_indices] = speedup[ret_indices]
         self._mem_local_bsz[mem_indices] = local_bsz[ret_indices]
-        print(ret_local_bsz)
 
         ret_atomic_bsz, ret_accumulation_steps = \
             self._partition_local_bsz(ret_local_bsz, ret_replicas)
-        print(ret_atomic_bsz)
         if isscalar:
             ret_speedup = ret_speedup.item()
             ret_atomic_bsz = int(ret_atomic_bsz.item())
