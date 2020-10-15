@@ -232,26 +232,24 @@ class SpeedupFunction(object):
 
             # When on a single replica, iff single_step_predicate is true,
             # then don't perform gradient accumulation
-            single_replica_predicate = replicas == 1
+            multi_replica_predicate = replicas > 1
             single_step_predicate = np.logical_or(
                 local_bsz == self._init_batch_size,
                 local_bsz <= 2 * self._min_local_bsz)
             cases = [
-                np.logical_and(single_replica_predicate,
-                               single_step_predicate),
-                np.logical_and(single_replica_predicate,
-                               np.logical_not(single_step_predicate))]
+                multi_replica_predicate,
+                single_step_predicate]
 
             accumulation_steps = np.select(
                 cases,
-                [1, np.maximum(2, accumulation_steps)],
-                default=accumulation_steps)
+                [accumulation_steps, 1],
+                default=np.maximum(2, accumulation_steps))
             atomic_bsz = np.select(
                 cases,
-                [self._init_batch_size,
-                 np.minimum(self._max_local_bsz,
-                            np.ceil(local_bsz / accumulation_steps))],
-                default=atomic_bsz)
+                [atomic_bsz, self._init_batch_size],
+                default=np.minimum(
+                    self._max_local_bsz,
+                    np.ceil(local_bsz / accumulation_steps)))
 
             # For this function, accumulation steps include the final
             # sync step to make the math easier. Outside of this function,
