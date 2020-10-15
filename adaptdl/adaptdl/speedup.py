@@ -215,7 +215,7 @@ class SpeedupFunction(object):
             return ret_speedup
 
     def _partition_local_bsz(self, local_bsz, replicas):
-        if (self._max_local_bsz is not None and (
+        if (self._max_local_bsz is not None and self._accumulation and (
                 np.any(self._max_local_bsz < local_bsz)
                 or np.any(replicas == 1))):
             accumulation_steps = np.maximum(
@@ -223,17 +223,29 @@ class SpeedupFunction(object):
                 1)
             atomic_bsz = np.minimum(
                 self._max_local_bsz, np.ceil(local_bsz / accumulation_steps))
-            for i, replica in enumerate(replicas):
-                if replica == 1:
-                    if local_bsz[i] == self._init_batch_size:
-                        accumulation_steps[i] = 1
-                        atomic_bsz[i] = self._init_batch_size
-                    else:
-                        accumulation_steps[i] = np.minimum(
-                            2, accumulation_steps[i])
-                        atomic_bsz = np.minimum(
-                            self._max_local_bsz,
-                            np.ceil(local_bsz / accumulation_steps[i]))
+
+            # Need to prevent a single replica from scaling up the
+            # batch size without using gradient accumulation
+            single_replica_predicate = replicas == 1
+            single_step_predicate = np.logical_or(
+                local_bsz == self._init_batch_size,
+                local_bsz <= 2 * self._min_local_bsz)
+
+            accumulation_steps = np.where(
+                single_replica_predicate,
+                np.where(
+                    single_step_predicate,
+                    1,
+                    np.maximum(2, accumulation_steps)),
+                accumulation_steps)
+            atomic_bsz = np.where(
+                single_replica_predicate,
+                np.where(
+                    single_step_predicate,
+                    self._init_batch_size,
+                    np.minimum(self._max_local_bsz,
+                               np.ceil(local_bsz / accumulation_steps))),
+                atomic_bsz)
             return (atomic_bsz.astype(int),
                     accumulation_steps.astype(int) - 1)
         else:

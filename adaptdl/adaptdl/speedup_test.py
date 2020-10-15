@@ -184,3 +184,41 @@ def test_gradient_accumulation():
         assert(np.all(steps >= 0))
         assert(np.all(np.logical_or(np.multiply(steps, bsz) >= 256,
                                     steps == 0)))
+
+
+def test_partition_local_bsz():
+    # Note: params values don't matter for this test
+    params = np.random.gamma(2.0, 2.0, (7,))
+    grad_params = np.random.gamma(2.0, 2.0, (2,))
+    grad_params = {"norm": grad_params[0], "var": grad_params[1]}
+    max_batch_sizes = np.random.randint(100, 10000, 1000)
+    local_bsz_bounds = np.minimum(
+        max_batch_sizes, np.random.randint(32, 1000, 1000))
+    init_batch_sizes = np.minimum(128, local_bsz_bounds)
+    for max_batch_size, local_bsz_bound, init_batch_size in zip(
+            max_batch_sizes, local_bsz_bounds, init_batch_sizes):
+        samples = 1000
+        fun = SpeedupFunction(
+            params, grad_params, init_batch_size, max_batch_size,
+            (16, local_bsz_bound), True, True)
+        replicas = np.random.randint(1, 11, samples)
+        batch_sizes = np.random.randint(init_batch_size,
+                                        np.maximum(max_batch_size / replicas,
+                                                   init_batch_size + 1),
+                                        samples)
+        atomic_bsz, steps = fun._partition_local_bsz(batch_sizes, replicas)
+        # Ensure that single replicas can't scale the batchsize without
+        # using gradient accumulation
+        assert(np.all(np.logical_or(
+                        np.logical_or(replicas != 1,
+                                      atomic_bsz == init_batch_size),
+                        steps > 0)))
+        # Ensure that the total batch size doesn't exceed the user limit
+        assert(np.all(steps * atomic_bsz <= max_batch_size))
+        # Ensure that the atomic batch size is greater than the minimum
+        assert(np.all(atomic_bsz > 16))
+        # Ensure that when replicas > 1, the partition is close to the
+        # original value
+        assert(np.all(np.logical_or(
+            replicas == 1,
+            np.abs(atomic_bsz * (steps + 1) - batch_sizes) < (steps + 1))))
