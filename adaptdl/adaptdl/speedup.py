@@ -163,7 +163,6 @@ class SpeedupFunction(object):
             assert np.all(max_local_bsz >= min_local_bsz)
             # Sample a bunch of potential local_bsz values
             local_bsz = np.geomspace(min_local_bsz, max_local_bsz, num=100)
-            print(local_bsz)
             # Should get broadcast to (num_samples, replicas.size).
             goodput = self._goodput(nodes, replicas, local_bsz)
             local_bsz = local_bsz[np.argmax(goodput, axis=0),
