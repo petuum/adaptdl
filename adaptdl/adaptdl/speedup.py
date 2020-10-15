@@ -241,7 +241,7 @@ class SpeedupFunction(object):
                                np.ceil(local_bsz / accumulation_steps))),
                 atomic_bsz)
 
-            # For this function, accumulation steps include the final 
+            # For this function, accumulation steps include the final
             # sync step to make the math easier. Outside of this function,
             # that step isn't included, so need to subtract 1
             return (atomic_bsz.astype(int),
