@@ -371,10 +371,6 @@ class AdaptDLController(object):
                     "name": "NCCL_SOCKET_IFNAME",
                     "value": NETWORK_INTERFACE
                 })
-                container["env"].append({
-                    "name": "NCCL_DEBUG",
-                    "value": "INFO"
-                })
             container["env"].append({
                 "name": "ADAPTDL_JOB_ID",
                 "value": "{}/{}".format(job_metadata["namespace"],
