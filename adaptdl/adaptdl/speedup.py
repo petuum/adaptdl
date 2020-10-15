@@ -139,6 +139,7 @@ class SpeedupFunction(object):
 
         # Find the indices which still need to be computed.
         indices = ret_speedup < 0
+        ret_replicas = replicas
         nodes, replicas = nodes[indices], replicas[indices]
 
         # Only compute for unique inputs.
@@ -195,7 +196,7 @@ class SpeedupFunction(object):
         self._mem_local_bsz[mem_indices] = local_bsz[ret_indices]
 
         ret_atomic_bsz, ret_accumulation_steps = \
-            self._partition_local_bsz(ret_local_bsz, replicas)
+            self._partition_local_bsz(ret_local_bsz, ret_replicas)
 
         if isscalar:
             ret_speedup = ret_speedup.item()

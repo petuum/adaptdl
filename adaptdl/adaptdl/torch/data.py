@@ -475,13 +475,11 @@ class AdaptiveDataLoader(DataLoader, AdaptiveDataLoaderMixin):
             while not done:
                 self.sampler.set_epoch(epoch, index=self._elastic.current_index)  # noqa: E501
                 self.batch_sampler.batch_size = self._elastic._sync_local_bsz()
-                iterations = self._elastic.get_iterations(len(self.sampler))
                 for idx, batch in enumerate(super().__iter__()):
-                    if idx > iterations:
-                        break
                     with self._elastic.profile():
                         yield batch
-                        self._elastic.increment_index()
+                        # Increment by the number of data samples processed
+                        self._elastic.current_index += self.current_batch_size  # noqa: E501
                         if self._elastic.max_batch_size is not None and \
                            get_progress() >= len(self.dataset) * \
                            (epoch + 1) / self.batch_size:
