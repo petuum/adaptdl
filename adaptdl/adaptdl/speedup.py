@@ -221,22 +221,22 @@ class SpeedupFunction(object):
             single_step_predicate = np.logical_or(
                 local_bsz == self._init_batch_size,
                 local_bsz <= 2 * self._min_local_bsz)
+            cases = [
+                np.logical_and(single_replica_predicate,
+                               single_step_predicate),
+                np.logical_and(single_replica_predicate,
+                               np.logical_not(single_step_predicate))]
 
-            accumulation_steps = np.where(
-                single_replica_predicate,
-                np.where(
-                    single_step_predicate,
-                    1,
-                    np.maximum(2, accumulation_steps)),
-                accumulation_steps)
-            atomic_bsz = np.where(
-                single_replica_predicate,
-                np.where(
-                    single_step_predicate,
-                    self._init_batch_size,
-                    np.minimum(self._max_local_bsz,
-                               np.ceil(local_bsz / accumulation_steps))),
-                atomic_bsz)
+            accumulation_steps = np.select(
+                cases,
+                [1, np.maximum(2, accumulation_steps)],
+                default=accumulation_steps)
+            atomic_bsz = np.select(
+                cases,
+                [self._init_batch_size,
+                 np.minimum(self._max_local_bsz,
+                            np.ceil(local_bsz / accumulation_steps))],
+                default=atomic_bsz)
 
             # For this function, accumulation steps include the final
             # sync step to make the math easier. Outside of this function,
