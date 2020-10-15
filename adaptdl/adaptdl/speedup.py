@@ -85,16 +85,16 @@ class SpeedupFunction(object):
             self._params = None
         if params is not None and init_batch_size is not None:
             if self._accumulation:
-                max_steps = int(self._max_batch_size / init_batch_size)
-                candidates = np.arange(init_batch_size,
-                                       self._max_batch_size + 1,
-                                       init_batch_size)
+                num_candidates = 100
+                candidates = np.geomspace(init_batch_size,
+                                          self._max_batch_size + 1,
+                                          num_candidates).flatten()
             else:
-                max_steps = 1
+                num_candidates = 1
                 candidates = np.asarray([init_batch_size])
             goodputs = self._goodput(
-                np.ones((max_steps,)),
-                np.ones((max_steps,)),
+                np.ones((num_candidates,)),
+                np.ones((num_candidates,)),
                 candidates)
             best_index = np.argmax(goodputs)
             goodput = goodputs[best_index].item()
