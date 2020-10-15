@@ -62,8 +62,8 @@ learning rate, which can be tricky to find manually. AdaptDL offers automatic
 batch size and learning rate scaling, which enables efficient distributed
 training without requiring manual effort. To achieve this, AdaptDL measures the
 system performance and `gradient noise scale <https://arxiv.org/pdf/1812.06162.pdf>`_
-during training, and adaptively selects the most efficient batch size and
-learning rate.
+during training, adaptively selects the most efficient batch size, and scales
+the learning rate using `AdaScale <https://arxiv.org/pdf/2007.05105.pdf>`_.
 
 .. image:: _static/img/autobsz-performance.png
   :align: center
