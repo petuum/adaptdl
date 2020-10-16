@@ -147,6 +147,16 @@ class AdaptiveDataLoaderHelper(object):
         self.batch_size = batch_size
         self.future_exit = None
 
+        # True before the first time sync_local_bsz.
+        self.init_time = True
+
+        # initialize a record of current local bs, if the sppedup is not significant
+        # then we will keep the previous batch size
+        self.cur_local_bsz = 0
+
+        # speedup threshold to adopt the new batch size
+        self.speedup_threshold = 1.05
+
     @property
     def current_index(self):
         """
@@ -239,10 +249,22 @@ class AdaptiveDataLoaderHelper(object):
         else:
             # Autoscale batch size, compute on rank 0 and broadcast.
             speedup_fn = get_speedup_fn()
-            _, local_bsz = speedup_fn(adaptdl.env.num_nodes(),
+            speedup, local_bsz = speedup_fn(adaptdl.env.num_nodes(),
                                       adaptdl.env.num_replicas(),
                                       return_local_bsz=True)
-            self.current_local_bsz = adaptdl.collective.broadcast(local_bsz)
+
+            # if first time called, initiliza the batch size field
+            if(self.init_time):
+                self.cur_local_bsz = local_bsz
+                self.init_time = False
+            
+            # if the speedup is significant, we use it, otherwise, keep the old one.
+            if(speedup > self.speedup_threshold):
+                self.current_local_bsz = adaptdl.collective.broadcast(local_bsz)
+                self.cur_local_bsz = local_bsz
+            else:
+                self.current_local_bsz = adaptdl.collective.broadcast(self.cur_local_bsz)
+                
         return self.current_local_bsz
 
     @property
