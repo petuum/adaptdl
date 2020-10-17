@@ -147,12 +147,8 @@ class AdaptiveDataLoaderHelper(object):
         self.batch_size = batch_size
         self.future_exit = None
 
-        # True before the first time sync_local_bsz.
-        self.init_time = True
-
-        # initialize a record of current local bs, if the sppedup 
-        # is not significant then we will keep the previous batch size
-        self.cur_local_bsz = 0
+        # initialize a record of current local bs
+        self.current_local_bsz = None
 
         # speedup threshold to adopt the new batch size
         self.speedup_threshold = 1.05
@@ -249,25 +245,33 @@ class AdaptiveDataLoaderHelper(object):
         else:
             # Autoscale batch size, compute on rank 0 and broadcast.
             speedup_fn = get_speedup_fn()
-            speedup, local_bsz = speedup_fn(adaptdl.env.num_nodes(),
-                                            adaptdl.env.num_replicas(),
-                                            return_local_bsz=True)
 
+            # check whether predict params have been setup
+            is_init = speedup_fn._params is None
             # if first time called, initiliza the batch size field
-            if(self.init_time):
-                self.cur_local_bsz = local_bsz
-                self.init_time = False
+            if(is_init):
+                _, local_bsz = speedup_fn(adaptdl.env.num_nodes(),
+                                                adaptdl.env.num_replicas(),
+                                                return_local_bsz=True) 
 
-            # if the speedup is significant, we use it, 
-            # otherwise, keep the old one.
+                self.current_local_bsz = adaptdl.collective.broadcast(
+                        local_bsz)
 
-            if(speedup > self.speedup_threshold):
-                self.current_local_bsz = \
-                adaptdl.collective.broadcast(local_bsz)
-                self.cur_local_bsz = local_bsz
+            # if not the first time, we check against the relative speedup
             else:
-                self.current_local_bsz = \
-                adaptdl.collective.broadcast(self.cur_local_bsz)
+                speedup_to_cur, local_bsz = speedup_fn(adaptdl.env.num_nodes(),
+                                                adaptdl.env.num_replicas(),
+                                                return_local_bsz=True,
+                                                current_bs=
+                                                self.current_local_bsz)
+                # if the speedup is significant, we use it, 
+                # otherwise, keep the old one.
+                if(speedup_to_cur > self.speedup_threshold):
+                    self.current_local_bsz = adaptdl.collective.broadcast(
+                            local_bsz)
+                else:
+                    self.current_local_bsz = adaptdl.collective.broadcast(
+                            self.current_local_bsz)
 
         return self.current_local_bsz
 

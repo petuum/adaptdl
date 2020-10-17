@@ -94,13 +94,12 @@ class SpeedupFunction(object):
         self._mem_speedup[1, 1] = 1.0  # replicas = 1  ==>  speedup = 1
         self._mem_local_bsz[1, 1] = self._init_batch_size
 
-    def __call__(self, nodes, replicas, return_local_bsz=False):
+    def __call__(self, nodes, replicas, return_local_bsz=False, current_bs=None):
         # nodes and replicas must have the same shape, dtype=int
         assert np.shape(nodes) == np.shape(replicas)
         assert np.all(np.less_equal(0, nodes))
         assert np.all(np.less_equal(nodes, replicas))
         assert np.all((nodes > 0) == (replicas > 0))
-
         # Remember if original arguments are scalars.
         isscalar = np.isscalar(replicas)
         nodes, replicas = np.atleast_1d(nodes, replicas)
@@ -126,6 +125,7 @@ class SpeedupFunction(object):
         else:
             unique_indices = np.array([], dtype=np.int)
 
+        
         if np.size(replicas) == 0:
             local_bsz = np.array([], dtype=np.int)
             goodput = np.array([])
@@ -175,8 +175,15 @@ class SpeedupFunction(object):
             ret_speedup = ret_speedup.item()
             ret_local_bsz = ret_local_bsz.item()
 
-        return ((ret_speedup, ret_local_bsz)
-                if return_local_bsz else ret_speedup)
+        # if current bs is passed in, return the relative speedup to current
+        if(current_bs):
+            cur_goodput = self._goodput(nodes, replicas, current_bs)
+            speedup_to_cur = goodput / cur_goodput
+            return speedup_to_cur, ret_local_bsz
+        elif(return_local_bsz):
+            return ret_speedup, ret_local_bsz
+        else:
+            return ret_speedup
 
     def _goodput(self, nodes, replicas, local_bsz):
         log_pred_step_time, _, _ = \
