@@ -20,6 +20,7 @@ import torch.distributed
 import torch.optim
 from torch.autograd import Variable
 
+
 __all__ = ["AdaScale"]
 
 
@@ -209,9 +210,9 @@ class AdaScale(object):
             self._norms = torch.zeros((self._accumulation_steps,
                                        self._num_params),
                                       device=grad[0].device)
-        grad /= self._accumulation_steps
         self._norms[self._current_accumulation_step][idx] = \
             grad.pow(2).sum()
+        grad /= self._accumulation_steps
         self._final_callback_queued = False
         Variable._execution_engine.queue_callback(self._queue_callback)
 
@@ -232,15 +233,15 @@ class AdaScale(object):
         # This method should be invoked once for each backward pass, after
         # gradients have been synchronized between each replica.
         self._final_callback_queued = False
+        if (self.is_accumulation_step()):
+            return
         grad = []
         total_steps = self._accumulation_steps
         for group in self._optimizer.param_groups:
-            grad.extend([p.grad.detach().clone() / total_steps
+            grad.extend([p.grad.detach().clone()
                          if p.grad is not None else
                          torch.zeros([1], dtype=torch.float64)
                          for p in group["params"]])
-        if (self.is_accumulation_step()):
-            return
 
         theta = self._smoothing ** self._scale
         has_previous_step = not (self._norms_future is None)
@@ -267,8 +268,7 @@ class AdaScale(object):
                 # DistributedDataParallel averages gradients across replica,
                 # but we also need to average the gradients across the
                 # gradient accumulation steps manually
-                n = _normsq(
-                    [g for g in self._prev_full_grad])
+                n = _normsq(self._prev_full_grad)
                 var = norms / (samples - 1)
                 var -= n * (samples / (samples - 1))
                 var *= (self._scale / samples)

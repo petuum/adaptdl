@@ -1,3 +1,5 @@
+# Code adapted from https://github.com/guoyang9/NCF
+
 import numpy as np 
 import pandas as pd 
 import scipy.sparse as sp
@@ -5,30 +7,28 @@ import os
 import torch.utils.data as data
 import hashlib
 
-import config
 import adaptdl.env
 from urllib.request import urlretrieve
 
 
 base_url = "https://raw.githubusercontent.com/hexiangnan/neural_collaborative_filtering/312aff0ee6f4df0ba60041329a74ed29bc7ac4b4/Data/"
 
-def download_all(dataset='pinterest-20'):#"ml-1m"):
-    root = config.main_path
+def download_all(root_path, dataset="ml-1m"):
     datafiles = ['{}.{}'.format(dataset, suffix) for suffix in
                  ['train.rating', 'test.rating', 'test.negative']]
     for filename in datafiles:
-        local_filename = os.path.join(root, filename)
+        local_filename = os.path.join(root_path, filename)
         # Todo: verify file
         if not os.path.exists(local_filename):
             print(base_url + filename, local_filename)
             urlretrieve(base_url + filename, local_filename)
 
 
-def load_all(test_num=100):
+def load_all(root_path, train_rating, test_negative, test_num=100):
     """ We load all the three file here to save time in each epoch. """
-    download_all()
+    download_all(root_path)
     train_data = pd.read_csv(
-        config.train_rating, 
+        train_rating, 
         sep='\t', header=None, names=['user', 'item'], 
         usecols=[0, 1], dtype={0: np.int32, 1: np.int32})
 
@@ -43,7 +43,7 @@ def load_all(test_num=100):
         train_mat[x[0], x[1]] = 1.0
 
     test_data = []
-    with open(config.test_negative, 'r') as fd:
+    with open(test_negative, 'r') as fd:
         line = fd.readline()
         while line != None and line != '':
             arr = line.split('\t')
