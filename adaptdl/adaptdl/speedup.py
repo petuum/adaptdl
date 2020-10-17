@@ -94,7 +94,8 @@ class SpeedupFunction(object):
         self._mem_speedup[1, 1] = 1.0  # replicas = 1  ==>  speedup = 1
         self._mem_local_bsz[1, 1] = self._init_batch_size
 
-    def __call__(self, nodes, replicas, return_local_bsz=False, current_bs=None):
+    def __call__(self, nodes, replicas, return_local_bsz=False,
+                 current_bs=None):
         # nodes and replicas must have the same shape, dtype=int
         assert np.shape(nodes) == np.shape(replicas)
         assert np.all(np.less_equal(0, nodes))
@@ -125,7 +126,6 @@ class SpeedupFunction(object):
         else:
             unique_indices = np.array([], dtype=np.int)
 
-        
         if np.size(replicas) == 0:
             local_bsz = np.array([], dtype=np.int)
             goodput = np.array([])

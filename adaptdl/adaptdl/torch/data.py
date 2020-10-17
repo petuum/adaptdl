@@ -251,20 +251,20 @@ class AdaptiveDataLoaderHelper(object):
             # if first time called, initiliza the batch size field
             if(is_init):
                 _, local_bsz = speedup_fn(adaptdl.env.num_nodes(),
-                                                adaptdl.env.num_replicas(),
-                                                return_local_bsz=True) 
+                                          adaptdl.env.num_replicas(),
+                                          return_local_bsz=True)
 
                 self.current_local_bsz = adaptdl.collective.broadcast(
                         local_bsz)
 
             # if not the first time, we check against the relative speedup
             else:
-                speedup_to_cur, local_bsz = speedup_fn(adaptdl.env.num_nodes(),
-                                                adaptdl.env.num_replicas(),
-                                                return_local_bsz=True,
-                                                current_bs=
-                                                self.current_local_bsz)
-                # if the speedup is significant, we use it, 
+                speedup_to_cur, local_bsz = \
+                    speedup_fn(adaptdl.env.num_nodes(),
+                               adaptdl.env.num_replicas(),
+                               return_local_bsz=True,
+                               current_bs=self.current_local_bsz)
+                # if the speedup is significant, we use it,
                 # otherwise, keep the old one.
                 if(speedup_to_cur > self.speedup_threshold):
                     self.current_local_bsz = adaptdl.collective.broadcast(
