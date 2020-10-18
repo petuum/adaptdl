@@ -95,7 +95,7 @@ class SpeedupFunction(object):
         self._mem_local_bsz[1, 1] = self._init_batch_size
 
     def __call__(self, nodes, replicas, return_local_bsz=False,
-                 query_local_bs=None):
+                 query_local_bsz=None):
         # nodes and replicas must have the same shape, dtype=int
         assert np.shape(nodes) == np.shape(replicas)
         assert np.all(np.less_equal(0, nodes))
@@ -176,8 +176,9 @@ class SpeedupFunction(object):
             ret_local_bsz = ret_local_bsz.item()
 
         # if current bs is passed in, return the relative speedup to current
-        if query_local_bs:
-            query_goodput = self._goodput(nodes, replicas, query_local_bs)
+        if query_local_bsz:
+            query_goodput = self._goodput(nodes, replicas, query_local_bsz)
+            query_speedup = query_goodput / self._base_goodput
             return query_goodput, ret_local_bsz
         elif return_local_bsz:
             return ret_speedup, ret_local_bsz

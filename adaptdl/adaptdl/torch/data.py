@@ -259,21 +259,21 @@ class AdaptiveDataLoaderHelper(object):
 
             # if not the first time, we check against the relative speedup
             else:
-                current_goodput, local_bsz = speedup_fn(
+                current_speedup, local_bsz = speedup_fn(
                         adaptdl.env.num_nodes(),
                         adaptdl.env.num_replicas(),
                         return_local_bsz=True,
-                        query_local_bs=self.current_local_bsz)
+                        query_local_bsz=self.current_local_bsz)
 
                 # get the new goodput from the newly suggested bs
-                suggested_goodput, _ = speedup_fn(adaptdl.env.num_nodes(),
+                suggested_speedup, _ = speedup_fn(adaptdl.env.num_nodes(),
                                                   adaptdl.env.num_replicas(),
                                                   return_local_bsz=True,
-                                                  query_local_bs=local_bsz)
+                                                  query_local_bsz=local_bsz)
 
                 # if the speedup is significant, we use it
                 # otherwise, keep the old one.
-                speedup_to_cur = suggested_goodput / current_goodput
+                speedup_to_cur = suggested_speedup / current_speedup
                 if speedup_to_cur > self.speedup_threshold:
                     self.current_local_bsz = adaptdl.collective.broadcast(
                             local_bsz)
