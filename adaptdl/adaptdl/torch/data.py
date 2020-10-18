@@ -246,7 +246,7 @@ class AdaptiveDataLoaderHelper(object):
             # Autoscale batch size, compute on rank 0 and broadcast.
             speedup_fn = get_speedup_fn()
 
-            # check whether this is the first call to this func
+            # check whether predict param is up
             is_init = speedup_fn._params is None
             # if first time called, initiliza the batch size field
             if is_init:
@@ -259,17 +259,15 @@ class AdaptiveDataLoaderHelper(object):
 
             # if not the first time, we check against the relative speedup
             else:
-                current_speedup, local_bsz = speedup_fn(
+                suggested_speedup, local_bsz = speedup_fn(
                         adaptdl.env.num_nodes(),
                         adaptdl.env.num_replicas(),
-                        return_local_bsz=True,
-                        query_local_bsz=self.current_local_bsz)
+                        return_local_bsz=True)
 
-                # get the new goodput from the newly suggested bs
-                suggested_speedup = speedup_fn(adaptdl.env.num_nodes(),
-                                               adaptdl.env.num_replicas(),
-                                               return_local_bsz=False,
-                                               query_local_bsz=local_bsz)
+                # get current speedups
+                current_speedup = speedup_fn(adaptdl.env.num_nodes(),
+                                             adaptdl.env.num_replicas(),
+                                             local_bsz=self.current_local_bsz)
 
                 # if the speedup is significant, we use it
                 # otherwise, keep the old one.
