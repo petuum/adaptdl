@@ -266,10 +266,10 @@ class AdaptiveDataLoaderHelper(object):
                         query_local_bsz=self.current_local_bsz)
 
                 # get the new goodput from the newly suggested bs
-                suggested_speedup, _ = speedup_fn(adaptdl.env.num_nodes(),
-                                                  adaptdl.env.num_replicas(),
-                                                  return_local_bsz=True,
-                                                  query_local_bsz=local_bsz)
+                suggested_speedup = speedup_fn(adaptdl.env.num_nodes(),
+                                               adaptdl.env.num_replicas(),
+                                               return_local_bsz=False,
+                                               query_local_bsz=local_bsz)
 
                 # if the speedup is significant, we use it
                 # otherwise, keep the old one.
