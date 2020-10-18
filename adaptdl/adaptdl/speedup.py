@@ -105,7 +105,7 @@ class SpeedupFunction(object):
         if not return_local_bsz and query_local_bsz:
             query_goodput = self._goodput(nodes, replicas, query_local_bsz)
             query_speedup = query_goodput / self._base_goodput
-            return query_goodput
+            return query_speedup
 
         isscalar = np.isscalar(replicas)
         nodes, replicas = np.atleast_1d(nodes, replicas)
