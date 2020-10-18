@@ -101,12 +101,13 @@ class SpeedupFunction(object):
         assert np.all(np.less_equal(0, nodes))
         assert np.all(np.less_equal(nodes, replicas))
         assert np.all((nodes > 0) == (replicas > 0))
-        # Remember if original arguments are scalars.
+        # if there is a query bsz, return speed up
         if local_bsz:
             goodput = self._goodput(nodes, replicas, local_bsz)
             speedup = goodput / self._base_goodput
             return speedup
 
+        # Remember if original arguments are scalars.
         isscalar = np.isscalar(replicas)
         nodes, replicas = np.atleast_1d(nodes, replicas)
 
