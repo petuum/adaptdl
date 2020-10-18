@@ -246,10 +246,10 @@ class AdaptiveDataLoaderHelper(object):
             # Autoscale batch size, compute on rank 0 and broadcast.
             speedup_fn = get_speedup_fn()
 
-            # check whether predict params have been setup
+            # check whether this is the first call to this func
             is_init = speedup_fn._params is None
             # if first time called, initiliza the batch size field
-            if(is_init):
+            if is_init:
                 _, local_bsz = speedup_fn(adaptdl.env.num_nodes(),
                                           adaptdl.env.num_replicas(),
                                           return_local_bsz=True)
@@ -259,14 +259,22 @@ class AdaptiveDataLoaderHelper(object):
 
             # if not the first time, we check against the relative speedup
             else:
-                speedup_to_cur, local_bsz = \
-                    speedup_fn(adaptdl.env.num_nodes(),
-                               adaptdl.env.num_replicas(),
-                               return_local_bsz=True,
-                               current_bs=self.current_local_bsz)
-                # if the speedup is significant, we use it,
+                current_goodput, local_bsz = speedup_fn(
+                        adaptdl.env.num_nodes(),
+                        adaptdl.env.num_replicas(),
+                        return_local_bsz=True,
+                        query_local_bs=self.current_local_bsz)
+
+                # get the new goodput from the newly suggested bs
+                suggested_goodput, _ = speedup_fn(adaptdl.env.num_nodes(),
+                                                  adaptdl.env.num_replicas(),
+                                                  return_local_bsz=True,
+                                                  query_local_bs=local_bsz)
+
+                # if the speedup is significant, we use it
                 # otherwise, keep the old one.
-                if(speedup_to_cur > self.speedup_threshold):
+                speedup_to_cur = suggested_goodput / current_goodput
+                if speedup_to_cur > self.speedup_threshold:
                     self.current_local_bsz = adaptdl.collective.broadcast(
                             local_bsz)
                 else:
