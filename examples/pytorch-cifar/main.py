@@ -19,6 +19,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
+import torch.distributed as dist
 
 import torchvision
 import torchvision.transforms as transforms
@@ -59,11 +60,19 @@ transform_test = transforms.Compose([
     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
 ])
 
-trainset = torchvision.datasets.CIFAR10(root=adaptdl.env.share_path(), train=True, download=True, transform=transform_train)
-trainloader = adl.AdaptiveDataLoader(trainset, batch_size=args.bs, shuffle=True, num_workers=2, drop_last=True)
+adaptdl.torch.init_process_group("nccl" if torch.cuda.is_available() else "gloo")
+
+if adaptdl.env.replica_rank() == 0:
+    trainset = torchvision.datasets.CIFAR10(root=adaptdl.env.share_path(), train=True, download=True, transform=transform_train)
+    trainloader = adl.AdaptiveDataLoader(trainset, batch_size=args.bs, shuffle=True, num_workers=2, drop_last=True)
+    dist.barrier()  # We use a barrier here so that non-master replicas would wait for master to download the data
+else:
+    dist.barrier()
+    trainset = torchvision.datasets.CIFAR10(root=adaptdl.env.share_path(), train=True, download=False, transform=transform_train)
+    trainloader = adl.AdaptiveDataLoader(trainset, batch_size=args.bs, shuffle=True, num_workers=2, drop_last=True)
 
 if args.autoscale_bsz:
-    trainloader.autoscale_batch_size(4096, local_bsz_bounds=(32, 1024))
+    trainloader.autoscale_batch_size(4096, local_bsz_bounds=(32, 1028), gradient_accumulation=True)
 
 validset = torchvision.datasets.CIFAR10(root=adaptdl.env.share_path(), train=False, download=False, transform=transform_test)
 validloader = adl.AdaptiveDataLoader(validset, batch_size=100, shuffle=False, num_workers=2)
@@ -93,7 +102,6 @@ criterion = nn.CrossEntropyLoss()
 optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
 lr_scheduler = MultiStepLR(optimizer, [30, 45], 0.1)
 
-adaptdl.torch.init_process_group("nccl" if torch.cuda.is_available() else "gloo")
 net = adl.AdaptiveDataParallel(net, optimizer, lr_scheduler)
 
 # Training
@@ -101,6 +109,9 @@ def train(epoch):
     print('\nEpoch: %d' % epoch)
     net.train()
     stats = adl.Accumulator()
+    gain = net.gain
+    batchsize = 0
+    accumulation_steps = 0
     for inputs, targets in trainloader:
         inputs, targets = inputs.to(device), targets.to(device)
         optimizer.zero_grad()
@@ -114,17 +125,22 @@ def train(epoch):
         stats["total"] += targets.size(0)
         stats["correct"] += predicted.eq(targets).sum().item()
 
-        writer.add_scalar("Throughput/Norm", optimizer.state["adascale"]["norm_avg"].sum(), epoch)
-        writer.add_scalar("Throughput/Var", optimizer.state["adascale"]["var_avg"].sum(), epoch)
-        writer.add_scalar("Throughput/Gain", net.gain, epoch)
-        writer.add_scalar("Throughput/Global_Batchsize",
-                          trainloader.current_batch_size, epoch)
+        gain = net.gain
+        batchsize = trainloader.current_batch_size
+        accumulation_steps = trainloader.accumulation_steps
 
+    writer.add_scalar("Throughput/Gain", gain, epoch)
+    writer.add_scalar("Throughput/Global_Batchsize",
+                      batchsize, epoch)
+    writer.add_scalar("Throughput/Accumulation_Steps",
+                      accumulation_steps, epoch)
     with stats.synchronized():
         stats["loss_avg"] = stats["loss_sum"] / stats["total"]
         stats["accuracy"] = stats["correct"] / stats["total"]
         writer.add_scalar("Loss/Train", stats["loss_avg"], epoch)
         writer.add_scalar("Accuracy/Train", stats["accuracy"], epoch)
+        writer.add_scalar("Gradient/Norm", net.adascale.norm_avg(), epoch)
+        writer.add_scalar("Gradient/Var", net.adascale.var_avg(), epoch)
         print("Train:", stats)
 
 def valid(epoch):
@@ -149,7 +165,8 @@ def valid(epoch):
         print("Valid:", stats)
 
 
-tensorboard_dir = os.path.join(os.getenv("ADAPTDL_TENSORBOARD_LOGDIR", "/tmp"),
+tensorboard_dir = os.path.join(os.getenv("ADAPTDL_TENSORBOARD_LOGDIR", "/tmp") \
+                               if adaptdl.env.replica_rank() == 0 else "/tmp",
                                adaptdl.env.job_id())
 with SummaryWriter(tensorboard_dir) as writer:
     for epoch in adl.remaining_epochs_until(args.epochs):

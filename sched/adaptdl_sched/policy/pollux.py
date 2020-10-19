@@ -27,7 +27,6 @@ from pymoo.algorithms.nsga2 import NSGA2
 from pymoo.operators.crossover.util import crossover_mask
 from pymoo.util.nds.non_dominated_sorting import NonDominatedSorting
 
-
 LOG = logging.getLogger(__name__)
 LOG.setLevel(logging.INFO)
 
@@ -127,13 +126,29 @@ class PolluxPolicy(object):
             dict: map from job keys to their optimized resource allocations,
                 in the form of a list of a node key for each replica.
         """
-        jobs = OrderedDict(  # Sort jobs in FIFO order.
-            sorted(jobs.items(), key=lambda kv: kv[1].creation_timestamp))
+
+        # A job is considered pinned if it's non-preemptible *and* already has
+        # an allocation.
+        def ispinned(key, job):
+            return not job.preemptible and base_allocations.get(key, []) != []
+
+        # We sort the jobs based on min_replicas and then creation_timestamp,
+        # so jobs wanting lower or no min_replicas guarantees are prioritized
+        # ahead of those wanting higher min_replicas guarantees to avoid
+        # underutilization of cluster. Within a same min_replicas value, they
+        # will follow FIFO order. Pinned jobs are aggregated at front because
+        # they already have an allocation and won't affect allocations of the
+        # rest of the jobs.
+        jobs = OrderedDict(sorted(jobs.items(),
+                                  key=lambda kv: (not ispinned(kv[0], kv[1]),
+                                                  kv[1].min_replicas,
+                                                  kv[1].creation_timestamp)))
         nodes = OrderedDict(  # Sort preemptible nodes last.
             sorted(nodes.items(), key=lambda kv: (kv[1].preemptible, kv[0])))
         base_state = np.concatenate(
             (self._allocations_to_state(base_allocations, jobs, nodes),
              np.zeros((len(jobs), len(nodes)), dtype=np.int)), axis=1)
+
         if self._prev_states is None:
             states = np.expand_dims(base_state, 0)
         else:
@@ -198,6 +213,9 @@ class Problem(pymoo.model.problem.Problem):
         self._jobs = jobs
         self._nodes = nodes
         self._base_state = base_state
+        self._pinned_indices = [i for i, job in enumerate(self._jobs)
+                                if not job.preemptible and
+                                np.any(self._base_state[i])]
         # Find which resource types are requested by at least one job.
         rtypes = sorted(set.union(*[set(job.resources) for job in jobs]))
         # Build array of job resources: <num_jobs> x <num_rtypes>. Each entry
@@ -220,10 +238,31 @@ class Problem(pymoo.model.problem.Problem):
         for j, job in enumerate(jobs):
             for n, node in enumerate(nodes):
                 self._max_replicas[j, n] = min(
-                    node.resources.get(rtype, 0) // job.resources[rtype]
+                    self._get_avail_resource(
+                        n, node, rtype) // job.resources[rtype]
                     for rtype in rtypes if job.resources.get(rtype, 0) > 0)
         self._restart_penalty = 0.1
+        # Lower bound each job by min_replicas from job spec
+        self._min_replicas = np.zeros(base_state.shape, dtype=np.int)
+        for j, job in enumerate(jobs):
+            min_replicas = self._jobs[j].min_replicas
+            for n, node in enumerate(nodes):
+                self._min_replicas[j, n] = min(min_replicas,
+                                               self._max_replicas[j, n])
+                min_replicas -= self._min_replicas[j, n]
         super().__init__(n_var=self._base_state.size, n_obj=2, type_var=np.int)
+
+    def _get_avail_resource(self, node_idx, node, rtype):
+        # Cutoff node's maximum allowable resources by amount already used by
+        # pinned jobs.
+        resource = node.resources.get(rtype, 0)
+        allocs = self._base_state[self._pinned_indices]
+        for job_idx, alloc in enumerate(allocs):
+            resource -= alloc[node_idx] * \
+                self._jobs[self._pinned_indices[job_idx]] \
+                .resources.get(rtype, 0)
+        assert resource >= 0
+        return resource
 
     def get_cluster_utilities(self, states):
         """
@@ -310,14 +349,21 @@ class Problem(pymoo.model.problem.Problem):
         prob = 1.0 / np.where(states > 0, num_nonzero, num_zero)
         prob = prob.reshape(states.shape)
         m = np.random.random(states.shape) < prob
-        r = np.random.randint(np.iinfo(np.int16).max, size=states.shape)
-        states = (states + m * r) % (self._max_replicas + 1)
+        r = np.random.randint(self._min_replicas, self._max_replicas + 1,
+                              size=states.shape)
+        states[m] = r[m]
+        # We need at least min_replicas
+        states = np.maximum(states, self._min_replicas)
         return states.reshape(states.shape[0], -1)
 
     def _repair(self, pop, **kwargs):
         states = pop.get("X")
         states = states.reshape(states.shape[0], *self._base_state.shape)
-        # Enforce at most one distributed job per node.
+        # Copy previous allocations for pinned jobs
+        states[:, self._pinned_indices] = \
+            self._base_state[self._pinned_indices, :]
+        # Enforce at most one distributed job per node. Exclude all
+        # nonpreemptible jobs.
         distributed = np.count_nonzero(states, axis=2) > 1
         mask = states * np.expand_dims(distributed, axis=-1) > 0
         mask = mask.cumsum(axis=1) > 1
@@ -340,6 +386,10 @@ class Problem(pymoo.model.problem.Problem):
         with np.errstate(divide="ignore", invalid="ignore"):
             states = np.amin(np.floor_divide(states, job_resources),
                              where=job_resources > 0, initial=99, axis=-1)
+        # Only choose solutions which have at least min_replicas allocations
+        min_replicas = np.array([j.min_replicas for j in self._jobs])
+        mask = np.sum(states, axis=-1) < min_replicas
+        states[mask] = 0
         return pop.new("X", states.reshape(states.shape[0], -1))
 
 

@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-validator
+  labels:
+    app: adaptdl-validator
+    release: {{ .Release.Name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: adaptdl-validator
+      release: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: adaptdl-validator
+        release: {{ .Release.Name }}
+    spec:
+      volumes:
+        - name: tls
+          secret:
+            secretName: {{.Release.Name }}-validator
+      containers:
+        - name: server
+          image: {{ .Values.image.repository }}{{ empty .Values.image.digest | ternary ":" "@" }}{{ coalesce .Values.image.digest .Values.image.tag .Chart.AppVersion }}
+          imagePullPolicy: Always
+          command: ["python", "-m", "adaptdl_sched.validator"]
+          args:
+            - --host=0.0.0.0
+            - --port=8443
+            - --tls-crt=/mnt/tls.crt
+            - --tls-key=/mnt/tls.key
+          volumeMounts:
+            - name: tls
+              mountPath: /mnt
+              readOnly: true
+          ports:
+            - name: https
+              containerPort: 8443
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: https
+              scheme: HTTPS
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: https
+              scheme: HTTPS
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{ toYaml . | indent 8 }}
+      {{- end -}}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
