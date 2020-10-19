@@ -14,7 +14,6 @@
 
 
 import functools
-import logging
 import time
 
 import torch
@@ -27,10 +26,6 @@ import adaptdl.env
 from adaptdl.torch.data import current_dataloader
 from adaptdl.torch.adascale import AdaScale
 from adaptdl.torch._metrics import profile_sync_time
-
-logging.basicConfig(level=logging.INFO)
-LOG = logging.getLogger(__name__)
-LOG.setLevel(logging.INFO)
 
 
 class AdaptiveDataParallel(DistributedDataParallel):
@@ -71,6 +66,21 @@ class AdaptiveDataParallel(DistributedDataParallel):
         adaptdl.checkpoint.load_state(self._state)
 
         self._sync_start = None
+
+    def forward(self, *args, **kwargs):
+        # Do not do gradient synchronization during gradient accumulation
+        # Otherwise, exactly the same as DistributedDataParallel's forward
+        dataloader = current_dataloader()
+        accumulation_steps = dataloader.accumulation_steps
+        # TODO: move this to the dataloader.__iter__
+        self.adascale.set_accumulation_steps(accumulation_steps)
+        if (self.adascale.is_accumulation_step()):
+            with super().no_sync():
+                dataloader.is_accumulation_step = True
+                return super().forward(*args, **kwargs)
+        else:
+            dataloader.is_accumulation_step = False
+            return super().forward(*args, **kwargs)
 
     def _backward_hook(self, param, grad):
         # This method should be invoked once for each parameter during the
@@ -124,12 +134,18 @@ class AdaptiveDataParallel(DistributedDataParallel):
         scale = dataloader.current_batch_size / dataloader.batch_size
         self.adascale.set_scale(scale)
         self._state.gain = self.adascale.gain()
-        adaptdl.torch._metrics.update_progress(self._state.gain)
+        adaptdl.torch._metrics.update_progress(self.adascale.get_progress())
         if dataloader.max_batch_size and \
                 dataloader.max_batch_size > dataloader.batch_size:
             adaptdl.torch._metrics.update_grad_params(
                 self._key, self.adascale.norm_avg(), self.adascale.var_avg())
         self._sync_start = None
+
+    def zero_grad(self, *args, **kwargs):
+        if self.adascale.is_accumulation_step():
+            return
+        else:
+            return super().zero_grad(*args, **kwargs)
 
     @property
     def gain(self):  # TODO: should be tracked in the metrics module instead.

@@ -72,7 +72,7 @@ else:
     trainloader = adl.AdaptiveDataLoader(trainset, batch_size=args.bs, shuffle=True, num_workers=2, drop_last=True)
 
 if args.autoscale_bsz:
-    trainloader.autoscale_batch_size(4096, local_bsz_bounds=(32, 1024))
+    trainloader.autoscale_batch_size(4096, local_bsz_bounds=(32, 1028), gradient_accumulation=True)
 
 validset = torchvision.datasets.CIFAR10(root=adaptdl.env.share_path(), train=False, download=False, transform=transform_test)
 validloader = adl.AdaptiveDataLoader(validset, batch_size=100, shuffle=False, num_workers=2)
@@ -108,6 +108,9 @@ def train(epoch):
     print('\nEpoch: %d' % epoch)
     net.train()
     stats = adl.Accumulator()
+    gain = net.gain
+    batchsize = 0
+    accumulation_steps = 0
     for inputs, targets in trainloader:
         inputs, targets = inputs.to(device), targets.to(device)
         optimizer.zero_grad()
@@ -121,15 +124,22 @@ def train(epoch):
         stats["total"] += targets.size(0)
         stats["correct"] += predicted.eq(targets).sum().item()
 
-        writer.add_scalar("Throughput/Gain", net.gain, epoch)
-        writer.add_scalar("Throughput/Global_Batchsize",
-                          trainloader.current_batch_size, epoch)
+        gain = net.gain
+        batchsize = trainloader.current_batch_size
+        accumulation_steps = trainloader.accumulation_steps
 
+    writer.add_scalar("Throughput/Gain", gain, epoch)
+    writer.add_scalar("Throughput/Global_Batchsize",
+                      batchsize, epoch)
+    writer.add_scalar("Throughput/Accumulation_Steps",
+                      accumulation_steps, epoch)
     with stats.synchronized():
         stats["loss_avg"] = stats["loss_sum"] / stats["total"]
         stats["accuracy"] = stats["correct"] / stats["total"]
         writer.add_scalar("Loss/Train", stats["loss_avg"], epoch)
         writer.add_scalar("Accuracy/Train", stats["accuracy"], epoch)
+        writer.add_scalar("Gradient/Norm", net.adascale.norm_avg(), epoch)
+        writer.add_scalar("Gradient/Var", net.adascale.var_avg(), epoch)
         print("Train:", stats)
 
 def valid(epoch):

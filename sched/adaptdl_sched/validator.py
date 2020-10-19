@@ -40,7 +40,7 @@ class Validator(object):
         return self._app
 
     def run(self, host, port, ssl_context=None):
-        web.run_app(self.get_app(), host=host, port=port, 
+        web.run_app(self.get_app(), host=host, port=port,
                     ssl_context=ssl_context)
 
     async def _handle_healthz(self, request):
@@ -111,6 +111,7 @@ class Validator(object):
                 }
             }
         return {"allowed": True}
+
 
 if __name__ == "__main__":
     logging.basicConfig()

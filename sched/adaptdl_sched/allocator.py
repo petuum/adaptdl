@@ -46,10 +46,9 @@ class AdaptDLAllocator(object):
             nodes, node_template = await self._find_nodes()
             LOG.info("Node resources: %s",
                      {k: v.resources for k, v in nodes.items()})
-            jobs = await self._find_jobs()
+            jobs, prev_allocations = await self._find_jobs_and_allocations()
             LOG.info("Job resources: %s",
                      {k: v.resources for k, v in jobs.items()})
-            prev_allocations = await self._get_allocations()
             start = time.time()
             allocations = self._allocate(jobs, nodes, prev_allocations,
                                          node_template)
@@ -58,17 +57,6 @@ class AdaptDLAllocator(object):
             await self._update_allocations(allocations)
             LOG.info("Sleep for 60 seconds")
             await asyncio.sleep(60)
-
-    async def _get_allocations(self):
-        job_list = await self._objs_api.list_namespaced_custom_object(
-            "adaptdl.petuum.com", "v1", "", "adaptdljobs")
-        ret = {}
-        for job in job_list["items"]:
-            if "allocation" in job.get("status", {}):
-                namespace = job["metadata"]["namespace"]
-                name = job["metadata"]["name"]
-                ret[namespace, name] = list(job["status"]["allocation"])
-        return ret
 
     async def _update_allocations(self, allocations):
         job_list = await self._objs_api.list_namespaced_custom_object(
@@ -113,13 +101,19 @@ class AdaptDLAllocator(object):
         node_template = NodeInfo(max_resources, True)
         return node_infos, node_template
 
-    async def _find_jobs(self):
+    async def _find_jobs_and_allocations(self):
         job_list = await self._objs_api.list_namespaced_custom_object(
             "adaptdl.petuum.com", "v1", "", "adaptdljobs")
         job_infos = {}
+        allocations = {}
         for job in job_list["items"]:
+            if "allocation" in job.get("status", {}):
+                namespace = job["metadata"]["namespace"]
+                name = job["metadata"]["name"]
+                allocations[namespace, name] = \
+                    list(job["status"]["allocation"])
             if job.get("status", {}).get("phase") \
-                   not in ["Pending", "Running", "Starting", "Stopping"]:
+                    not in ["Pending", "Running", "Starting", "Stopping"]:
                 continue
             job["spec"]["template"]["spec"] = \
                 set_default_resources(job["spec"]["template"]["spec"])
@@ -149,6 +143,7 @@ class AdaptDLAllocator(object):
                     hints.get("initBatchSize"),
                     hints.get("maxBatchSize"),
                     hints.get("localBszBounds", [None, None]),
+                    hints.get("gradientAccumulation", False),
                     elastic_bsz=elastic)
             else:
                 speedup_fn = lambda n, r: r  # noqa: E731
@@ -159,7 +154,7 @@ class AdaptDLAllocator(object):
             job_infos[(namespace, name)] = JobInfo(
                     resources, speedup_fn, creation_ts, min_replicas,
                     max_replicas, preemptible)
-        return job_infos
+        return job_infos, allocations
 
     def _allocate(self, jobs, nodes, prev_allocations, node_template):
         for job_key in list(jobs):
