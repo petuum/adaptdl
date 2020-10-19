@@ -147,6 +147,7 @@ class AdaptiveDataLoaderHelper(object):
         adaptdl.checkpoint.load_state(self._state)
         self.batch_size = batch_size
         self.future_exit = None
+        self._gradient_accumulation = False
 
     @property
     def current_index(self):
