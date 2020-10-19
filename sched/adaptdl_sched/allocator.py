@@ -107,7 +107,8 @@ class AdaptDLAllocator(object):
         job_infos = {}
         allocations = {}
         for job in job_list["items"]:
-            if "allocation" in job.get("status", {}):
+            if ("allocation" in job.get("status", {}) and
+                    job.get("status", {}).get("phase") == "Running"):
                 namespace = job["metadata"]["namespace"]
                 name = job["metadata"]["name"]
                 allocations[namespace, name] = \
