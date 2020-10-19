@@ -107,15 +107,14 @@ class AdaptDLAllocator(object):
         job_infos = {}
         allocations = {}
         for job in job_list["items"]:
-            if ("allocation" in job.get("status", {}) and
-                    job.get("status", {}).get("phase") == "Running"):
+            if job.get("status", {}).get("phase") \
+                    not in ["Pending", "Running", "Starting", "Stopping"]:
+                continue
+            if "allocation" in job.get("status", {}):
                 namespace = job["metadata"]["namespace"]
                 name = job["metadata"]["name"]
                 allocations[namespace, name] = \
                     list(job["status"]["allocation"])
-            if job.get("status", {}).get("phase") \
-                    not in ["Pending", "Running", "Starting", "Stopping"]:
-                continue
             job["spec"]["template"]["spec"] = \
                 set_default_resources(job["spec"]["template"]["spec"])
             resources = get_pod_requests(job["spec"]["template"]["spec"])
