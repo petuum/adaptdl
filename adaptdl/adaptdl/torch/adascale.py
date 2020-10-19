@@ -231,7 +231,8 @@ class AdaScale(object):
 
         num_samples = self._num_replicas * self._sum_local_norm.size(0)
         # Average local squared-norm samples across replicas.
-        torch.distributed.all_reduce(self._sum_local_norm / self._num_replicas)
+        torch.distributed.all_reduce(self._sum_local_norm)
+        self._sum_local_norm /= self._num_replicas
         if num_samples > 1:
             # Average local squared-norm samples across accumulation steps.
             local_sqr = self._sum_local_norm.cpu().numpy().mean(axis=0)
