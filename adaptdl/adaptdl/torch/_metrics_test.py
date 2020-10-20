@@ -97,10 +97,17 @@ def test_profile_accumulation(num_replicas):
         profile_step_start(2, 2)
         profile_sync_time(4.0)
         profile_step_commit(accumulation_step=False)
+        profile_step_start(5, 2)
+        profile_step_commit(accumulation_step=True)
+        profile_step_start(5, 2)
+        profile_step_commit(accumulation_step=True)
+        profile_step_start(5, 2)
+        profile_sync_time(6.0)
+        profile_step_commit(accumulation_step=False)
         # Ensure profile is updated correctly.
         profile = _metrics_state().profile
         key = (1, 1, 2, 2)
-        assert len(profile) == 1
+        assert len(profile) == 2
         assert profile[key]["count"] == 1
         assert profile[key]["sync_time"] == 4.0
         assert profile[key]["step_time"] > 0.0
@@ -118,7 +125,7 @@ def test_profile_accumulation(num_replicas):
         profile = _metrics_state().profile
         # Ensure checkpoint is loaded correctly.
         key = (1, 1, 2, 2)
-        assert len(profile) == 2
+        assert len(profile) == 3
         assert profile[key]["count"] == 1
         assert profile[key]["sync_time"] == 4.0
         assert profile[key]["step_time"] > 0.0
@@ -135,9 +142,9 @@ def test_profile_accumulation(num_replicas):
         profile_step_commit()
         # Ensure profile is updated correctly.
         if num_replicas == 1:
-            assert len(profile) == 2
-        else:
             assert len(profile) == 3
+        else:
+            assert len(profile) == 4
         assert profile[key]["count"] == 2
         assert profile[key]["sync_time"] == 12.0
         assert profile[key]["step_time"] > old_step_time > 0.0
