@@ -24,6 +24,11 @@ from torch.autograd import Variable
 __all__ = ["AdaScale"]
 
 
+def _group_sum_sqr(*args):
+    return np.array([sum(t.pow(2).sum() for tensors in groups for t in tensors
+                     if t is not None).item() for groups in zip(*args)])
+
+
 class AdaScale(object):
     """
     Implements the AdaScale_ algorithm for scaling the learning rate for
@@ -59,10 +64,10 @@ class AdaScale(object):
                  num_replicas=None, patch_optimizer=False):
         self._optimizer = optimizer
         self._optimizer_step = optimizer.step
-        self._sum_local_norm = None
+        self._local_sqr = None
         self._num_replicas = (num_replicas if num_replicas is not None
                               else torch.distributed.get_world_size())
-        self._prev_full_grad = None
+        self._prev_grads = None
         self._made_step = False
         self._accumulation_steps = 1
         self._current_accumulation_step = 0
@@ -132,7 +137,7 @@ class AdaScale(object):
         if accumulation_steps != self._accumulation_steps:
             self._current_accumulation_step = 0
             self._accumulation_steps = int(accumulation_steps)
-            self._sum_local_norm = None
+            self._local_sqr = None
 
     def is_accumulation_step(self):
         return self._current_accumulation_step != self._accumulation_steps - 1
@@ -191,11 +196,11 @@ class AdaScale(object):
     def _backward_hook(self, idx, grad):
         # This method should be invoked once for each parameter during the
         # backward pass, before gradients are synchronized between replicas.
-        if self._sum_local_norm is None:
-            self._sum_local_norm = torch.zeros(
+        if self._local_sqr is None:
+            self._local_sqr = torch.zeros(
                 (self._accumulation_steps, len(self._optimizer.param_groups)),
                 device=grad.device)
-        self._sum_local_norm[self._current_accumulation_step][idx] += \
+        self._local_sqr[self._current_accumulation_step][idx] += \
             grad.pow(2).sum()
         grad /= self._accumulation_steps
         self._final_callback_queued = False
@@ -209,58 +214,57 @@ class AdaScale(object):
         # callback, which might not yet be executed. Therefore, we enqueue
         # self._final_callback from this method, which should ensure it is
         # invoked after the gradient synchronization callback.
-        if self._final_callback_queued:
+        if self.is_accumulation_step() or self._final_callback_queued:
             return
         self._final_callback_queued = True
         Variable._execution_engine.queue_callback(self._final_callback)
+        # Asynchronously sum the local squared-gradient statistics. The actual
+        # gradient averaging should also be happening at the same time, until
+        # self._final_callback is invoked.
+        if self._num_replicas > 1:
+            self._local_sqr = (self._local_sqr,
+                               torch.distributed.all_reduce(self._local_sqr,
+                                                            async_op=True))
 
     def _final_callback(self):
-        # This method should be invoked once for each backward pass, after
-        # gradients have been synchronized between each replica.
+        # This method should be invoked once the gradients have been
+        # synchronized between all replicas and accumulation steps.
         self._final_callback_queued = False
-        if self.is_accumulation_step():
-            return
-        grad = []
-        for group in self._optimizer.param_groups:
-            grad.append([p.grad.detach().clone()
-                         if p.grad is not None else
-                         torch.zeros([1], dtype=torch.float64)
-                         for p in group["params"]])
 
-        theta = self._smoothing ** self._scale
+        grads = [[p.grad.detach() for p in group["params"]]
+                 for group in self._optimizer.param_groups]
 
-        num_samples = self._num_replicas * self._sum_local_norm.size(0)
         # Average local squared-norm samples across replicas.
-        torch.distributed.all_reduce(self._sum_local_norm)
-        self._sum_local_norm /= self._num_replicas
-        if num_samples > 1:
+        if self._num_replicas > 1:
+            self._local_sqr[1].wait()
+            self._local_sqr = self._local_sqr[0] / self._num_replicas
+        count = self._num_replicas * self._accumulation_steps
+        scale = self._scale
+        if count > 1:
             # Average local squared-norm samples across accumulation steps.
-            local_sqr = self._sum_local_norm.cpu().numpy().mean(axis=0)
-            total_sqr = np.array([sum(param.grad.pow(2).sum().item()
-                                      for param in group["params"])
-                                  for group in self._optimizer.param_groups])
-            grad_sqr = (num_samples * total_sqr - local_sqr) / (num_samples - 1)
-            grad_var = (local_sqr - total_sqr) * self._scale / (num_samples - 1)
+            local_sqr = self._local_sqr.cpu().numpy().mean(axis=0)
+            total_sqr = _group_sum_sqr(grads)
+            self._prev_grads = None
+        # Single gradient datapoint, use difference estimation.
+        else:
+            if self._prev_grads is not None:
+                local_sqr = (_group_sum_sqr(self._prev_grads) +
+                             _group_sum_sqr(grads)) / 2
+                total_sqr = _group_sum_sqr(grads, self._prev_grads) / 4
+                count = 2
+                scale = 2 * self._scale
+            self._prev_grads = [[g.clone() if g is not None else None
+                                 for g in group] for group in grads]
+
+        if count > 1:
+            grad_sqr = (count * total_sqr - local_sqr) / (count - 1)
+            grad_var = (local_sqr - total_sqr) * scale / (count - 1)
             grad_sqr = np.maximum(grad_sqr, 0.0)
             grad_var = np.maximum(grad_var, 1e-6)
+            theta = self._smoothing ** scale
             self._update_avg('norm_avg', grad_sqr, theta)
             self._update_avg('var_avg', grad_var, theta)
-            self._prev_full_grad = None
-        # Single gradient datapoint, use difference estimation.
-        elif self._prev_full_grad is not None:
-            prev_grad = self._prev_full_grad
-            n = _normsq([(g1 + g2) / 2 for g1, g2 in zip(prev_grad, grad)])
-            var = np.array([(g1.pow(2).sum() + g2.pow(2).sum()).item()
-                            for g1, g2 in zip(prev_grad, grad)])
-            var -= 2 * n
-            var *= self._scale
-            var = np.maximum(var, 1e-6)
-            norm = n - var / (2 * self._scale)
-            norm = np.maximum(norm, 0.0)
-            self._update_avg('norm_avg', norm, theta)
-            self._update_avg('var_avg', var, theta)
-            self._prev_full_grad = grad
-        self._sum_local_norm = None
+        self._local_sqr = None
 
     def step(self, *args, **kwargs):
         """
