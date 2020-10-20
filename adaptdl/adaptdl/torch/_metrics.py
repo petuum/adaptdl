@@ -118,7 +118,8 @@ def _fit_perf_params():
     items = [item for item in items if item[1]["count"] > 0]
     keys = [item[0] for item in items]
     values = [item[1] for item in items]
-    num_nodes, num_replicas, local_bsz, accumulation_steps = zip(*keys)
+    num_nodes, num_replicas, local_bsz, accumulation_steps = \
+        (np.array(val) for val in zip(*keys))
     step_time = np.array([val["step_time"] / val["count"] for val in values])
     sync_time = np.array([val["sync_time"] / val["count"] for val in values])
     accumulation_time = np.array(
