@@ -24,9 +24,26 @@ from torch.autograd import Variable
 __all__ = ["AdaScale"]
 
 
-def _group_sum_sqr(*args):
-    return np.array([sum(t.pow(2).sum() for tensors in groups for t in tensors
-                     if t is not None).item() for groups in zip(*args)])
+def _average_groups(grads1, grads2):
+    ret = []
+    for group1, group2 in zip(grads1, grads2):
+        ret.append([])
+        for g1, g2 in zip(group1, group2):
+            if g1 is None:
+                ret[-1].append(g2)
+            elif g2 is None:
+                ret[-1].append(g1)
+            else:
+                ret[-1].append((g1 + g2) / 2)
+    return ret
+
+
+def _normsqr_groups(grads):
+    ret = []
+    for group in grads:
+        normsqr = [g.pow(2).sum() for g in group if g is not None]
+        ret.append(sum(normsqr).item() if normsqr else 0.0)
+    return np.array(ret)
 
 
 class AdaScale(object):
@@ -243,14 +260,15 @@ class AdaScale(object):
         if count > 1:
             # Average local squared-norm samples across accumulation steps.
             local_sqr = self._local_sqr.cpu().numpy().mean(axis=0)
-            total_sqr = _group_sum_sqr(grads)
+            total_sqr = _normsqr_groups(grads)
             self._prev_grads = None
         # Single gradient datapoint, use difference estimation.
         else:
             if self._prev_grads is not None:
-                local_sqr = (_group_sum_sqr(self._prev_grads) +
-                             _group_sum_sqr(grads)) / 2
-                total_sqr = _group_sum_sqr(grads, self._prev_grads) / 4
+                local_sqr = (_normsqr_groups(self._prev_grads) +
+                             _normsqr_groups(grads)) / 2
+                total_sqr = \
+                    _normsqr_groups(_average_groups(grads, self._prev_grads))
                 count = 2
                 scale = 2 * self._scale
             self._prev_grads = [[g.clone() if g is not None else None
