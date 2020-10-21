@@ -114,12 +114,12 @@ def get_speedup_fn():
 
 def _fit_perf_params():
     state = _metrics_state()
-    num_nodes = np.array([key[0] for key in state.profile])
-    num_replicas = np.array([key[1] for key in state.profile])
-    local_bsz = np.array([key[2] for key in state.profile])
-    accumulation_steps = np.array([key[3] for key in state.profile])
-    values = state.profile.values()
-    values = [value for value in values if value["count"] > 0]
+    items = state.profile.items()
+    items = [item for item in items if item[1]["count"] > 0]
+    keys = [item[0] for item in items]
+    values = [item[1] for item in items]
+    num_nodes, num_replicas, local_bsz, accumulation_steps = \
+        (np.array(val) for val in zip(*keys))
     step_time = np.array([val["step_time"] / val["count"] for val in values])
     sync_time = np.array([val["sync_time"] / val["count"] for val in values])
     accumulation_time = np.array(

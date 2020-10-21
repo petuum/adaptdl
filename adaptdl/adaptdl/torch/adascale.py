@@ -24,12 +24,26 @@ from torch.autograd import Variable
 __all__ = ["AdaScale"]
 
 
-def _normsq(params):
-    """
-    Returns the square of the L2 norm for each elem of params
-    as an np array
-    """
-    return np.asarray([p.pow(2).sum().item() for p in params])
+def _average_groups(grads1, grads2):
+    ret = []
+    for group1, group2 in zip(grads1, grads2):
+        ret.append([])
+        for g1, g2 in zip(group1, group2):
+            if g1 is None:
+                ret[-1].append(g2)
+            elif g2 is None:
+                ret[-1].append(g1)
+            else:
+                ret[-1].append((g1 + g2) / 2)
+    return ret
+
+
+def _normsqr_groups(grads):
+    ret = []
+    for group in grads:
+        normsqr = [g.pow(2).sum() for g in group if g is not None]
+        ret.append(sum(normsqr).item() if normsqr else 0.0)
+    return np.array(ret)
 
 
 class AdaScale(object):
@@ -67,39 +81,33 @@ class AdaScale(object):
                  num_replicas=None, patch_optimizer=False):
         self._optimizer = optimizer
         self._optimizer_step = optimizer.step
-        self._sum_local_norm = None
-        self._norms_future = None
+        self._local_sqr = None
         self._num_replicas = (num_replicas if num_replicas is not None
                               else torch.distributed.get_world_size())
-        self._num_params = \
-            int(sum(len(pg["params"]) for pg in optimizer.param_groups))
-        self._prev_full_grad = None
-        self._norms = None
+        self._prev_grads = None
         self._made_step = False
         self._accumulation_steps = 1
         self._current_accumulation_step = 0
 
         self._optimizer.state.setdefault("adascale", {
-            "norm": np.zeros(self._num_params),
             "replicas": 0.0,
 
             # Averages of n and v
-            "norm_avg": np.ones(self._num_params),
-            "var_avg": np.zeros(self._num_params),
+            "norm_avg": np.ones(len(optimizer.param_groups)),
+            "var_avg": np.zeros(len(optimizer.param_groups)),
         })
 
         self.set_scale(self._num_replicas if scale is None else scale)
 
-        idx = 0
-        for param_group in self._optimizer.param_groups:
+        for idx, param_group in enumerate(self._optimizer.param_groups):
             for param in param_group["params"]:
                 param.register_hook(
                     functools.partial(self._backward_hook, idx))
-                idx += 1
 
         if patch_optimizer:
             self.patch_optimizer()
-        self._smoothing = 0.997
+
+        self._smoothing = 0.999
 
     @property
     def _state(self):
@@ -127,7 +135,6 @@ class AdaScale(object):
         if self._state['replicas'] == 1 and self._num_replicas > 1:
             # TODO: when to reset running averages should be decided outside of
             # the AdaScale object.
-            self._reset_avg("norm")
             self._reset_avg("norm_avg")
             self._reset_avg("var_avg")
         self._scale = scale
@@ -147,7 +154,7 @@ class AdaScale(object):
         if accumulation_steps != self._accumulation_steps:
             self._current_accumulation_step = 0
             self._accumulation_steps = int(accumulation_steps)
-            self._norms = None
+            self._local_sqr = None
 
     def is_accumulation_step(self):
         return self._current_accumulation_step != self._accumulation_steps - 1
@@ -206,11 +213,11 @@ class AdaScale(object):
     def _backward_hook(self, idx, grad):
         # This method should be invoked once for each parameter during the
         # backward pass, before gradients are synchronized between replicas.
-        if self._norms is None:
-            self._norms = torch.zeros((self._accumulation_steps,
-                                       self._num_params),
-                                      device=grad[0].device)
-        self._norms[self._current_accumulation_step][idx] = \
+        if self._local_sqr is None:
+            self._local_sqr = torch.zeros(
+                (self._accumulation_steps, len(self._optimizer.param_groups)),
+                device=grad.device)
+        self._local_sqr[self._current_accumulation_step][idx] += \
             grad.pow(2).sum()
         grad /= self._accumulation_steps
         self._final_callback_queued = False
@@ -224,74 +231,58 @@ class AdaScale(object):
         # callback, which might not yet be executed. Therefore, we enqueue
         # self._final_callback from this method, which should ensure it is
         # invoked after the gradient synchronization callback.
-        if self._final_callback_queued:
+        if self.is_accumulation_step() or self._final_callback_queued:
             return
         self._final_callback_queued = True
         Variable._execution_engine.queue_callback(self._final_callback)
+        # Asynchronously sum the local squared-gradient statistics. The actual
+        # gradient averaging should also be happening at the same time, until
+        # self._final_callback is invoked.
+        if self._num_replicas > 1:
+            self._local_sqr = (self._local_sqr,
+                               torch.distributed.all_reduce(self._local_sqr,
+                                                            async_op=True))
 
     def _final_callback(self):
-        # This method should be invoked once for each backward pass, after
-        # gradients have been synchronized between each replica.
+        # This method should be invoked once the gradients have been
+        # synchronized between all replicas and accumulation steps.
         self._final_callback_queued = False
-        if (self.is_accumulation_step()):
-            return
-        grad = []
-        total_steps = self._accumulation_steps
-        for group in self._optimizer.param_groups:
-            grad.extend([p.grad.detach().clone()
-                         if p.grad is not None else
-                         torch.zeros([1], dtype=torch.float64)
-                         for p in group["params"]])
 
-        theta = self._smoothing ** self._scale
-        has_previous_step = not (self._norms_future is None)
+        grads = [[p.grad.detach() for p in group["params"]]
+                 for group in self._optimizer.param_groups]
 
-        if has_previous_step:
-            if self._num_replicas > 1:
-                self._norms_future[0].wait()
-            norms_sum, samples = self._norms_future[1]
-            norms = norms_sum.cpu().numpy()
+        # Average local squared-norm samples across replicas.
         if self._num_replicas > 1:
-            norms_sum = torch.sum(self._norms, 0)
-            self._norms_future = (
-                torch.distributed.all_reduce(
-                    norms_sum, async_op=True),
-                (norms_sum,
-                 self._state['replicas'] * total_steps))
+            self._local_sqr[1].wait()
+            self._local_sqr = self._local_sqr[0] / self._num_replicas
+        count = self._num_replicas * self._accumulation_steps
+        scale = self._scale
+        if count > 1:
+            # Average local squared-norm samples across accumulation steps.
+            local_sqr = self._local_sqr.cpu().numpy().mean(axis=0)
+            total_sqr = _normsqr_groups(grads)
+            self._prev_grads = None
+        # Single gradient datapoint, use difference estimation.
         else:
-            self._norms_future = (
-                None, (torch.sum(self._norms, 0),
-                       self._state['replicas'] * total_steps))
+            if self._prev_grads is not None:
+                local_sqr = (_normsqr_groups(self._prev_grads) +
+                             _normsqr_groups(grads)) / 2
+                total_sqr = \
+                    _normsqr_groups(_average_groups(grads, self._prev_grads))
+                count = 2
+                scale = 2 * self._scale
+            self._prev_grads = [[g.clone() if g is not None else None
+                                 for g in group] for group in grads]
 
-        if has_previous_step:
-            if samples > 1:
-                # DistributedDataParallel averages gradients across replica,
-                # but we also need to average the gradients across the
-                # gradient accumulation steps manually
-                n = _normsq(self._prev_full_grad)
-                var = norms / (samples - 1)
-                var -= n * (samples / (samples - 1))
-                var *= (self._scale / samples)
-                var = np.maximum(var, 1e-6)
-                norm = n - var / self._scale
-                norm = np.maximum(norm, 0.0)
-                self._update_avg('norm_avg', norm, theta)
-                self._update_avg('var_avg', var, theta)
-            # Single gradient datapoint, use difference estimation.
-            else:
-                prev_grad = self._prev_full_grad
-                n = _normsq([(g1 + g2) / 2 for g1, g2 in zip(prev_grad, grad)])
-                var = np.array([(g1.pow(2).sum() + g2.pow(2).sum()).item()
-                                for g1, g2 in zip(prev_grad, grad)])
-                var -= 2 * n
-                var *= self._scale
-                var = np.maximum(var, 1e-6)
-                norm = n - var / (2 * self._scale)
-                norm = np.maximum(norm, 0.0)
-                self._update_avg('norm_avg', norm, theta)
-                self._update_avg('var_avg', var, theta)
-        self._norms = None
-        self._prev_full_grad = grad
+        if count > 1:
+            grad_sqr = (count * total_sqr - local_sqr) / (count - 1)
+            grad_var = (local_sqr - total_sqr) * scale / (count - 1)
+            grad_sqr = np.maximum(grad_sqr, 0.0)
+            grad_var = np.maximum(grad_var, 1e-6)
+            theta = self._smoothing ** scale
+            self._update_avg('norm_avg', grad_sqr, theta)
+            self._update_avg('var_avg', grad_var, theta)
+        self._local_sqr = None
 
     def step(self, *args, **kwargs):
         """
@@ -310,14 +301,11 @@ class AdaScale(object):
         self._current_accumulation_step = 0
         self._made_step = True
         initial_lr = [pg["lr"] for pg in self._optimizer.param_groups]
-        offset = 0
-        for param_group in self._optimizer.param_groups:
-            size = len(param_group["params"])
-            grad_sqr = self._state["norm_avg"][offset:offset + size].sum()
-            grad_var = self._state["var_avg"][offset:offset + size].sum()
-            gain = (grad_var + grad_sqr) / (grad_var / self.scale + grad_sqr)
+        for idx, param_group in enumerate(self._optimizer.param_groups):
+            grad_sqr = float(self._state["norm_avg"][idx])
+            grad_var = float(self._state["var_avg"][idx])
+            gain = (grad_var + grad_sqr) / (grad_var / self._scale + grad_sqr)
             param_group["lr"] = gain * param_group["lr"]
-            offset += size
         self._optimizer_step(*args, **kwargs)
         for lr, param_group in zip(initial_lr, self._optimizer.param_groups):
             param_group["lr"] = lr
