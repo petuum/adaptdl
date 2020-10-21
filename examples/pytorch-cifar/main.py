@@ -97,9 +97,8 @@ if device == 'cuda':
     cudnn.benchmark = True
 
 criterion = nn.CrossEntropyLoss()
-#optimizer = optim.SGD([{"params": [param]} for param in net.parameters()],
-#                      lr=args.lr, momentum=0.9, weight_decay=5e-4)
-optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
+optimizer = optim.SGD([{"params": [param]} for param in net.parameters()],
+                      lr=args.lr, momentum=0.9, weight_decay=5e-4)
 lr_scheduler = MultiStepLR(optimizer, [30, 45], 0.1)
 
 net = adl.AdaptiveDataParallel(net, optimizer, lr_scheduler)
