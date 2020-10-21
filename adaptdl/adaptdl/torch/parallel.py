@@ -154,6 +154,27 @@ class AdaptiveDataParallel(DistributedDataParallel):
         """
         return self._state.gain
 
+    def to_tensorboard(self, writer, global_step, tag_prefix=""):
+        """
+        Output some useful metrics to TensorBoard.
+
+        Arguments:
+            writer (torch.utils.tensorboard.SummaryWriter): ``SummaryWriter``
+                object to output metrics to.
+            global_step (int): Global step value to record.
+            tag_prefix (str): Prefix added to each metric's tag.
+        """
+        norm_sqr = self.adascale.norm_avg()
+        variance = self.adascale.var_avg()
+        writer.add_scalar(tag_prefix + "Gradient_Norm_Sqr",
+                          norm_sqr, global_step)
+        writer.add_scalar(tag_prefix + "Gradient_Variance",
+                          variance, global_step)
+        writer.add_scalar(tag_prefix + "Gradient_Noise_Scale",
+                          variance / norm_sqr, global_step)
+        writer.add_scalar(tag_prefix + "Learning_Rate_Factor",
+                          self.adascale.gain(), global_step)
+
 
 class _AdaptiveDataParallelState(adaptdl.checkpoint.State):
     def __init__(self, model, optimizer, lr_scheduler,
