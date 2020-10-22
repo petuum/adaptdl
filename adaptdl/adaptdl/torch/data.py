@@ -147,7 +147,7 @@ class AdaptiveDataLoaderHelper(object):
         adaptdl.checkpoint.load_state(self._state)
         self.batch_size = batch_size
         self.future_exit = None
-        self._gradient_accumulation = False
+        self.speedup_threshold = 1.05
 
     @property
     def current_index(self):
@@ -276,12 +276,40 @@ class AdaptiveDataLoaderHelper(object):
         else:
             # Autoscale batch size, compute on rank 0 and broadcast.
             speedup_fn = get_speedup_fn()
-            _, (local_bsz, accumulation_steps) = speedup_fn(
-                adaptdl.env.num_nodes(),
-                adaptdl.env.num_replicas(),
-                return_config=True)
-            (self._current_local_bsz, self._accumulation_steps) = \
-                adaptdl.collective.broadcast((local_bsz, accumulation_steps))
+
+            # check if batch size  is up
+            is_init = self._current_local_bsz is None
+            # if init, use the batch size suggested
+            if is_init:
+                _, (local_bsz, accumulation_steps) = speedup_fn(
+                    adaptdl.env.num_nodes(),
+                    adaptdl.env.num_replicas(),
+                    return_config=True)
+                (self._current_local_bsz, self._accumulation_steps) = \
+                    adaptdl.collective.broadcast((local_bsz,
+                                                  accumulation_steps))
+            # if not first time, we check against the relative speedup
+            else:
+                suggest_speedup, (local_bsz, accumulation_steps) = speedup_fn(
+                                   adaptdl.env.num_nodes(),
+                                   adaptdl.env.num_replicas(),
+                                   return_config=True)
+                # get current speedup
+                current_speedup = speedup_fn(adaptdl.env.num_nodes(),
+                                             adaptdl.env.num_replicas(),
+                                             local_bsz=self.current_local_bsz)
+            # use only if speedup is significant
+                speedup_to_cur = suggest_speedup / current_speedup
+                if speedup_to_cur > self.speedup_threshold:
+                    (self._current_local_bsz, self._accumulation_steps) = \
+                        adaptdl.collective.broadcast((local_bsz,
+                                                      accumulation_steps))
+                else:
+                    (self._current_local_bsz, self._accumulation_steps) = \
+                        adaptdl.collective.broadcast((
+                            self._current_local_bsz,
+                            self._accumulation_steps))
+
         self.is_accumulation_step = self._accumulation_steps != 0
         return self.current_local_bsz
 
