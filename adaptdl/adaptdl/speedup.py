@@ -113,12 +113,18 @@ class SpeedupFunction(object):
         self._mem_speedup[1, 1] = 1.0  # replicas = 1  ==>  speedup = 1
         self._mem_local_bsz[1, 1] = base_batch_size
 
-    def __call__(self, nodes, replicas, return_config=False):
+    def __call__(self, nodes, replicas, return_config=False, local_bsz=None):
         # nodes and replicas must have the same shape, dtype=int
         assert np.shape(nodes) == np.shape(replicas)
         assert np.all(np.less_equal(0, nodes))
         assert np.all(np.less_equal(nodes, replicas))
         assert np.all((nodes > 0) == (replicas > 0))
+
+        # if for querying a speedup for bsz, return the speedup
+        if local_bsz:
+            goodput = self._goodput(nodes, replicas, local_bsz)
+            speedup = goodput / self._base_goodput
+            return speedup
 
         # Remember if original arguments are scalars.
         isscalar = np.isscalar(replicas)
