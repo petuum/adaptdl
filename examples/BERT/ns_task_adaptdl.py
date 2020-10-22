@@ -59,15 +59,20 @@ def collate_batch(batch, args, cls_id, sep_id, pad_id):
     return seq_input, tok_type, torch.tensor(same_sentence_labels).long().contiguous()
 
 
-def evaluate(data_source, model, device, criterion, cls_id, sep_id, pad_id, args):
+def evaluate(data_source, model, device, criterion, cls_id, sep_id, pad_id, args, test = False, epoch = None, writer = None):
     model.eval()
-    # total_loss = 0. # original
-    batch_size = args.batch_size
-    # dataloader = DataLoader(data_source, batch_size=batch_size, shuffle=True, # original
-    #                         collate_fn=lambda b: collate_batch(b, args, cls_id, sep_id, pad_id)) # original
+    if test:
+        total_loss = 0. # original
+    else: 
+        stats = adaptdl.torch.Accumulator() # Changed in step 5
 
-    dataloader = adaptdl.torch.AdaptiveDataLoader(data_source, drop_last=True, batch_size=batch_size, shuffle=True,
-                            collate_fn=lambda b: collate_batch(b, args, cls_id, sep_id, pad_id)) # Changed in step 2
+    batch_size = args.batch_size
+    if test:
+        dataloader = DataLoader(data_source, batch_size=batch_size, shuffle=True, # original
+                            collate_fn=lambda b: collate_batch(b, args, cls_id, sep_id, pad_id)) # original
+    else:
+        dataloader = adaptdl.torch.AdaptiveDataLoader(data_source, drop_last=True, batch_size=batch_size, shuffle=True,
+                                collate_fn=lambda b: collate_batch(b, args, cls_id, sep_id, pad_id)) # Changed in step 2
 
     with torch.no_grad():
         for idx, (seq_input, tok_type, target_ns_labels) in enumerate(dataloader):
@@ -82,16 +87,22 @@ def evaluate(data_source, model, device, criterion, cls_id, sep_id, pad_id, args
             seq_input = seq_input.transpose(0, 1)  # Wrap up by DDP or DataParallel
             ns_labels = model(seq_input, token_type_input=tok_type)
             loss = criterion(ns_labels, target_ns_labels)
-            # total_loss += loss.item() # original
-            stats["test_loss"] += loss.item() # Changed in step 5
+            if test:
+                total_loss += loss.item() # original
+            else:
+                stats["test_loss"] += loss.item() # Changed in step 5
+                stats['total'] += target_ns_labels.size(0)
+    if test:
+        return total_loss / (len(data_source) // batch_size)
 
     with stats.synchronized(): # Changed in step 5
         test_loss = stats["test_loss"] / (len(data_source) // batch_size) # Changed in step 5
+        writer.add_scalar("Loss/valid", test_loss, epoch) # Added for tensorboard
 
     return test_loss # Changed in step 5
 
 def train(train_dataset, model, train_loss_log, device, optimizer, criterion,
-          epoch, scheduler, cls_id, sep_id, pad_id, args, rank=None):
+          epoch, scheduler, cls_id, sep_id, pad_id, args, rank=None, writer = None):
     model.train()
     total_loss = 0.
     start_time = time.time()
@@ -102,7 +113,7 @@ def train(train_dataset, model, train_loss_log, device, optimizer, criterion,
     dataloader = adaptdl.torch.AdaptiveDataLoader(train_dataset, drop_last=True, batch_size=batch_size, shuffle=True,
                             collate_fn=lambda b: collate_batch(b, args, cls_id, sep_id, pad_id)) # Changed in step 2
 
-    dataloader.autoscale_batch_size(2*batch_size) # Changed in step 3
+    dataloader.autoscale_batch_size(4*batch_size) # Changed in step 3
 
     train_loss_log.append(0.0)
     for idx, (seq_input, tok_type, target_ns_labels) in enumerate(dataloader):
@@ -129,13 +140,17 @@ def train(train_dataset, model, train_loss_log, device, optimizer, criterion,
                 train_loss_log[-1] = cur_loss
                 print('| epoch {:3d} | {:5d}/{:5d} batches | lr {:05.5f} | '
                       'ms/batch {:5.2f} | '
-                      'loss {:8.5f} | ppl {:5.2f}'.format(epoch, idx,
+                      'loss {:8.5f} | ppl {:5.2f} | batch_size {:5d}'.format(epoch, idx,
                                                           len(train_dataset) // batch_size,
                                                           scheduler.get_last_lr()[0],
                                                           elapsed * 1000 / args.log_interval,
-                                                          cur_loss, math.exp(cur_loss)))
+                                                          cur_loss, math.exp(cur_loss),
+                                                          dataloader.current_batch_size))
             total_loss = 0
             start_time = time.time()
+    writer.add_scalar("Loss/train", cur_loss, epoch) # Added for tensorboard
+    writer.add_scalar("Throughput/Gain", model.gain, epoch) # Added for tensorboard
+    writer.add_scalar("Throughput/Global_Batchsize", dataloader.current_batch_size, epoch) # Added for tensorboard
 
 
 def run_main(args, rank=None):
@@ -185,13 +200,17 @@ def run_main(args, rank=None):
     best_val_loss = None
     train_loss_log, val_loss_log = [], []
 
+    tensorboard_dir = os.path.join(os.getenv("ADAPTDL_TENSORBOARD_LOGDIR", "/tmp") if adaptdl.env.replica_rank() == 0 else "/tmp", adaptdl.env.job_id())
+
+    writer =  SummaryWriter(tensorboard_dir)# Added for tensorboard
+
     # for epoch in range(1, args.epochs + 1): # original
     for epoch in adaptdl.torch.remaining_epochs_until(args.epochs): # Changed
         epoch_start_time = time.time()
         train(process_raw_data(train_dataset, args), model, train_loss_log, device, optimizer,
-              criterion, epoch, scheduler, cls_id, sep_id, pad_id, args, rank)
+              criterion, epoch, scheduler, cls_id, sep_id, pad_id, args, rank, writer)
         val_loss = evaluate(process_raw_data(valid_dataset, args), model, device, criterion,
-                            cls_id, sep_id, pad_id, args)
+                            cls_id, sep_id, pad_id, args, test = False, epoch = epoch, writer = writer)
         val_loss_log.append(val_loss)
 
         if (rank is None) or (rank == 0):
@@ -216,6 +235,7 @@ def run_main(args, rank=None):
         device_pairs = zip(rank0_devices, device)
         map_location = {'cuda:%d' % x: 'cuda:%d' % y for x, y in device_pairs}
         model.load_state_dict(torch.load(args.save, map_location=map_location))
+        model = adaptdl.torch.AdaptiveDataParallel(model, optimizer, scheduler) # Changed
         test_loss = evaluate(process_raw_data(test_dataset, args), model, device, criterion,
                              cls_id, sep_id, pad_id, args)
         if rank == 0:
@@ -280,4 +300,4 @@ if __name__ == "__main__":
     if args.parallel == 'DDP':
         run_demo(run_ddp, run_main, args)
     else:
-        run_main(args)
+        run_main(args, adaptdl.env.replica_rank())
