@@ -278,10 +278,8 @@ class AdaptiveDataLoaderHelper(object):
             # Autoscale batch size, compute on rank 0 and broadcast.
             speedup_fn = get_speedup_fn()
 
-            # check if batch size  is up
-            is_init = self._current_local_bsz is None
             # if init, use the batch size suggested
-            if is_init:
+            if self._current_local_bsz is None:
                 _, (local_bsz, accumulation_steps) = speedup_fn(
                     adaptdl.env.num_nodes(),
                     adaptdl.env.num_replicas(),
