@@ -251,6 +251,7 @@ def test_query():
                                       replicas, 256) / fun._base_goodput
         assert(isinstance(speedup_query[0], float))
         assert(np.all(speedup_actual == speedup_query))
+
         # multi-node
         speedup, (bsz, steps) = fun(replicas, replicas, return_config=True)
         assert(np.all(bsz >= np.ceil(128 / replicas).astype(int)))
