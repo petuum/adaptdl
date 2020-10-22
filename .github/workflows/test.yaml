@@ -45,7 +45,7 @@ jobs:
         mv .coverage .coverage.sched
     - name: Test train
       run: |
-        pytest adaptdl -xv --ignore=adaptdl/speedup_test.py --cov=adaptdl --cov-branch --cov-report=
+        pytest adaptdl -xv --cov=adaptdl --cov-branch --cov-report=
         mv .coverage .coverage.train
     - name: Coverage
       run: |
