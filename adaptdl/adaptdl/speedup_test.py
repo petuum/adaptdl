@@ -222,3 +222,45 @@ def test_partition_local_bsz():
         assert(np.all(np.logical_or(
             replicas == 1,
             np.abs(atomic_bsz * (steps + 1) - batch_sizes) < (steps + 1))))
+
+
+def test_query():
+    np.random.seed(0)
+    for i in range(100):
+        params = np.random.gamma(2.0, 2.0, (7,))
+        grad_params = np.random.gamma(2.0, 2.0, (2,))
+        grad_params = {"norm": grad_params[0], "var": grad_params[1]}
+        fun = SpeedupFunction(params, grad_params, 128, 1280,
+                              None, False, True)
+        speedup, (bsz, steps) = fun(1, 1, return_config=True)
+        assert(bsz == 128), "expected bsz = 128, got {}".format(bsz)
+        assert(isinstance(speedup, float))
+        replicas = np.asarray(range(1, 20))
+        # single-node
+        speedup, (bsz, steps) = fun(np.ones_like(replicas), replicas,
+                                    return_config=True, local_bsz=False)
+        assert(np.all(bsz >= np.ceil(128 / replicas).astype(int)))
+        assert(np.all(bsz * replicas <= 1280))
+        assert(bsz[0] == 128)
+        assert(np.all(steps == 0))
+
+        # test when the local_bsz is specified
+        speedup_query = fun(np.ones_like(replicas), replicas,
+                            return_config=True, local_bsz=256)
+        speedup_actual = fun._goodput(np.ones_like(replicas),
+                                      replicas, 256) / fun._base_goodput
+        assert(isinstance(speedup_query[0], float))
+        assert(np.all(speedup_actual == speedup_query))
+        # multi-node
+        speedup, (bsz, steps) = fun(replicas, replicas, return_config=True)
+        assert(np.all(bsz >= np.ceil(128 / replicas).astype(int)))
+        assert(np.all(bsz * replicas <= 1280))
+        assert(bsz[0] == 128)
+        assert(np.all(steps == 0))
+
+        speedup_query = fun(replicas, replicas,
+                            return_config=True, local_bsz=256)
+        speedup_actual = fun._goodput(replicas,
+                                      replicas, 256) / fun._base_goodput
+        assert(isinstance(speedup_query[0], float))
+        assert(np.all(speedup_actual == speedup_query))

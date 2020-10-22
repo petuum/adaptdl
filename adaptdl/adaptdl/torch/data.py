@@ -297,7 +297,7 @@ class AdaptiveDataLoaderHelper(object):
                 current_speedup = speedup_fn(adaptdl.env.num_nodes(),
                                              adaptdl.env.num_replicas(),
                                              local_bsz=self.current_local_bsz)
-            # use only if speedup is significant
+                # use only if speedup is significant
                 speedup_to_cur = suggest_speedup / current_speedup
                 if speedup_to_cur > self.speedup_threshold:
                     self._current_local_bsz = local_bsz
