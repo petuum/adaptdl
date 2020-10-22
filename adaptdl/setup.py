@@ -43,7 +43,6 @@ if __name__ == "__main__":
             "Operating System :: POSIX :: Linux",
         ],
         packages=setuptools.find_packages(include=["adaptdl",
-                                                   "adaptdl.*",
                                                    "adaptdl.*"]),
         python_requires='>=3.6',
         install_requires=read_requirements("requirements.txt")
