@@ -355,6 +355,25 @@ class AdaptiveDataLoaderHelper(object):
         else:
             return False
 
+    def to_tensorboard(self, writer, global_step, tag_prefix=""):
+        """
+        Output some useful metrics to TensorBoard.
+
+        Arguments:
+            writer (torch.utils.tensorboard.SummaryWriter): ``SummaryWriter``
+                object to output metrics to.
+            global_step (int): Global step value to record.
+            tag_prefix (str): Prefix added to each metric's tag.
+        """
+        if tag_prefix and not tag_prefix.endswith("/"):
+            tag_prefix += "/"
+        writer.add_scalar(tag_prefix + "Total_Batch_Size",
+                          self.current_batch_size, global_step)
+        writer.add_scalar(tag_prefix + "Local_Batch_Size",
+                          self.current_local_bsz, global_step)
+        writer.add_scalar(tag_prefix + "Accumulation_Steps",
+                          self.accumulation_steps, global_step)
+
 
 class AdaptiveDataLoaderMixin(object):
     """
@@ -393,6 +412,10 @@ class AdaptiveDataLoaderMixin(object):
         if AdaptiveDataLoaderHelper._current is not self._elastic:
             return None
         return self._elastic.current_batch_size
+
+    def to_tensorboard(self, writer, global_step, tag_prefix=""):
+        self._elastic.to_tensorboard(writer, global_step, tag_prefix)
+    to_tensorboard.__doc__ = AdaptiveDataLoaderHelper.to_tensorboard.__doc__
 
 
 class AdaptiveDataLoader(DataLoader, AdaptiveDataLoaderMixin):

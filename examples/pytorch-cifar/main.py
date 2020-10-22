@@ -124,22 +124,13 @@ def train(epoch):
         stats["total"] += targets.size(0)
         stats["correct"] += predicted.eq(targets).sum().item()
 
-        gain = net.gain
-        batchsize = trainloader.current_batch_size
-        accumulation_steps = trainloader.accumulation_steps
-
-    writer.add_scalar("Throughput/Gain", gain, epoch)
-    writer.add_scalar("Throughput/Global_Batchsize",
-                      batchsize, epoch)
-    writer.add_scalar("Throughput/Accumulation_Steps",
-                      accumulation_steps, epoch)
+    trainloader.to_tensorboard(writer, epoch, tag_prefix="AdaptDL/Data/")
+    net.to_tensorboard(writer, epoch, tag_prefix="AdaptDL/Model/")
     with stats.synchronized():
         stats["loss_avg"] = stats["loss_sum"] / stats["total"]
         stats["accuracy"] = stats["correct"] / stats["total"]
         writer.add_scalar("Loss/Train", stats["loss_avg"], epoch)
         writer.add_scalar("Accuracy/Train", stats["accuracy"], epoch)
-        writer.add_scalar("Gradient/Norm", net.adascale.norm_avg(), epoch)
-        writer.add_scalar("Gradient/Var", net.adascale.var_avg(), epoch)
         print("Train:", stats)
 
 def valid(epoch):
