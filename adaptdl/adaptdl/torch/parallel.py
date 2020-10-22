@@ -164,6 +164,8 @@ class AdaptiveDataParallel(DistributedDataParallel):
             global_step (int): Global step value to record.
             tag_prefix (str): Prefix added to each metric's tag.
         """
+        if tag_prefix and not tag_prefix.endswith("/"):
+            tag_prefix += "/"
         writer.add_scalar(tag_prefix + "Gradient_Norm_Sqr",
                           self.adascale.norm_avg(), global_step)
         writer.add_scalar(tag_prefix + "Gradient_Variance",

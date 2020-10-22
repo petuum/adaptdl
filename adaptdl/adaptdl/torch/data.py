@@ -365,6 +365,8 @@ class AdaptiveDataLoaderHelper(object):
             global_step (int): Global step value to record.
             tag_prefix (str): Prefix added to each metric's tag.
         """
+        if tag_prefix and not tag_prefix.endswith("/"):
+            tag_prefix += "/"
         writer.add_scalar(tag_prefix + "Total_Batch_Size",
                           self.current_batch_size, global_step)
         writer.add_scalar(tag_prefix + "Local_Batch_Size",
