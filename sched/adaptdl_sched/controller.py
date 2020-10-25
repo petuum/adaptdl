@@ -56,7 +56,8 @@ class AdaptDLController(object):
         self._custom_resource = ("adaptdl.petuum.com", "v1",
                                  "", "adaptdljobs")
         self._queue = asyncio.Queue()
-        self._cluster_info = config.cluster_config() if config.get_cluster_config_name() else None
+        self._cluster_info = config.cluster_config() if \
+                             config.get_cluster_config_name() else None
 
     async def run(self):
         # Create service if it doesn't already exist.
@@ -405,12 +406,13 @@ class AdaptDLController(object):
         pod = self._update_cluster_config_info(pod)
         await self._core_api.create_namespaced_pod(
             job_metadata["namespace"], pod)
-    
+
     def _update_cluster_config_info(self, pod):
         if not self._cluster_info:
             return pod
         if self._cluster_info.MACVLAN:
-            pod["metadata"]["annotations"]["k8s.v1.cni.cncf.io/networks"] = self._cluster_info.MACVLAN
+            pod["metadata"]["annotations"]["k8s.v1.cni.cncf.io/networks"] = \
+                self._cluster_info.MACVLAN
         if self._cluster_info.NETWORK_INTERFACE:
             for _, container in enumerate(pod["spec"]["containers"]):
                 container["env"].append({
