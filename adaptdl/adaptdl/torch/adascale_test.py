@@ -38,10 +38,6 @@ def test_object():
 
 
 def test_optimization_1():
-    params_t = torch.Tensor([1.0, 1.5])
-
-    params = torch.autograd.Variable(params_t, requires_grad=True)
-
     # See torch.test.test_optim
     # Also see Rosenbrock/banana function
     def rosenbrock(tensor):
@@ -53,15 +49,16 @@ def test_optimization_1():
     params = torch.autograd.Variable(params_t, requires_grad=True)
     sgd = torch.optim.SGD([params], lr=0.001)
     schedule = torch.optim.lr_scheduler.MultiStepLR(sgd, [1000])
-    obj = adascale.AdaScale(sgd, scale=2.0, num_replicas=1,
+    obj = adascale.AdaScale(sgd, scale=1.0, num_replicas=1,
                             patch_optimizer=True)
     i = 0.0
-    while i < 100000:
+    while i < 100000 and not params.allclose(torch.tensor([1.0, 1.0]),
+                                             atol=0.01):
         sgd.zero_grad()
         loss = rosenbrock(params)
         loss.backward()
         sgd.step()
-        i += obj.gain(2.0)
+        i += obj.get_progress()
         schedule.step()
     assert(params.allclose(torch.tensor([1.0, 1.0]), atol=0.01))
 
@@ -70,8 +67,8 @@ def test_optimization_2():
 
     def rosenbrock_noisy(tensor):
         x, y = tensor
-        return ((1 - x) ** 2 + 100 * (y - x ** 2) ** 2 +
-                np.random.normal(0.0, 10.0))
+        return (np.random.normal(1.0, 0.2) * (1 - x) ** 2 +
+                np.random.normal(1.0, 0.2) * 100 * (y - x ** 2) ** 2)
 
     params_t = torch.Tensor([1.0, 1.5])
 
@@ -81,11 +78,106 @@ def test_optimization_2():
     obj = adascale.AdaScale(sgd, scale=2.0, num_replicas=1,
                             patch_optimizer=True)
     i = 0.0
-    while i < 100000:
+    while i < 100000 and not params.allclose(torch.tensor([1.0, 1.0]),
+                                             atol=0.01):
         sgd.zero_grad()
         loss = rosenbrock_noisy(params)
         loss.backward()
         sgd.step()
-        i += obj.gain(2.0)
+        i += obj.get_progress()
         schedule.step()
+    assert(params.allclose(torch.tensor([1.0, 1.0]), atol=0.01))
+
+
+def test_optimization_3():
+    # See torch.test.test_optim
+    # Also see Rosenbrock/banana function
+    def rosenbrock(x, y):
+        return (1 - x) ** 2 + 100 * (y - x ** 2) ** 2
+
+    params_t = [
+        {"params": [torch.autograd.Variable(torch.Tensor([1.0]),
+                                            requires_grad=True)]},
+        {"params": [torch.autograd.Variable(torch.Tensor([1.5]),
+                                            requires_grad=True)]}]
+
+    sgd = torch.optim.SGD(params_t, lr=0.001)
+    schedule = torch.optim.lr_scheduler.MultiStepLR(sgd, [1000])
+    obj = adascale.AdaScale(sgd, scale=1.0, num_replicas=1,
+                            patch_optimizer=True)
+    i = 0.0
+    while (i < 100000 and
+           not (params_t[0]['params'][0].allclose(torch.tensor([1.0]),
+                                                  atol=0.01)
+                and params_t[1]['params'][0].allclose(torch.tensor([1.0]),
+                                                      atol=0.01))):
+        sgd.zero_grad()
+        loss = rosenbrock(params_t[0]['params'][0], params_t[1]['params'][0])
+        loss.backward()
+        sgd.step()
+        i += obj.get_progress()
+        schedule.step()
+    print(params_t)
+    assert(params_t[0]['params'][0].allclose(torch.tensor([1.0]),
+                                             atol=0.01)
+           and params_t[1]['params'][0].allclose(torch.tensor([1.0]),
+                                                 atol=0.01))
+
+
+def test_gradient_accumulation_optimization_1():
+
+    def rosenbrock(tensor):
+        x, y = tensor
+        return (1 - x) ** 2 + 100 * (y - x ** 2) ** 2
+
+    params_t = torch.Tensor([1.0, 1.5])
+
+    params = torch.autograd.Variable(params_t, requires_grad=True)
+    sgd = torch.optim.SGD([params], lr=0.001)
+    schedule = torch.optim.lr_scheduler.MultiStepLR(sgd, [1000])
+    obj = adascale.AdaScale(sgd, scale=6.0, num_replicas=1,
+                            patch_optimizer=True)
+    obj.set_accumulation_steps(6)
+    i = 0.0
+    j = 0
+    while i < 100000 and not params.allclose(torch.tensor([1.0, 1.0]),
+                                             atol=0.01):
+        sgd.zero_grad()
+        loss = rosenbrock(params)
+        loss.backward()
+        sgd.step()
+        i += obj.get_progress()
+        j += 1
+        if j % 6 == 0:
+            schedule.step()
+    assert(params.allclose(torch.tensor([1.0, 1.0]), atol=0.01))
+
+
+def test_gradient_accumulation_optimization_2():
+
+    def rosenbrock_noisy(tensor):
+        x, y = tensor
+        return (np.random.normal(1.0, 0.2) * (1 - x) ** 2 +
+                np.random.normal(1.0, 0.2) * 100 * (y - x ** 2) ** 2)
+
+    params_t = torch.Tensor([1.0, 1.5])
+
+    params = torch.autograd.Variable(params_t, requires_grad=True)
+    sgd = torch.optim.SGD([params], lr=0.001)
+    schedule = torch.optim.lr_scheduler.MultiStepLR(sgd, [1000])
+    obj = adascale.AdaScale(sgd, scale=6.0, num_replicas=1,
+                            patch_optimizer=True)
+    obj.set_accumulation_steps(6)
+    i = 0.0
+    j = 0
+    while i < 100000 and not params.allclose(torch.tensor([1.0, 1.0]),
+                                             atol=0.01):
+        sgd.zero_grad()
+        loss = rosenbrock_noisy(params)
+        loss.backward()
+        sgd.step()
+        i += obj.get_progress()
+        j += 1
+        if j % 6 == 0:
+            schedule.step()
     assert(params.allclose(torch.tensor([1.0, 1.0]), atol=0.01))

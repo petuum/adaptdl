@@ -16,10 +16,8 @@
 import asyncio
 import collections
 import copy
-import json
 import kubernetes_asyncio as kubernetes
 import logging
-import sys
 
 import adaptdl_sched.k8s_templates as templates
 import adaptdl_sched.config as config
