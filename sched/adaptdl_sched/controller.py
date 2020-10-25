@@ -56,7 +56,7 @@ class AdaptDLController(object):
         self._custom_resource = ("adaptdl.petuum.com", "v1",
                                  "", "adaptdljobs")
         self._queue = asyncio.Queue()
-        self._cluster_info = (config.cluster_config()
+        self._cluster_info = (config.ClusterConfig()
                               if config.get_cluster_config_name()
                               else None)
 

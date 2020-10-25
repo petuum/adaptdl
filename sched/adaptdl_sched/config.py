@@ -63,7 +63,7 @@ def get_cluster_config_name():
     return os.getenv("ADAPTDL_CLUSTER_NAME", None)
 
 
-class cluster_config:
+class ClusterConfig:
     def __init__(self):
         self.CLUSTER_CONFIG_NAME = get_cluster_config_name()
         self.NETWORK_INTERFACE = self._get_network()
