@@ -33,7 +33,7 @@ spec:
         - configMapRef:
             name: adaptdl-config
         - configMapRef:
-            name: cluster-config
+            name: adaptdl-cluster-config
             optional: true
         ports:
         - name: metrics

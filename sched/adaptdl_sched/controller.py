@@ -406,9 +406,9 @@ class AdaptDLController(object):
         await self._core_api.create_namespaced_pod(
             job_metadata["namespace"], pod)
     
-    def _update_cluster_config_info(self, pod_template):
+    def _update_cluster_config_info(self, pod):
         if not self._cluster_info:
-            return pod_template
+            return pod
         if self._cluster_info.MACVLAN:
             pod["metadata"]["annotations"]["k8s.v1.cni.cncf.io/networks"] = self._cluster_info.MACVLAN
         if self._cluster_info.NETWORK_INTERFACE:
@@ -417,7 +417,7 @@ class AdaptDLController(object):
                     "name": "NCCL_SOCKET_IFNAME",
                     "value": sefl._cluster_info.NETWORK_INTERFACE
                 })
-        return pod_template
+        return pod
 
     def _get_pod_name(self, job_metadata, group, rank):
         job_name = job_metadata["name"]
