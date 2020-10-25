@@ -415,7 +415,7 @@ class AdaptDLController(object):
             for _, container in enumerate(pod["spec"]["containers"]):
                 container["env"].append({
                     "name": "NCCL_SOCKET_IFNAME",
-                    "value": sefl._cluster_info.NETWORK_INTERFACE
+                    "value": self._cluster_info.NETWORK_INTERFACE
                 })
         return pod
 
