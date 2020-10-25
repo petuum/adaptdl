@@ -57,3 +57,18 @@ def get_storage_subpath():
 def get_job_default_resources():
     val = os.getenv("ADAPTDL_JOB_DEFAULT_RESOURCES")
     return json.loads(val) if val is not None else None
+
+def get_cluster_config_name():
+    return os.getenv("ADAPTDL_CLUSTER_NAME", None)
+
+class cluster_config:
+    def __init__(self):
+        self.CLUSTER_CONFIG_NAME = get_cluster_config_name()
+        self.NETWORK_INTERFACE = self._get_network()
+        self.MACVLAN = self._check_macvlan()
+    
+    def _get_network(self):
+        return os.getenv("ADAPTDL_CLUSTER_NETWORK", None)
+
+    def _check_macvlan(self):
+        return os.getenv("ADAPTDL_CLUSTER_MACVLAN", None)

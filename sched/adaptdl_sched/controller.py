@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 from prometheus_client import Counter, Summary
 
 from adaptdl_sched.resources import set_default_resources
-from adaptdl_sched.utils import patch_job_status, NETWORK_INTERFACE, MACVLAN
+from adaptdl_sched.utils import patch_job_status
 
 LOG = logging.getLogger(__name__)
 LOG.setLevel(logging.INFO)
@@ -56,6 +56,7 @@ class AdaptDLController(object):
         self._custom_resource = ("adaptdl.petuum.com", "v1",
                                  "", "adaptdljobs")
         self._queue = asyncio.Queue()
+        self._cluster_info = config.cluster_config() if config.get_cluster_config_name() else None
 
     async def run(self):
         # Create service if it doesn't already exist.
@@ -341,9 +342,6 @@ class AdaptDLController(object):
         pod["metadata"]["annotations"]["adaptdl/group"] = str(group)
         pod["metadata"]["annotations"]["adaptdl/rank"] = str(rank)
         pod["metadata"]["annotations"]["adaptdl/node"] = node.metadata.name
-        # To enable 10 Gi Network
-        if MACVLAN.lower() == "enable":
-            pod["metadata"]["annotations"]["k8s.v1.cni.cncf.io/networks"] = "macvlan-conf"
         pod["spec"].setdefault("nodeSelector", {})
         pod["spec"]["hostname"] = f"{job_metadata['name']}-{group}-{rank}"
         pod["spec"]["nodeSelector"]["kubernetes.io/hostname"] = \
@@ -364,11 +362,6 @@ class AdaptDLController(object):
                 "mountPath": "/dev/shm",
             })
             container.setdefault("env", [])
-            if NETWORK_INTERFACE != "default":
-                container["env"].append({
-                    "name": "NCCL_SOCKET_IFNAME",
-                    "value": NETWORK_INTERFACE
-                })
             container["env"].append({
                 "name": "ADAPTDL_JOB_ID",
                 "value": "{}/{}".format(job_metadata["namespace"],
@@ -409,8 +402,22 @@ class AdaptDLController(object):
                     "name": "NVIDIA_VISIBLE_DEVICES",
                     "value": "none",
                 })
+        pod = self._update_cluster_config_info(pod)
         await self._core_api.create_namespaced_pod(
             job_metadata["namespace"], pod)
+    
+    def _update_cluster_config_info(self, pod_template):
+        if not self._cluster_info:
+            return pod_template
+        if self._cluster_info.MACVLAN:
+            pod["metadata"]["annotations"]["k8s.v1.cni.cncf.io/networks"] = self._cluster_info.MACVLAN
+        if self._cluster_info.NETWORK_INTERFACE:
+            for _, container in enumerate(pod["spec"]["containers"]):
+                container["env"].append({
+                    "name": "NCCL_SOCKET_IFNAME",
+                    "value": sefl._cluster_info.NETWORK_INTERFACE
+                })
+        return pod_template
 
     def _get_pod_name(self, job_metadata, group, rank):
         job_name = job_metadata["name"]

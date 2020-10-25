@@ -28,15 +28,13 @@ spec:
       containers:
       - name: main
         image: {{ .Values.image.repository }}{{ empty .Values.image.digest | ternary ":" "@" }}{{ coalesce .Values.image.digest .Values.image.tag .Chart.AppVersion }}
-        env:
-        - name: NETWORK_INTERFACE
-          value: {{ .Values.config.networkInterface }}
-        - name: MACVLAN
-          value: {{ .Values.config.macvlan }}
         args: ["python", "-m", "adaptdl_sched"]
         envFrom:
         - configMapRef:
             name: adaptdl-config
+        - configMapRef:
+            name: cluster-config
+            optional: true
         ports:
         - name: metrics
           containerPort: 9091
