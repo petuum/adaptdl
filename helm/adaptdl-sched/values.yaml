@@ -64,7 +64,3 @@ docker-registry:
     type: NodePort
     nodePort: 32000
     port: 5000
-
-config:
-  networkInterface: "default"
-  macvlan: "default"
