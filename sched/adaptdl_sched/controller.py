@@ -405,7 +405,7 @@ class AdaptDLController(object):
         pod = self._pod_update(pod)
         await self._core_api.create_namespaced_pod(
             job_metadata["namespace"], pod)
-    
+
     def _pod_update(self, pod):
         patch = config.get_cluster_patch()
         if not patch:
