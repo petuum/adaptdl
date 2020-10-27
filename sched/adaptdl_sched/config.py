@@ -57,3 +57,6 @@ def get_storage_subpath():
 def get_job_default_resources():
     val = os.getenv("ADAPTDL_JOB_DEFAULT_RESOURCES")
     return json.loads(val) if val is not None else None
+
+def get_cluster_patch():
+    return os.getenv("ADAPTDL_CLUSTER_PATCH", None)
