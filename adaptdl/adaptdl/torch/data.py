@@ -140,8 +140,6 @@ class AdaptiveDataLoaderHelper(object):
         # Autoscale batch size fields.
         self._max_batch_size = None
         self._local_bsz_bounds = None
-        self._current_local_bsz = None
-        self._accumulation_steps = None
         # Create and load state.
         self._state = _AdaptiveDataLoaderState()
         adaptdl.checkpoint.load_state(self._state)
@@ -205,7 +203,7 @@ class AdaptiveDataLoaderHelper(object):
         The batch size returned by the dataloader may be smaller if
         gradient accumulation is used
         """
-        return self._current_local_bsz
+        return self._state.current_local_bsz
 
     @property
     def accumulation_steps(self):
@@ -213,7 +211,7 @@ class AdaptiveDataLoaderHelper(object):
         The number of batches returned by the dataloader before a
         step is taken.
         """
-        return self._accumulation_steps
+        return self._state.accumulation_steps
 
     @property
     def is_accumulation_step(self):
@@ -271,21 +269,21 @@ class AdaptiveDataLoaderHelper(object):
     def _sync_local_bsz(self):
         if self.max_batch_size is None:
             # No autoscale batch size, just divide batch size evenly.
-            self._current_local_bsz = math.ceil(self.batch_size /
-                                                adaptdl.env.num_replicas())
-            self._accumulation_steps = 0
+            self._state.current_local_bsz = math.ceil(
+                self.batch_size / adaptdl.env.num_replicas())
+            self._state.accumulation_steps = 0
         else:
             # Autoscale batch size, compute on rank 0 and broadcast.
             speedup_fn = get_speedup_fn()
 
             # if init, use the batch size suggested
-            if self._current_local_bsz is None:
+            if not self._state.current_local_bsz:
                 _, (local_bsz, accumulation_steps) = speedup_fn(
                     adaptdl.env.num_nodes(),
                     adaptdl.env.num_replicas(),
                     return_config=True)
-                self._current_local_bsz = local_bsz
-                self._accumulation_steps = accumulation_steps
+                self._state.current_local_bsz = local_bsz
+                self._state.accumulation_steps = accumulation_steps
 
             # if not first time, we check against the relative speedup
             else:
@@ -300,14 +298,14 @@ class AdaptiveDataLoaderHelper(object):
                 # use only if speedup is significant
                 speedup_to_cur = suggest_speedup / current_speedup
                 if speedup_to_cur > self.speedup_threshold:
-                    self._current_local_bsz = local_bsz
-                    self._accumulation_steps = accumulation_steps
+                    self._state.current_local_bsz = local_bsz
+                    self._state.accumulation_steps = accumulation_steps
 
-        (self._current_local_bsz, self._accumulation_steps) = \
-            adaptdl.collective.broadcast((self._current_local_bsz,
-                                          self._accumulation_steps))
+        (self._state.current_local_bsz, self._state.accumulation_steps) = \
+            adaptdl.collective.broadcast((self._state.current_local_bsz,
+                                          self._state.accumulation_steps))
 
-        self.is_accumulation_step = self._accumulation_steps != 0
+        self.is_accumulation_step = self._state.accumulation_steps != 0
         return self.current_local_bsz
 
     @property
@@ -539,11 +537,15 @@ class _AdaptiveDataLoaderState(adaptdl.checkpoint.State):
         self.current_index = 0   # Index within the current dataloader loop.
         self.end_index = 0       # End index of the current DataLoader loop.
         self.last_position = {}  # Epoch -> position of last completed loop.
+        self.current_local_bsz = 0
+        self.accumulation_steps = 0
 
     def save(self, fileobj):
         pickle.dump((self.current_index, self.end_index,
-                     self.last_position), fileobj)
+                     self.last_position, self.current_local_bsz,
+                     self.accumulation_steps), fileobj)
 
     def load(self, fileobj):
-        self.current_index, self.end_index, \
-                    self.last_position = pickle.load(fileobj)
+        self.current_index, self.end_index, self.last_position, \
+           self.current_local_bsz, self.accumulation_steps = \
+           pickle.load(fileobj)
