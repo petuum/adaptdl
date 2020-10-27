@@ -283,64 +283,6 @@ class SpeedupFunction(object):
         return self._params
 
 
-def fit(nodes, replicas, local_bsz, accumulation_steps,
-        step_time, step_time_compute, accumulation_time):
-    # Fit the performance model given step time and compute time measurements
-    # for different configurations of nodes, replicas, local_bsz, and
-    # accumulation_steps.
-
-    # HACK: We want to use the original numpy module for calls from the
-    # SpeedupFunction for performance reasons, but also need those functions to
-    # use autograd.numpy when we want to differentiate them. We patch the
-    # global np reference only for the code invoked rom this function.
-    global np  # Replace numpy from autograd.
-    orig_np = np
-    np = autograd.numpy
-
-    replicas = np.array(replicas)
-    local_bsz = np.array(local_bsz)
-    step_time = np.array(step_time)
-    step_time_compute = np.array(step_time_compute)
-    accumulation_time = np.array(accumulation_time)
-
-    # Set initial params to reasonable values.
-    params = [1e-1, 1e-2] * 3 + [1.0 + 1e-3]
-    # Set lower/upper bounds for each parameter. Add a small slack to lower
-    # bounds to avoid numerical instability issues.
-    lower = [1e-8, 1e-8] * 3 + [1.0]
-    upper = [np.inf, np.inf] * 3 + [10.0]
-    if len(np.unique(local_bsz)) == 1:
-        # Fix alpha_c if only observed a single local batch size.
-        # This makes the speedup model optimistic with respect to
-        # scaling up the batchsize. This will assign equal weight
-        # to the constant and multplicative factors for compute time
-        # if there is only a single datapoint (which is by far the
-        # most likely case for this scenario)
-        params[0] = upper[0] = lower[0] = np.mean(step_time_compute) / 2
-    if not any(nodes > 1):
-        # Fix alpha_n and beta_n if no multi-node observations.
-        params[2] = upper[2] = lower[2]
-        params[3] = upper[3] = lower[3]
-    if not any(np.logical_and(nodes == 1, replicas > 1)):
-        # Fix alpha_r and beta_r if no single-node/multi-replica observations.
-        params[4] = upper[4] = lower[4]
-        params[5] = upper[5] = lower[5]
-    if not any(replicas > 2):
-        # Fix beta_n and beta_r if no replicas > 2.
-        params[3] = upper[3] = lower[3]
-        params[5] = upper[5] = lower[5]
-    bounds = scipy.optimize.Bounds(lower, upper, keep_feasible=True)
-    args = (nodes, replicas, local_bsz, accumulation_steps,
-            step_time, step_time_compute, accumulation_time)
-    # FIXME: need to handle optimization failures and propagate to the Trainer.
-    grad_fn = autograd.grad(_obj_fn)
-    result = scipy.optimize.minimize(_obj_fn, params, args=args,
-                                     jac=grad_fn, bounds=bounds)
-    params = result.x
-    np = orig_np  # Restore original numpy.
-    return Params(*params)
-
-
 def _predict(params, nodes, replicas, local_bsz, accumulation_steps):
     params = Params(*params)
     step_time_compute = _predict_compute(params, local_bsz)
@@ -380,26 +322,3 @@ def _predict_network(params, nodes, replicas):
     retrogress = np.select(conds, [params.beta_n, params.beta_r], 1e-8)
     retrogress = retrogress * np.maximum(replicas - 2, 1e-8)
     return (bottleneck + retrogress)
-
-
-def _rmse(pred, true):
-    return np.sqrt(((pred - true) ** 2).mean())
-
-
-def _obj_fn(params, nodes, replicas, local_bsz, accumulation_steps,
-            step_time, step_time_compute, accumulation_time):
-    params = Params(*params)
-    pred_step_time, pred_step_time_compute, _ = \
-        _predict(params, nodes, replicas, local_bsz, accumulation_steps)
-    # Error of total step time predictions.
-    err1 = _rmse(np.log(pred_step_time),
-                 np.log(step_time + accumulation_time * accumulation_steps))
-    # Error of compute time predictions.
-    err2 = _rmse(np.log(pred_step_time_compute), np.log(step_time_compute))
-    # L2 regularization towards a smaller gamma, because it's easier to
-    # optimize the alpha and beta parameters when gamma is smaller.
-    reg1 = 1e-3 * (params.gamma - 1) ** 2
-    # Penalize retrogression terms to prefer a more optimistic model.
-    reg2 = 1e-2 * ((params.beta_n / params.alpha_n) ** 2 +
-                   (params.beta_r / params.alpha_r) ** 2)
-    return err1 + err2 + reg1 + reg2

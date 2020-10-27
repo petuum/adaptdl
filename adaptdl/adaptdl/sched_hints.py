@@ -17,7 +17,7 @@ import json
 import logging
 import requests
 from collections import OrderedDict
-from adaptdl.speedup import Params
+from adaptdl.goodput import Params
 import adaptdl.env
 from types import MappingProxyType
 

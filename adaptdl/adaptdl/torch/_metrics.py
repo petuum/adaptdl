@@ -19,11 +19,10 @@ import time
 
 import numpy as np
 
-import adaptdl.speedup
 import adaptdl.checkpoint
 import adaptdl.collective
-from adaptdl.sched_hints import SCHED_HINTS, PERF_PARAMS, \
-        post_sched_hints
+from adaptdl.goodput import GoodputFunction, fit_perf_params
+from adaptdl.sched_hints import SCHED_HINTS, PERF_PARAMS, post_sched_hints
 
 
 def profile_step_start(local_bsz, gradient_accumulation_steps):
@@ -96,20 +95,16 @@ def set_batch_size(init_batch_size, max_batch_size, local_bsz_bounds,
     state.gradient_accumulation = gradient_accumulation
 
 
-def get_speedup_fn():
+def get_goodput_fn():
     state = _metrics_state()
+    if state.grad_params is None or state.perf_params is None:
+        return None
     grad_params = {
-        "norm": state.grad_params and state.grad_params[0],
-        "var": state.grad_params and state.grad_params[1],
+        "norm": state.grad_params[0],
+        "var": state.grad_params[1],
     }
-    return adaptdl.speedup.SpeedupFunction(
-        state.perf_params, grad_params,
-        init_batch_size=state.init_batch_size,
-        max_batch_size=state.max_batch_size,
-        local_bsz_bounds=state.local_bsz_bounds,
-        gradient_accumulation=state.gradient_accumulation,
-        elastic_bsz=(state.max_batch_size is not None),
-    )
+    return GoodputFunction(state.perf_params, grad_params,
+                           state.init_batch_size)
 
 
 def _fit_perf_params():
@@ -129,7 +124,7 @@ def _fit_perf_params():
     compute_time = step_time - sync_time
     accumulation_time = np.where(
         accumulation_steps > 0, accumulation_time, compute_time)
-    state.perf_params = adaptdl.speedup.fit(
+    state.perf_params = fit_perf_params(
         num_nodes, num_replicas, local_bsz, accumulation_steps,
         step_time, compute_time, accumulation_time)
 
