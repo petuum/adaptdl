@@ -81,6 +81,8 @@ class GoodputFunction(object):
 
     def optimize(self, num_nodes, num_replicas, max_batch_size=None,
                  atomic_bsz_range=None, accumulation=False):
+        assert np.all(np.less_equal(1, num_nodes))
+        assert np.all(np.less_equal(num_nodes, num_replicas))
         if max_batch_size is None:
             max_batch_size = self._init_batch_size
         assert self._init_batch_size <= max_batch_size
@@ -106,18 +108,19 @@ class GoodputFunction(object):
             # when there is only one atomic minibatch to estimate them from,
             # and (2) using a lower accum_steps should always yield a higher
             # goodput when there is only a single replica.
-            accum_steps = np.select(
-                [num_replicas > 1, local_bsz > self._init_batch_size],
-                [np.ceil(local_bsz / max_atomic_bsz), 1]).astype(np.int)
+            accum_steps = np.ceil(local_bsz / max_atomic_bsz) - 1
+            accum_steps = np.where(
+                (num_replicas == 1) & (local_bsz > self._init_batch_size),
+                np.maximum(accum_steps, 1), accum_steps).astype(np.int)
         else:
             accum_steps = np.zeros_like(local_bsz, dtype=np.int)
         atomic_bsz = np.ceil(local_bsz / (accum_steps + 1)).astype(np.int)
         # Evaluate the goodput of all candidate configurations.
         goodput = self.evaluate(num_nodes, num_replicas,
                                 atomic_bsz, accum_steps)
-        # Set the goodput of invalid configurations to -infinity.
+        # Set the goodput of invalid configurations to 0.0.
         goodput = np.where((min_atomic_bsz <= atomic_bsz) &
-                           (atomic_bsz <= max_atomic_bsz), goodput, -np.inf)
+                           (atomic_bsz <= max_atomic_bsz), goodput, 0.0)
         # Find the indices of the best configurations.
         indices = np.argmax(goodput, axis=0), np.arange(goodput.shape[1])
         # Restore the correct output shape and return results.

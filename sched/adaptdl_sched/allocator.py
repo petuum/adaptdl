@@ -19,10 +19,11 @@ import kubernetes_asyncio as kubernetes
 import logging
 import time
 
-from adaptdl.speedup import SpeedupFunction
+from adaptdl.goodput import GoodputFunction
 from adaptdl.sched_hints import PERF_PARAMS
-from adaptdl_sched.policy.utils import JobInfo, NodeInfo
 from adaptdl_sched.policy.pollux import PolluxPolicy
+from adaptdl_sched.policy.speedup import SpeedupFunction
+from adaptdl_sched.policy.utils import JobInfo, NodeInfo
 from adaptdl_sched.resources import (get_node_unrequested, get_pod_requests,
                                      set_default_resources)
 from adaptdl_sched.utils import patch_job_status
@@ -126,7 +127,7 @@ class AdaptDLAllocator(object):
             # max_replicas should be greater or equal to min_replicas
             max_replicas = max(max_replicas, min_replicas)
             preemptible = job["spec"].get("preemptible", True)
-            if hints and preemptible:
+            if hints.get("perfParams") and preemptible:
                 max_batch_size = hints.get("maxBatchSize") or \
                                                  hints.get("initBatchSize")
                 if hints.get("localBszBounds"):
@@ -136,13 +137,15 @@ class AdaptDLAllocator(object):
                                        int(max_batch_size / min_local_bsz))
                 # derive if job is elastic
                 elastic = hints.get("maxBatchSize", 0) > hints["initBatchSize"]
-                speedup_fn = SpeedupFunction(
+                goodput_fn = GoodputFunction(
                     [hints["perfParams"][k] for k in PERF_PARAMS.keys()]
                     if hints.get("perfParams") else None,
-                    hints.get("gradParams", {"var": None, "norm": None}),
-                    hints.get("initBatchSize"),
+                    hints.get("gradParams", {"var": 0.0, "norm": 1.0}),
+                    hints.get("initBatchSize"))
+                speedup_fn = SpeedupFunction(
+                    goodput_fn,
                     hints.get("maxBatchSize"),
-                    hints.get("localBszBounds", [None, None]),
+                    hints.get("localBszBounds"),
                     hints.get("gradientAccumulation", False),
                     elastic_bsz=elastic)
             else:
