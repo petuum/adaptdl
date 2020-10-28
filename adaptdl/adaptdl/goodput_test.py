@@ -204,8 +204,8 @@ def test_optimize_accumulation(perf_params, grad_params):
                                 goodput == 0.0)))
     assert(np.all(steps <= 15))
     assert(np.all(steps >= 0))
-    assert(np.all(np.logical_or(np.multiply(steps, bsz) >= 256,
-                                steps == 0)))
+    assert(np.all(np.logical_or(replicas > 1,
+                                np.logical_or(bsz == 128, steps > 0))))
     # multi-node
     goodput, bsz, steps = fun.optimize(replicas, replicas,
                                        max_batch_size=1280,

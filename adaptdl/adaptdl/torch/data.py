@@ -146,7 +146,7 @@ class AdaptiveDataLoaderHelper(object):
         self.batch_size = batch_size
         self.future_exit = None
         self._gradient_accumulation = False
-        self.speedup_threshold = 1.05
+        self._speedup_threshold = 1.05
 
     @property
     def current_index(self):
@@ -294,7 +294,8 @@ class AdaptiveDataLoaderHelper(object):
                 adaptdl.env.num_nodes(), adaptdl.env.num_replicas(),
                 self.current_local_bsz, self.accumulation_steps)
             # use only if speedup is significant
-            if suggest_goodput / current_goodput > self.speedup_threshold:
+            speedup = suggest_goodput / max(current_goodput, 1e-8)
+            if speedup > self._speedup_threshold:
                 self._current_local_bsz = atomic_bsz
                 self._accumulation_steps = accum_steps
         self._current_local_bsz, self._accumulation_steps = \

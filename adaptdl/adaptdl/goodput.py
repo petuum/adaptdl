@@ -108,14 +108,13 @@ class GoodputFunction(object):
             # that (atomic_bsz * (accum_steps + 1)) is close to local_bsz.
             #
             # If num_replicas == 1 and local_bsz > self._init_batch_size, then
-            # always set accum_steps to 1. This is because (1) the gradient
+            # set accum_steps to at least 1. This is because the gradient
             # statistics used for scaling up the learning rate are inaccurate
-            # when there is only one atomic minibatch to estimate them from,
-            # and (2) using a lower accum_steps should always yield a higher
-            # goodput when there is only a single replica.
+            # when there is only one atomic minibatch to estimate them from.
             accum_steps = np.ceil(local_bsz / max_atomic_bsz - eps) - 1
             accum_steps = np.where(
-                (num_replicas == 1) & (local_bsz > self._init_batch_size),
+                np.logical_and(num_replicas == 1,
+                               local_bsz > self._init_batch_size),
                 np.maximum(accum_steps, 1), accum_steps).astype(int)
         else:
             accum_steps = np.zeros_like(local_bsz, dtype=np.int)
@@ -197,18 +196,37 @@ def fit_perf_params(nodes, replicas, local_bsz, accumulation_steps,
     return PerfParams(*params)
 
 
+def _rmse(pred, true):
+    return np.sqrt(((pred - true) ** 2).mean())
+
+
+def _obj_fn(params, nodes, replicas, local_bsz, accumulation_steps,
+            step_time, step_time_compute, accumulation_time):
+    params = PerfParams(*params)
+    pred_step_time, pred_step_time_compute, _ = \
+        _predict(params, nodes, replicas, local_bsz, accumulation_steps)
+    # Error of total step time predictions.
+    err1 = _rmse(np.log(pred_step_time),
+                 np.log(step_time + accumulation_time * accumulation_steps))
+    # Error of compute time predictions.
+    err2 = _rmse(np.log(pred_step_time_compute), np.log(step_time_compute))
+    # L2 regularization towards a smaller gamma, because it's easier to
+    # optimize the alpha and beta parameters when gamma is smaller.
+    reg1 = 1e-3 * (params.gamma - 1) ** 2
+    # Penalize retrogression terms to prefer a more optimistic model.
+    reg2 = 1e-2 * ((params.beta_n / params.alpha_n) ** 2 +
+                   (params.beta_r / params.alpha_r) ** 2)
+    return err1 + err2 + reg1 + reg2
+
 def _predict(params, nodes, replicas, local_bsz, accumulation_steps):
     params = PerfParams(*params)
     step_time_compute = _predict_compute(params, local_bsz)
     step_time_network = _predict_network(params, nodes, replicas)
-    step_time_accumulation = step_time_compute
     gamma = params.gamma
-    # Return predicted total step time in log-space to avoid numerical issues
-    # in autograd and optimization.
     step_time = (
         ((step_time_compute) ** gamma + step_time_network ** gamma) **
         (1 / gamma)
-        + step_time_accumulation * accumulation_steps)
+        + step_time_compute * accumulation_steps)
     return (
         step_time,
         step_time_compute,
@@ -236,26 +254,3 @@ def _predict_network(params, nodes, replicas):
     retrogress = np.select(conds, [params.beta_n, params.beta_r], 1e-8)
     retrogress = retrogress * np.maximum(replicas - 2, 1e-8)
     return (bottleneck + retrogress)
-
-
-def _rmse(pred, true):
-    return np.sqrt(((pred - true) ** 2).mean())
-
-
-def _obj_fn(params, nodes, replicas, local_bsz, accumulation_steps,
-            step_time, step_time_compute, accumulation_time):
-    params = PerfParams(*params)
-    pred_step_time, pred_step_time_compute, _ = \
-        _predict(params, nodes, replicas, local_bsz, accumulation_steps)
-    # Error of total step time predictions.
-    err1 = _rmse(np.log(pred_step_time),
-                 np.log(step_time + accumulation_time * accumulation_steps))
-    # Error of compute time predictions.
-    err2 = _rmse(np.log(pred_step_time_compute), np.log(step_time_compute))
-    # L2 regularization towards a smaller gamma, because it's easier to
-    # optimize the alpha and beta parameters when gamma is smaller.
-    reg1 = 1e-3 * (params.gamma - 1) ** 2
-    # Penalize retrogression terms to prefer a more optimistic model.
-    reg2 = 1e-2 * ((params.beta_n / params.alpha_n) ** 2 +
-                   (params.beta_r / params.alpha_r) ** 2)
-    return err1 + err2 + reg1 + reg2
