@@ -35,7 +35,7 @@ parser.add_argument("--batch_size",
                     help="batch size for training")
 parser.add_argument("--epochs",
                     type=int,
-                    default=40,
+                    default=20,
                     help="training epoches")
 parser.add_argument("--top_k",
                     type=int,
@@ -105,7 +105,7 @@ NeuMF_model_path = os.path.join(model_path, 'NeuMF.pth')
 
 ############################## PREPARE DATASET ##########################
 train_data, test_data, user_num, item_num, train_mat = \
-    data_utils.load_all(main_path, train_rating, test_negative)
+    data_utils.load_all(main_path, train_rating, test_negative, dataset)
 
 # construct the train and test datasets
 train_dataset = data_utils.NCFData(
@@ -172,11 +172,8 @@ with SummaryWriter(tensorboard_dir) as writer:
             batchsize = train_loader.current_batch_size
             accumulation_steps = train_loader.accumulation_steps
 
-        writer.add_scalar("Throughput/Gain", gain, epoch)
-        writer.add_scalar("Throughput/Global_Batchsize",
-                          batchsize, epoch)
-        writer.add_scalar("Throughput/Accumulation_Steps",
-                          accumulation_steps, epoch)
+        train_loader.to_tensorboard(writer, epoch, tag_prefix="AdaptDL/Data/")
+        network.to_tensorboard(writer, epoch, tag_prefix="AdaptDL/Model/")
 
         network.eval()
         stats = adl.Accumulator()
