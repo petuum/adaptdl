@@ -19,7 +19,7 @@ import kubernetes_asyncio as kubernetes
 import logging
 import time
 
-from adaptdl.goodput import GoodputFunction
+from adaptdl.goodput import GoodputFunction, PerfParams, GradParams
 from adaptdl.sched_hints import PERF_PARAMS
 from adaptdl_sched.policy.pollux import PolluxPolicy
 from adaptdl_sched.policy.speedup import SpeedupFunction
@@ -127,27 +127,28 @@ class AdaptDLAllocator(object):
             # max_replicas should be greater or equal to min_replicas
             max_replicas = max(max_replicas, min_replicas)
             preemptible = job["spec"].get("preemptible", True)
-            if hints.get("perfParams") and preemptible:
-                max_batch_size = hints.get("maxBatchSize") or \
-                                                 hints.get("initBatchSize")
+            if {"perfParams", "initBatchSize"} <= hints.keys() and preemptible:
+                max_batch_size = (hints.get("maxBatchSize")
+                                  or hints["initBatchSize"])
                 if hints.get("localBszBounds"):
                     min_local_bsz = hints["localBszBounds"][0] or 1
                     # Make sure max_batch_size / replicas >= min_local_bsz
-                    max_replicas = min(max_replicas,
-                                       int(max_batch_size / min_local_bsz))
-                # derive if job is elastic
-                elastic = hints.get("maxBatchSize", 0) > hints["initBatchSize"]
-                goodput_fn = GoodputFunction(
-                    [hints["perfParams"][k] for k in PERF_PARAMS.keys()]
-                    if hints.get("perfParams") else None,
-                    hints.get("gradParams", {"var": 0.0, "norm": 1.0}),
-                    hints.get("initBatchSize"))
+                    if max_batch_size < min_local_bsz * max_replicas:
+                        max_replicas = int(max_batch_size / min_local_bsz)
+                perf_params = PerfParams(*[hints["perfParams"][k]
+                                           for k in PERF_PARAMS.keys()])
+                if "gradParams" in hints:
+                    grad_params = GradParams(hints["gradParams"]["norm"],
+                                             hints["gradParams"]["var"])
+                else:
+                    grad_params = GradParams(0.0, 1.0)
+                goodput_fn = GoodputFunction(perf_params, grad_params,
+                                             hints["initBatchSize"])
                 speedup_fn = SpeedupFunction(
                     goodput_fn,
                     hints.get("maxBatchSize"),
                     hints.get("localBszBounds"),
-                    hints.get("gradientAccumulation", False),
-                    elastic_bsz=elastic)
+                    hints.get("gradientAccumulation", False))
             else:
                 speedup_fn = lambda n, r: r  # noqa: E731
             creation_ts = dateutil.parser.isoparse(

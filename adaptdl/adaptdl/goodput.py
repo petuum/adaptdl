@@ -29,7 +29,7 @@ import scipy.stats
 # intra-node (all replicas are on the same node). For both cases, network time
 # is modeled as a constant term plus a retrogression term which increases
 # linearly with the total number of replicas.
-Params = collections.namedtuple("Params", [
+PerfParams = collections.namedtuple("PerfParams", [
     # T_compute ~ alpha_c + beta_c * local_bsz +
     #             (alpha_a + beta_a * local_bsz) * accumulation_steps
     "alpha_c",  # Constant term of compute time
@@ -49,12 +49,14 @@ Params = collections.namedtuple("Params", [
     "gamma",    # Models the degree of overlap between compute and network
 ])
 
+GradParams = collections.namedtuple("GradParams", ["sqr", "var"])
+
 
 class GoodputFunction(object):
 
     def __init__(self, perf_params, grad_params, init_batch_size):
-        self._perf_params = perf_params
-        self._grad_params = grad_params
+        self._perf_params = PerfParams(*perf_params)
+        self._grad_params = GradParams(*grad_params)
         self._init_batch_size = init_batch_size
 
     def __call__(self, num_nodes, num_replicas, atomic_bsz, accum_steps):
@@ -72,8 +74,8 @@ class GoodputFunction(object):
         return batch_size / step_time
 
     def efficiency(self, batch_size):
-        grad_sqr = self._grad_params['norm']
-        grad_var = self._grad_params['var']
+        grad_sqr = self._grad_params.sqr
+        grad_var = self._grad_params.var
         scale = batch_size * self._init_batch_size
         denom = grad_var / scale + grad_sqr
         gain = np.where(denom > 0, (grad_var + grad_sqr) / denom, 1.0)
@@ -95,8 +97,11 @@ class GoodputFunction(object):
         num_nodes = np.broadcast_to(num_nodes, output_shape).flatten()
         num_replicas = np.broadcast_to(num_replicas, output_shape).flatten()
         # Samples 50 different total batch sizes in geometric space.
-        batch_size = np.geomspace(self._init_batch_size, max_batch_size)
-        local_bsz = np.expand_dims(batch_size, -1) / num_replicas
+        min_batch_size = np.maximum(self._init_batch_size,
+                                    min_atomic_bsz * num_replicas)
+        batch_size = np.geomspace(min_batch_size, max_batch_size)
+        local_bsz = batch_size / num_replicas
+        eps = 1e-8  # Tolerance for floor/ceil operations.
         if accumulation:
             # If local_bsz size exceeds the max atomic batch size, split it
             # into a number of batches to form (atomic_bsz, accum_steps) such
@@ -108,13 +113,13 @@ class GoodputFunction(object):
             # when there is only one atomic minibatch to estimate them from,
             # and (2) using a lower accum_steps should always yield a higher
             # goodput when there is only a single replica.
-            accum_steps = np.ceil(local_bsz / max_atomic_bsz) - 1
+            accum_steps = np.ceil(local_bsz / max_atomic_bsz - eps) - 1
             accum_steps = np.where(
                 (num_replicas == 1) & (local_bsz > self._init_batch_size),
-                np.maximum(accum_steps, 1), accum_steps).astype(np.int)
+                np.maximum(accum_steps, 1), accum_steps).astype(int)
         else:
             accum_steps = np.zeros_like(local_bsz, dtype=np.int)
-        atomic_bsz = np.ceil(local_bsz / (accum_steps + 1)).astype(np.int)
+        atomic_bsz = np.ceil(local_bsz / (accum_steps + 1) - eps).astype(int)
         # Evaluate the goodput of all candidate configurations.
         goodput = self.evaluate(num_nodes, num_replicas,
                                 atomic_bsz, accum_steps)
@@ -189,11 +194,11 @@ def fit_perf_params(nodes, replicas, local_bsz, accumulation_steps,
                                      jac=grad_fn, bounds=bounds)
     params = result.x
     np = orig_np  # Restore original numpy.
-    return Params(*params)
+    return PerfParams(*params)
 
 
 def _predict(params, nodes, replicas, local_bsz, accumulation_steps):
-    params = Params(*params)
+    params = PerfParams(*params)
     step_time_compute = _predict_compute(params, local_bsz)
     step_time_network = _predict_network(params, nodes, replicas)
     step_time_accumulation = step_time_compute
@@ -211,13 +216,13 @@ def _predict(params, nodes, replicas, local_bsz, accumulation_steps):
 
 
 def _predict_compute(params, local_bsz):
-    params = Params(*params)
+    params = PerfParams(*params)
     # Forward/backward passes should scale linearly with the batch size.
     return params.alpha_c + params.beta_c * local_bsz
 
 
 def _predict_network(params, nodes, replicas):
-    params = Params(*params)
+    params = PerfParams(*params)
     # Select the most significant link between replicas, currently either
     # inter-node (nodes > 1) or intra-node (replicas > 1). Note that if
     # replicas == 1 then neither of these two conditions are matched.
@@ -239,7 +244,7 @@ def _rmse(pred, true):
 
 def _obj_fn(params, nodes, replicas, local_bsz, accumulation_steps,
             step_time, step_time_compute, accumulation_time):
-    params = Params(*params)
+    params = PerfParams(*params)
     pred_step_time, pred_step_time_compute, _ = \
         _predict(params, nodes, replicas, local_bsz, accumulation_steps)
     # Error of total step time predictions.

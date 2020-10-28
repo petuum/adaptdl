@@ -13,21 +13,20 @@
 # limitations under the License.
 
 
-from adaptdl.goodput import GoodputFunction
+from adaptdl.goodput import GoodputFunction, PerfParams, GradParams
 import itertools
 import numpy as np
 import pytest
 
 RNG = np.random.RandomState(0)
-PERF_PARAMS = [RNG.gamma(2.0, 2.0, [7]) for i in range(10)]
-GRAD_PARAMS = [RNG.gamma(2.0, 2.0, [2]) for i in range(10)]
+PERF_PARAMS = [PerfParams(*RNG.gamma(2.0, 2.0, [7])) for i in range(10)]
+GRAD_PARAMS = [GradParams(*RNG.gamma(2.0, 2.0, [2])) for i in range(10)]
 
 
 @pytest.mark.parametrize("perf_params", PERF_PARAMS)
 @pytest.mark.parametrize("grad_params", GRAD_PARAMS)
 def test_evaluate(perf_params, grad_params):
     init_batch_size = 16
-    grad_params = {"norm": grad_params[0], "var": grad_params[1]}
     goodput_fn = GoodputFunction(perf_params, grad_params, init_batch_size)
     # Generate a range of different goodput function arguments.
     num_nodes = np.array([1, 2, 3, 4])
@@ -60,7 +59,6 @@ def test_evaluate(perf_params, grad_params):
 @pytest.mark.parametrize("perf_params", PERF_PARAMS)
 @pytest.mark.parametrize("grad_params", GRAD_PARAMS)
 def test_optimize_no_bounds(perf_params, grad_params):
-    grad_params = {"norm": grad_params[0], "var": grad_params[1]}
     goodput_fn = GoodputFunction(perf_params, grad_params, 128)
     goodput, bsz, steps = goodput_fn.optimize(1, 3)
     assert(bsz == 128//3 + 1), "expected bsz = 43, got {}".format(bsz)
@@ -86,7 +84,6 @@ def test_optimize_no_bounds(perf_params, grad_params):
 @pytest.mark.parametrize("perf_params", PERF_PARAMS)
 @pytest.mark.parametrize("grad_params", GRAD_PARAMS)
 def test_optimize_local_bounds(perf_params, grad_params):
-    grad_params = {"norm": grad_params[0], "var": grad_params[1]}
     fun = GoodputFunction(perf_params, grad_params, 128)
     goodput, bsz, steps = fun.optimize(1, 1, atomic_bsz_range=(64, 256))
     assert(bsz == 128), "expected bsz = 128, got {}".format(bsz)
@@ -116,7 +113,6 @@ def test_optimize_local_bounds(perf_params, grad_params):
 @pytest.mark.parametrize("perf_params", PERF_PARAMS)
 @pytest.mark.parametrize("grad_params", GRAD_PARAMS)
 def test_optimize_max_bounds(perf_params, grad_params):
-    grad_params = {"norm": grad_params[0], "var": grad_params[1]}
     fun = GoodputFunction(perf_params, grad_params, 128)
     goodput, bsz, steps = fun.optimize(1, 1, max_batch_size=1280)
     assert(bsz == 128), "expected bsz = 128, got {}".format(bsz)
@@ -141,7 +137,6 @@ def test_optimize_max_bounds(perf_params, grad_params):
 @pytest.mark.parametrize("perf_params", PERF_PARAMS)
 @pytest.mark.parametrize("grad_params", GRAD_PARAMS)
 def test_optimize_all_bounds(perf_params, grad_params):
-    grad_params = {"norm": grad_params[0], "var": grad_params[1]}
     fun = GoodputFunction(perf_params, grad_params, 128)
     goodput, bsz, steps = fun.optimize(1, 1, max_batch_size=1280,
                                        atomic_bsz_range=(64, 256))
@@ -175,12 +170,18 @@ def test_optimize_all_bounds(perf_params, grad_params):
                                 goodput == 0.0)))
     assert(bsz[0] == 128)
     assert(np.all(steps == 0))
+    # multi-node edge case
+    replicas = 4
+    goodput, bsz, steps = fun.optimize(4, 4, max_batch_size=1024,
+                                       atomic_bsz_range=(128, 128))
+    assert goodput > 0.0
+    assert bsz == 128
+    assert steps == 0
 
 
 @pytest.mark.parametrize("perf_params", PERF_PARAMS)
 @pytest.mark.parametrize("grad_params", GRAD_PARAMS)
 def test_optimize_accumulation(perf_params, grad_params):
-    grad_params = {"norm": grad_params[0], "var": grad_params[1]}
     fun = GoodputFunction(perf_params, grad_params, 128)
     goodput, bsz, steps = fun.optimize(1, 1, max_batch_size=1280,
                                        atomic_bsz_range=(64, 256),

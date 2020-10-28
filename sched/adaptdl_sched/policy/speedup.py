@@ -18,12 +18,11 @@ import numpy as np
 class SpeedupFunction(object):
 
     def __init__(self, goodput_fn, max_batch_size=None, atomic_bsz_range=None,
-                 accumulation=False, elastic_bsz=False, mem_size=32):
+                 accumulation=False, mem_size=32):
         self._goodput_fn = goodput_fn
         self._max_batch_size = max_batch_size
         self._atomic_bsz_range = atomic_bsz_range
         self._accumulation = accumulation
-        self._elastic_bsz = elastic_bsz
         self._mem_size = mem_size
         self._base_goodput, _, _ = goodput_fn.optimize(
             num_nodes=1, num_replicas=1, max_batch_size=max_batch_size,
@@ -37,7 +36,7 @@ class SpeedupFunction(object):
         assert np.all(np.less_equal(num_nodes, num_replicas))
         assert np.all((num_nodes > 0) == (num_replicas > 0))
         # Remember what the output shape/format should be and flatten inputs.
-        output_scalar = np.isscalar(num_nodes) or np.isscalar(num_replicas)
+        output_scalar = np.isscalar(num_nodes) and np.isscalar(num_replicas)
         output_shape = np.broadcast(num_nodes, num_replicas).shape
         num_nodes = np.broadcast_to(num_nodes, output_shape).flatten()
         num_replicas = np.broadcast_to(num_replicas, output_shape).flatten()
