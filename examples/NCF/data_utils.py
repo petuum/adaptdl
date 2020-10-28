@@ -24,9 +24,9 @@ def download_all(root_path, dataset="ml-1m"):
             urlretrieve(base_url + filename, local_filename)
 
 
-def load_all(root_path, train_rating, test_negative, test_num=100):
+def load_all(root_path, train_rating, test_negative, dataset, test_num=100):
     """ We load all the three file here to save time in each epoch. """
-    download_all(root_path)
+    download_all(root_path, dataset)
     train_data = pd.read_csv(
         train_rating, 
         sep='\t', header=None, names=['user', 'item'], 
