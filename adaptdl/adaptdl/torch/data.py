@@ -273,7 +273,7 @@ class AdaptiveDataLoaderHelper(object):
             self._current_local_bsz = math.ceil(self.batch_size /
                                                 adaptdl.env.num_replicas())
             self._accumulation_steps = 0
-        elif self._current_local_bsz is None:
+        elif not self._current_local_bsz:
             # if init, use the batch size suggested
             _, atomic_bsz, accum_steps = goodput_fn.optimize(
                 adaptdl.env.num_nodes(), adaptdl.env.num_replicas(),
