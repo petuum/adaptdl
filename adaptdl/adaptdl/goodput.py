@@ -218,6 +218,7 @@ def _obj_fn(params, nodes, replicas, local_bsz, accumulation_steps,
                    (params.beta_r / params.alpha_r) ** 2)
     return err1 + err2 + reg1 + reg2
 
+
 def _predict(params, nodes, replicas, local_bsz, accumulation_steps):
     params = PerfParams(*params)
     step_time_compute = _predict_compute(params, local_bsz)
