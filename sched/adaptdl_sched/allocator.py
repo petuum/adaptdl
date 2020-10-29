@@ -28,7 +28,7 @@ from adaptdl_sched.resources import (get_node_unrequested, get_pod_requests,
 from adaptdl_sched.utils import patch_job_status
 from adaptdl_sched.cluster_expander import ClusterExpander
 from adaptdl_sched.config import allowed_taints
-
+from adaptdl_sched.controller import _objs_api, _custom_resource
 LOG = logging.getLogger(__name__)
 LOG.setLevel(logging.INFO)
 
@@ -41,6 +41,27 @@ class AdaptDLAllocator(object):
         self._policy = PolluxPolicy()
 
     async def run(self):
+        # two coroutines: (1) periodically optimize resource allocations.
+        # (2) watch for new job, and allocate immediately
+        await asyncio.gather(
+            self._periodic_allocate(),
+            self._new_job_allocate(),
+        )
+
+    async def _new_job_allocate(self):
+        # scratch
+        async with kubernetes.watch.Watch() as watch:
+            while True:
+                async for event in watch.stream(
+                       _objs_api.list_namespaced_custom_object,
+                       *_custom_resource, timeout_seconds=60):
+                    job_name = event["object"]["metadata"]["name"]
+                    namespace = event["object"]["metadata"]["namespace"]
+
+
+                    self._policy.allocate_job(job_info, node_info_list)
+
+    async def _periodic_allocate(self):
         while True:
             LOG.info("Running allocator loop")
             nodes, node_template = await self._find_nodes()
@@ -157,6 +178,10 @@ class AdaptDLAllocator(object):
         return job_infos, allocations
 
     def _allocate(self, jobs, nodes, prev_allocations, node_template):
+        LOG.info(jobs)
+        LOG.info(nodes)
+        LOG.info(prev_allocations)
+        LOG.info(node_template)
         for job_key in list(jobs):
             job_resources = jobs[job_key].resources
             for node in nodes.values():
@@ -176,11 +201,15 @@ class AdaptDLAllocator(object):
         elif jobs and nodes:
             allocations, desired_nodes = self._policy.optimize(
                 jobs, nodes, prev_allocations, node_template)
+            LOG.info("desired nodes: %s", desired_nodes)
             if desired_nodes < len(nodes):
+                LOG.info(len(nodes))
                 active_nodes = list(set.union(*map(set, allocations.values())))
             else:
                 active_nodes = list(nodes)
+                LOG.info(active_nodes)
                 while len(active_nodes) < desired_nodes:
+                    LOG.info(active_nodes)
                     active_nodes.append(f"~{desired_nodes-len(active_nodes)}")
             self._cluster_expander.fit(active_nodes)
             LOG.info("Active nodes: %s", active_nodes)

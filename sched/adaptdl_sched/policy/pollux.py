@@ -39,6 +39,9 @@ class PolluxPolicy(object):
         # Utilization thresholds for cluster autoscaling.
         self._min_util = 0.35
         self._max_util = 0.65
+    
+    def _allocate_job(self, job_info, node_info_list):
+        pass
 
     def _allocations_to_state(self, allocations, jobs, nodes):
         jobs_index = {key: idx for idx, key in enumerate(jobs)}
