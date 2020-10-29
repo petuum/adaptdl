@@ -27,7 +27,7 @@ import adaptdl.env
 from adaptdl.torch.epoch import current_epoch
 from adaptdl.torch._metrics import (
     profile_step_start, profile_step_commit,
-    set_batch_size, get_speedup_fn, get_progress)
+    set_batch_size, get_goodput_fn, get_progress)
 from adaptdl._signal import get_exit_flag
 
 logging.basicConfig(level=logging.INFO)
@@ -146,7 +146,7 @@ class AdaptiveDataLoaderHelper(object):
         self.batch_size = batch_size
         self.future_exit = None
         self._gradient_accumulation = False
-        self.speedup_threshold = 1.05
+        self._speedup_threshold = 1.05
 
     @property
     def current_index(self):
@@ -267,44 +267,40 @@ class AdaptiveDataLoaderHelper(object):
         self.train()
 
     def _sync_local_bsz(self):
-        if self.max_batch_size is None:
+        goodput_fn = get_goodput_fn()
+        if self.max_batch_size is None or goodput_fn is None:
             # No autoscale batch size, just divide batch size evenly.
             self._state.current_local_bsz = math.ceil(
                 self.batch_size / adaptdl.env.num_replicas())
             self._state.accumulation_steps = 0
-        else:
-            # Autoscale batch size, compute on rank 0 and broadcast.
-            speedup_fn = get_speedup_fn()
-
+        elif not self._state.current_local_bsz:
             # if init, use the batch size suggested
-            if not self._state.current_local_bsz:
-                _, (local_bsz, accumulation_steps) = speedup_fn(
-                    adaptdl.env.num_nodes(),
-                    adaptdl.env.num_replicas(),
-                    return_config=True)
-                self._state.current_local_bsz = local_bsz
-                self._state.accumulation_steps = accumulation_steps
-
+            _, atomic_bsz, accum_steps = goodput_fn.optimize(
+                adaptdl.env.num_nodes(), adaptdl.env.num_replicas(),
+                max_batch_size=self._max_batch_size,
+                atomic_bsz_range=self._local_bsz_bounds,
+                accumulation=self._gradient_accumulation)
+            self._state.current_local_bsz = atomic_bsz
+            self._state.accumulation_steps = accum_steps
+        else:
             # if not first time, we check against the relative speedup
-            else:
-                suggest_speedup, (local_bsz, accumulation_steps) = speedup_fn(
-                                   adaptdl.env.num_nodes(),
-                                   adaptdl.env.num_replicas(),
-                                   return_config=True)
-                # get current speedup
-                current_speedup = speedup_fn(adaptdl.env.num_nodes(),
-                                             adaptdl.env.num_replicas(),
-                                             local_bsz=self.current_local_bsz)
-                # use only if speedup is significant
-                speedup_to_cur = suggest_speedup / current_speedup
-                if speedup_to_cur > self.speedup_threshold:
-                    self._state.current_local_bsz = local_bsz
-                    self._state.accumulation_steps = accumulation_steps
-
-        (self._state.current_local_bsz, self._state.accumulation_steps) = \
+            suggest_goodput, atomic_bsz, accum_steps = goodput_fn.optimize(
+                adaptdl.env.num_nodes(), adaptdl.env.num_replicas(),
+                max_batch_size=self._max_batch_size,
+                atomic_bsz_range=self._local_bsz_bounds,
+                accumulation=self._gradient_accumulation)
+            # get current goodput
+            current_goodput = goodput_fn(
+                adaptdl.env.num_nodes(), adaptdl.env.num_replicas(),
+                self.current_local_bsz, self.accumulation_steps)
+            # use only if speedup is significant
+            speedup = suggest_goodput / max(current_goodput, 1e-8)
+            if speedup > self._speedup_threshold:
+                self._state.current_local_bsz = atomic_bsz
+                self._state.accumulation_steps = accum_steps
+        self._state.current_local_bsz, self._state.accumulation_steps = \
             adaptdl.collective.broadcast((self._state.current_local_bsz,
                                           self._state.accumulation_steps))
-
         self.is_accumulation_step = self._state.accumulation_steps != 0
         return self.current_local_bsz
 
