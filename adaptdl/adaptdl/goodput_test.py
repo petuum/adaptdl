@@ -23,6 +23,14 @@ PERF_PARAMS = [PerfParams(*RNG.gamma(2.0, 2.0, [7])) for i in range(10)]
 GRAD_PARAMS = [GradParams(*RNG.gamma(2.0, 2.0, [2])) for i in range(10)]
 
 
+def groupby_indices(*args):
+    _, indices = np.unique(np.stack(args), axis=1, return_inverse=True)
+    groups = {}
+    for i, g in enumerate(indices):
+        groups.setdefault(g, []).append(i)
+    return list(groups.values())
+
+
 @pytest.mark.parametrize("perf_params", PERF_PARAMS)
 @pytest.mark.parametrize("grad_params", GRAD_PARAMS)
 def test_evaluate(perf_params, grad_params):
@@ -50,10 +58,28 @@ def test_evaluate(perf_params, grad_params):
                                        atomic_bsz, accum_steps)
     efficiency = goodput_fn.efficiency(num_replicas * atomic_bsz
                                        * (accum_steps + 1))
-    # Check invariants.
+    # Check basic invariants.
     assert np.all(0 <= throughput)
     assert np.all(0 <= efficiency) and np.all(efficiency <= 1)
     assert np.allclose(goodput, throughput * efficiency)
+    # Increasing batch size should decrease efficiency.
+    batch_size = num_replicas * atomic_bsz * (accum_steps + 1)
+    sort = np.argsort(batch_size)
+    assert np.all(np.diff(efficiency[sort]) <= 0)
+    # All else equal, increasing atomic_bsz should increase throughput.
+    for indices in groupby_indices(num_nodes, num_replicas, accum_steps):
+        sort = np.argsort(atomic_bsz[indices])
+        assert np.all(np.diff(throughput[indices][sort]) >= 0)
+        # Increasing throughput should experience diminishing returns.
+        if len(indices) > 1:
+            diffx = np.diff(atomic_bsz[indices][sort])
+            diffy = np.diff(throughput[indices][sort])
+            assert np.all(diffx[:-1] * diffy[1:] - diffx[1:] * diffy[:-1] <= 0)
+    # All else equal, scalability is sublinear with respect to num_replicas.
+    for indices in groupby_indices(num_nodes, atomic_bsz, accum_steps):
+        scalability = throughput / num_replicas
+        sort = np.argsort(num_replicas[indices])
+        assert np.all(np.diff(scalability[indices][sort]) <= 0)
 
 
 @pytest.mark.parametrize("perf_params", PERF_PARAMS)
