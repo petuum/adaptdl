@@ -33,6 +33,12 @@ job:
 #    limits:
 #      cpu: "1.0"
 #      memory: "1Gi"
+  # Users can add customized patch for pods created by adaptdl.
+  # jobPatch:
+  #   # podPatch will be applied to pod level
+  #   podPatch: "[{\"op\": \"add\", \"path\": \"/metadata/annotations/k8s.v1.cni.cncf.io~1networks\", \"value\": \"macvlan-conf\"}]"
+  #   # containerPatch will be applied to each container
+  #   containerPatch: "[]"
 
 metrics:
   service:

@@ -410,7 +410,14 @@ class AdaptDLController(object):
         patch = config.get_cluster_patch()
         if not patch:
             return pod
-        pod = jsonpatch.apply_patch(pod, patch)
+        pod_patch = patch.get("podPatch", None)
+        container_patch = patch.get("containerPatch", None)
+        if pod_patch:
+            pod = jsonpatch.apply_patch(pod, pod_patch)
+        if container_patch:
+            for idx, container in enumerate(pod["spec"]["containers"]):
+                pod["spec"]["containers"][idx] = (
+                    jsonpatch.apply_patch(container, container_patch))
         return pod
 
     def _get_pod_name(self, job_metadata, group, rank):
