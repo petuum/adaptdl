@@ -16,6 +16,7 @@
 import asyncio
 import collections
 import copy
+import jsonpatch
 import kubernetes_asyncio as kubernetes
 import logging
 
@@ -401,8 +402,20 @@ class AdaptDLController(object):
                     "name": "NVIDIA_VISIBLE_DEVICES",
                     "value": "none",
                 })
+        pod = self._patch_pods_and_containers(pod)
         await self._core_api.create_namespaced_pod(
             job_metadata["namespace"], pod)
+
+    def _patch_pods_and_containers(self, pod):
+        pod_patch = config.get_job_patch_pods()
+        container_patch = config.get_job_patch_containers()
+        if pod_patch:
+            pod = jsonpatch.apply_patch(pod, pod_patch)
+        if container_patch:
+            for idx, container in enumerate(pod["spec"]["containers"]):
+                pod["spec"]["containers"][idx] = (
+                    jsonpatch.apply_patch(container, container_patch))
+        return pod
 
     def _get_pod_name(self, job_metadata, group, rank):
         job_name = job_metadata["name"]

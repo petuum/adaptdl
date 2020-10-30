@@ -10,3 +10,11 @@ data:
   {{- if .Values.job.defaultResources }}
   ADAPTDL_JOB_DEFAULT_RESOURCES: {{ .Values.job.defaultResources | toJson | quote }}
   {{- end }}
+  {{- if .Values.job.patch }}
+  {{- if .Values.job.patch.pods }}
+  ADAPTDL_JOB_PATCH_PODS: {{ .Values.job.patch.pods | toJson | quote }}
+  {{- end }}
+  {{- if .Values.job.patch.containers }}
+  ADAPTDL_JOB_PATCH_CONTAINERS: {{ .Values.job.patch.containers | toJson | quote }}
+  {{- end }}
+  {{- end }}
