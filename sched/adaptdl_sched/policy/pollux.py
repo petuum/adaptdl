@@ -39,9 +39,32 @@ class PolluxPolicy(object):
         # Utilization thresholds for cluster autoscaling.
         self._min_util = 0.35
         self._max_util = 0.65
-    
+
+    # 啊simple allocate policy: allocate the new job 
+    # to the first available node. 
     def _allocate_job(self, job_info, node_info_list):
-        pass
+        job_key = list(job_info.keys())[0]
+        job_resources = job_info[job_key].resources
+        min_replicas = max(job_info[job_key].min_replicas,1)
+        node_list = []
+        for node_name, node in node_info_list.items():
+            # number of replica fit in this node
+            replica_this = min(node.resources.get(key,0) // val 
+                   for key, val in job_resources.items())
+            # we are done if addding this node gives enough replicas    
+            if (len(node_list) + replica_this) >= min_replicas:
+                replica_need = min_replicas - len(node_list) 
+                node_list.extend([node_name] * replica_need)
+                LOG.info("find %s for job %s with minimum replicas: %s",
+                         node_list, job_key, min_replicas)    
+                return node_list
+            # else we replicate as many as we can on this node
+            else:
+                node_list.extend([node_name] * replica_this)
+        if len(node_list) < min_replicas:
+            LOG.info("Job %s is not immediately schedulable", job_key)
+            return None
+
 
     def _allocations_to_state(self, allocations, jobs, nodes):
         jobs_index = {key: idx for idx, key in enumerate(jobs)}

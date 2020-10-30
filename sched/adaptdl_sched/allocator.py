@@ -19,16 +19,17 @@ import kubernetes_asyncio as kubernetes
 import logging
 import time
 
-from adaptdl.speedup import SpeedupFunction
+from adaptdl.goodput import GoodputFunction, PerfParams, GradParams
 from adaptdl.sched_hints import PERF_PARAMS
-from adaptdl_sched.policy.utils import JobInfo, NodeInfo
 from adaptdl_sched.policy.pollux import PolluxPolicy
+from adaptdl_sched.policy.speedup import SpeedupFunction
+from adaptdl_sched.policy.utils import JobInfo, NodeInfo
 from adaptdl_sched.resources import (get_node_unrequested, get_pod_requests,
                                      set_default_resources)
 from adaptdl_sched.utils import patch_job_status
 from adaptdl_sched.cluster_expander import ClusterExpander
 from adaptdl_sched.config import allowed_taints
-from adaptdl_sched.controller import _objs_api, _custom_resource
+
 LOG = logging.getLogger(__name__)
 LOG.setLevel(logging.INFO)
 
@@ -37,31 +38,58 @@ class AdaptDLAllocator(object):
     def __init__(self, expander):
         self._core_api = kubernetes.client.CoreV1Api()
         self._objs_api = kubernetes.client.CustomObjectsApi()
+        self._custom_resource = ("adaptdl.petuum.com", "v1",
+                                 "", "adaptdljobs")
         self._cluster_expander = expander
         self._policy = PolluxPolicy()
 
     async def run(self):
-        # two coroutines: (1) periodically optimize resource allocations.
-        # (2) watch for new job, and allocate immediately
+        # two functionality: (1) watch for new job and start if possible.
+        # (2) periodically optimize existing jobs
         await asyncio.gather(
-            self._periodic_allocate(),
             self._new_job_allocate(),
+            self._periodic_optimize()
         )
 
     async def _new_job_allocate(self):
-        # scratch
         async with kubernetes.watch.Watch() as watch:
             while True:
                 async for event in watch.stream(
-                       _objs_api.list_namespaced_custom_object,
-                       *_custom_resource, timeout_seconds=60):
-                    job_name = event["object"]["metadata"]["name"]
-                    namespace = event["object"]["metadata"]["namespace"]
+                        self._objs_api.list_namespaced_custom_object,
+                        *self._custom_resource, timeout_seconds=60):
+                    # if there is an arriving job
+                    if event["type"] == "ADDED":
+                        job = event["object"]
+                        # some other coroutine has handled this
+                        if job.get("status", {}).get("phase") != "Pending":
+                            continue
+                        namespace = job["metadata"]["namespace"]
+                        name = job["metadata"]["name"]
+                        # if this is a restarted job, skip it
+                        format_name = namespace + "/" + name 
+                        LOG.info("detected an added job %s/%s.",
+                                namespace, name)
+                        
+                        # parse the job infomation
+                        job_info = {}
+                        self._get_job_info(job, job_info)
+                        LOG.info("parse %s to be %s", job, job_info)
+                        
+                        # find available nodes 
+                        node_info_list, _ = await self._find_nodes()
+                        
+                        # get the node to allocate
+                        new_allocation = self._policy._allocate_job(job_info, 
+                                node_info_list)
+                        # allocate the job on the suggest_node
+                        if new_allocation:
+                            patch = {"status": {"allocation": new_allocation}}
+                            LOG.info("Patch AdaptdlJob %s/%s: %s ", 
+                                    namespace, name, patch)
+                            await patch_job_status(self._objs_api, namespace,
+                                                   name, patch)
 
-
-                    self._policy.allocate_job(job_info, node_info_list)
-
-    async def _periodic_allocate(self):
+    async def _periodic_optimize(self):
         while True:
             LOG.info("Running allocator loop")
             nodes, node_template = await self._find_nodes()
@@ -75,10 +103,11 @@ class AdaptDLAllocator(object):
                                          node_template)
             duration = time.time() - start
             LOG.info("Allocations (in %.3f sec): %s", duration, allocations)
+
             await self._update_allocations(allocations)
             LOG.info("Sleep for 60 seconds")
             await asyncio.sleep(60)
-
+   
     async def _update_allocations(self, allocations):
         job_list = await self._objs_api.list_namespaced_custom_object(
             "adaptdl.petuum.com", "v1", "", "adaptdljobs")
@@ -128,60 +157,63 @@ class AdaptDLAllocator(object):
         job_infos = {}
         allocations = {}
         for job in job_list["items"]:
-            if job.get("status", {}).get("phase") \
-                    not in ["Pending", "Running", "Starting", "Stopping"]:
-                continue
-            if "allocation" in job.get("status", {}):
-                namespace = job["metadata"]["namespace"]
-                name = job["metadata"]["name"]
-                allocations[namespace, name] = \
-                    list(job["status"]["allocation"])
-            job["spec"]["template"]["spec"] = \
-                set_default_resources(job["spec"]["template"]["spec"])
-            resources = get_pod_requests(job["spec"]["template"]["spec"])
-            hints = job.get("status", {}).get("train", {})
-            max_replicas = max(2 * hints.get("maxProfiledReplicas", 0), 1)
-            if job["spec"].get("maxReplicas"):
-                max_replicas = min(max_replicas, job["spec"]["maxReplicas"])
-            min_replicas = job["spec"].get("minReplicas", 0)
-            # max_replicas should be greater or equal to min_replicas
-            max_replicas = max(max_replicas, min_replicas)
-            preemptible = job["spec"].get("preemptible", True)
-            if hints and preemptible:
-                max_batch_size = hints.get("maxBatchSize") or \
-                                                 hints.get("initBatchSize")
-                if hints.get("localBszBounds"):
-                    min_local_bsz = hints["localBszBounds"][0] or 1
-                    # Make sure max_batch_size / replicas >= min_local_bsz
-                    max_replicas = min(max_replicas,
-                                       int(max_batch_size / min_local_bsz))
-                # derive if job is elastic
-                elastic = hints.get("maxBatchSize", 0) > hints["initBatchSize"]
-                speedup_fn = SpeedupFunction(
-                    [hints["perfParams"][k] for k in PERF_PARAMS.keys()]
-                    if hints.get("perfParams") else None,
-                    hints.get("gradParams", {"var": None, "norm": None}),
-                    hints.get("initBatchSize"),
-                    hints.get("maxBatchSize"),
-                    hints.get("localBszBounds", [None, None]),
-                    hints.get("gradientAccumulation", False),
-                    elastic_bsz=elastic)
-            else:
-                speedup_fn = lambda n, r: r  # noqa: E731
-            creation_ts = dateutil.parser.isoparse(
-                    job["metadata"]["creationTimestamp"])
-            namespace = job["metadata"]["namespace"]
-            name = job["metadata"]["name"]
-            job_infos[(namespace, name)] = JobInfo(
-                    resources, speedup_fn, creation_ts, min_replicas,
-                    max_replicas, preemptible)
+            self._get_job_info(job, job_infos, allocations)
         return job_infos, allocations
 
+    # convert from job item to job_info, append to job_infos and allocations
+    def _get_job_info(self, job, job_infos, allocations=None):   
+        if job.get("status", {}).get("phase") \
+                not in ["Pending", "Running", "Starting", "Stopping"]:
+            return
+        if "allocation" in job.get("status", {}) and allocations:
+            namespace = job["metadata"]["namespace"]
+            name = job["metadata"]["name"]
+            allocations[namespace, name] = \
+                list(job["status"]["allocation"])
+        job["spec"]["template"]["spec"] = \
+            set_default_resources(job["spec"]["template"]["spec"])
+        resources = get_pod_requests(job["spec"]["template"]["spec"])
+        hints = job.get("status", {}).get("train", {})
+        max_replicas = max(2 * hints.get("maxProfiledReplicas", 0), 1)
+        if job["spec"].get("maxReplicas"):
+            max_replicas = min(max_replicas, job["spec"]["maxReplicas"])
+        min_replicas = job["spec"].get("minReplicas", 0)
+        # max_replicas should be greater or equal to min_replicas
+        max_replicas = max(max_replicas, min_replicas)
+        preemptible = job["spec"].get("preemptible", True)
+        if {"perfParams", "initBatchSize"} <= hints.keys() and preemptible:
+            max_batch_size = (hints.get("maxBatchSize")
+                              or hints["initBatchSize"])
+            if hints.get("localBszBounds"):
+                min_local_bsz = hints["localBszBounds"][0] or 1
+                # Make sure max_batch_size / replicas >= min_local_bsz
+                if max_batch_size < min_local_bsz * max_replicas:
+                    max_replicas = int(max_batch_size / min_local_bsz)
+            perf_params = PerfParams(*[hints["perfParams"][k]
+                                       for k in PERF_PARAMS.keys()])
+            if "gradParams" in hints:
+                grad_params = GradParams(hints["gradParams"]["norm"],
+                                         hints["gradParams"]["var"])
+            else:
+                grad_params = GradParams(0.0, 1.0)
+            goodput_fn = GoodputFunction(perf_params, grad_params,
+                                         hints["initBatchSize"])
+            speedup_fn = SpeedupFunction(
+                goodput_fn,
+                hints.get("maxBatchSize"),
+                hints.get("localBszBounds"),
+                hints.get("gradientAccumulation", False))
+        else:
+            speedup_fn = lambda n, r: r  # noqa: E731
+        creation_ts = dateutil.parser.isoparse(
+                job["metadata"]["creationTimestamp"])
+        namespace = job["metadata"]["namespace"]
+        name = job["metadata"]["name"]
+        job_infos[(namespace, name)] = JobInfo(
+                resources, speedup_fn, creation_ts, min_replicas,
+                max_replicas, preemptible)
+
     def _allocate(self, jobs, nodes, prev_allocations, node_template):
-        LOG.info(jobs)
-        LOG.info(nodes)
-        LOG.info(prev_allocations)
-        LOG.info(node_template)
         for job_key in list(jobs):
             job_resources = jobs[job_key].resources
             for node in nodes.values():
@@ -201,15 +233,11 @@ class AdaptDLAllocator(object):
         elif jobs and nodes:
             allocations, desired_nodes = self._policy.optimize(
                 jobs, nodes, prev_allocations, node_template)
-            LOG.info("desired nodes: %s", desired_nodes)
             if desired_nodes < len(nodes):
-                LOG.info(len(nodes))
                 active_nodes = list(set.union(*map(set, allocations.values())))
             else:
                 active_nodes = list(nodes)
-                LOG.info(active_nodes)
                 while len(active_nodes) < desired_nodes:
-                    LOG.info(active_nodes)
                     active_nodes.append(f"~{desired_nodes-len(active_nodes)}")
             self._cluster_expander.fit(active_nodes)
             LOG.info("Active nodes: %s", active_nodes)
