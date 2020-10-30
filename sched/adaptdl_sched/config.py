@@ -59,11 +59,11 @@ def get_job_default_resources():
     return json.loads(val) if val is not None else None
 
 
-def get_job_patch_pod():
+def get_job_patch_pods():
     val = os.getenv("ADAPTDL_JOB_PATCH_PODS")
     return json.loads(val) if val is not None else None
 
 
-def get_job_patch_container():
+def get_job_patch_containers():
     val = os.getenv("ADAPTDL_JOB_PATCH_CONTAINERS")
     return json.loads(val) if val is not None else None

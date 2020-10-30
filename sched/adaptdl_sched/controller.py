@@ -407,8 +407,8 @@ class AdaptDLController(object):
             job_metadata["namespace"], pod)
 
     def _patch_pod_and_containers(self, pod):
-        pod_patch = config.get_job_patch_pod()
-        container_patch = config.get_job_patch_container()
+        pod_patch = config.get_job_patch_pods()
+        container_patch = config.get_job_patch_containers()
         if pod_patch:
             pod = jsonpatch.apply_patch(pod, pod_patch)
         if container_patch:
