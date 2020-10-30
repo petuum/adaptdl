@@ -81,7 +81,8 @@ class AdaptDLAllocator(object):
                                 job = job_new
                                 break
                         else:
-                            # This job is done
+                            # This job is don
+                            self.lock.release()
                             continue
 
                         # some other coroutine has handled this
