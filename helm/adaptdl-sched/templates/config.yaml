@@ -12,7 +12,7 @@ data:
   {{- end }}
   {{- if .Values.job.patch }}
   {{- if .Values.job.patch.pods }}
-  ADAPTDL_JOB_POD_PATCH : {{ .Values.job.patch.pods | toJson | quote }}
+  ADAPTDL_JOB_PATCH_PODS: {{ .Values.job.patch.pods | toJson | quote }}
   {{- end }}
   {{- if .Values.job.patch.containers }}
   ADAPTDL_JOB_PATCH_CONTAINERS: {{ .Values.job.patch.containers | toJson | quote }}
