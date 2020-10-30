@@ -40,7 +40,7 @@ class PolluxPolicy(object):
         self._min_util = 0.35
         self._max_util = 0.65
 
-    # 啊simple allocate policy: allocate the new job 
+    # a simple allocate policy: allocate the new job 
     # to the first available node. 
     def _allocate_job(self, job_info, node_info_list):
         job_key = list(job_info.keys())[0]
