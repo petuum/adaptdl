@@ -17,7 +17,7 @@ import json
 import logging
 import requests
 from collections import OrderedDict
-from adaptdl.speedup import Params
+from adaptdl.goodput import PerfParams
 import adaptdl.env
 from types import MappingProxyType
 
@@ -27,7 +27,8 @@ LOG.setLevel(logging.INFO)
 
 
 # make immutable proxies of globals
-PERF_PARAMS = MappingProxyType(OrderedDict({k: 0.0 for k in Params._fields}))
+PERF_PARAMS = MappingProxyType(
+    OrderedDict({k: 0.0 for k in PerfParams._fields}))
 
 SCHED_HINTS = MappingProxyType({'initBatchSize': 0,
                                 'localBszBounds': None,  # [min, max]

@@ -18,9 +18,10 @@ import time
 
 from collections import Counter
 from datetime import datetime, timedelta
+from adaptdl.goodput import GoodputFunction, PerfParams, GradParams
 from adaptdl_sched.policy.pollux import PolluxPolicy
+from adaptdl_sched.policy.speedup import SpeedupFunction
 from adaptdl_sched.policy.utils import JobInfo, NodeInfo
-from adaptdl.speedup import Params, SpeedupFunction
 
 
 @pytest.mark.parametrize("num_nodes", [1, 2, 4, 8, 16])
@@ -29,11 +30,12 @@ def test_optimize(num_nodes, total_devices=16):
     num_devices = total_devices // num_nodes
     print("{}x{} nodes:".format(num_nodes, num_devices))
     # Make up a realistic speedup function.
-    params = Params(0.121, 0.00568, 0.0236, 0.00634, 0.0118, 0.00317, 1.14)
-    grad_params = {"norm": 0.00136, "var": 0.000502}
-    speedup_fn = SpeedupFunction(
-            params, grad_params, init_batch_size=128, max_batch_size=1280,
-            local_bsz_bounds=(64, 256), elastic_bsz=True)
+    perf_params = PerfParams(0.121, 0.00568, 0.0236, 0.00634,
+                             0.0118, 0.00317, 1.14)
+    grad_params = GradParams(sqr=0.00136, var=0.000502)
+    goodput_fn = GoodputFunction(perf_params, grad_params, 128)
+    speedup_fn = SpeedupFunction(goodput_fn, max_batch_size=1280,
+                                 atomic_bsz_range=(64, 256))
     now = datetime.now()
     jobs = {}
     # Add a few jobs.
@@ -77,11 +79,12 @@ def test_unusable_node():
         2: NodeInfo({"gpu": 1, "cpu": 8000, "pods": 32}, preemptible=False),
     }
     template = NodeInfo({"gpu": 1, "cpu": 8000, "pods": 32}, preemptible=True)
-    params = Params(0.121, 0.00568, 0.0236, 0.00634, 0.0118, 0.00317, 1.14)
-    grad_params = {"norm": 0.00136, "var": 0.000502}
-    speedup_fn = SpeedupFunction(
-            params, grad_params, init_batch_size=128, max_batch_size=1280,
-            local_bsz_bounds=(64, 256), elastic_bsz=True)
+    perf_params = PerfParams(0.121, 0.00568, 0.0236, 0.00634,
+                             0.0118, 0.00317, 1.14)
+    grad_params = GradParams(sqr=0.00136, var=0.000502)
+    goodput_fn = GoodputFunction(perf_params, grad_params, 128)
+    speedup_fn = SpeedupFunction(goodput_fn, max_batch_size=1280,
+                                 atomic_bsz_range=(64, 256))
     now = datetime.now()
     min_replicas = 0
     jobs = {

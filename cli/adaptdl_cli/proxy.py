@@ -14,6 +14,7 @@
 
 from contextlib import contextmanager
 from multiprocessing import Process, Event
+from tempfile import NamedTemporaryFile
 
 import kubernetes
 
@@ -76,10 +77,22 @@ def _run_proxy(event, namespace, service, listen_host, listen_port, verbose):
     master = DumpMaster(options, with_termlog=verbose, with_dumper=verbose)
     options.keep_host_header = True
     options.ssl_insecure = True
-    master.server = ProxyServer(ProxyConfig(options))
-    master.addons.add(_Addon(client, prefix))
-    event.set()  # Port is bound by this time, unblock parent process.
-    master.run()
+    with NamedTemporaryFile() as cert_file:
+        # If Kubernetes client has a client-certificate set up, then configure
+        # mitmproxy to use it. Kubernetes stores the cert and key in separate
+        # files, while mitmproxy expects a single file. So append the two file
+        # contents into a new file and pass it to mitmproxy.
+        if client.configuration.cert_file and client.configuration.key_file:
+            with open(client.configuration.cert_file, "rb") as f:
+                cert_file.write(f.read())
+            with open(client.configuration.key_file, "rb") as f:
+                cert_file.write(f.read())
+            cert_file.flush()
+            options.client_certs = cert_file.name
+        master.server = ProxyServer(ProxyConfig(options))
+        master.addons.add(_Addon(client, prefix))
+        event.set()  # Port is bound by this time, unblock parent process.
+        master.run()
 
 
 class _Addon(object):
