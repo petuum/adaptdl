@@ -407,7 +407,7 @@ class AdaptDLController(object):
             job_metadata["namespace"], pod)
 
     def _pod_update(self, pod):
-        patch = config.get_cluster_patch()
+        patch = config.get_job_pod_patch()
         if not patch:
             return pod
         pod_patch = patch.get("podPatch", None)

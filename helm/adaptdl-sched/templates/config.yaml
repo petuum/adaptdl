@@ -9,6 +9,7 @@ data:
   ADAPTDL_SCHED_DEPLOYMENT: {{ .Release.Name }}-adaptdl-sched
   {{- if .Values.job.defaultResources }}
   ADAPTDL_JOB_DEFAULT_RESOURCES: {{ .Values.job.defaultResources | toJson | quote }}
+  {{- end }}
   {{- if .Values.job.jobPatch }}
   ADAPTDL_JOB_POD_PATCH : {{ .Values.job.jobPatch | toJson | quote }}
   {{- end }}
