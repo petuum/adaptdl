@@ -59,87 +59,87 @@ class AdaptDLAllocator(object):
                 async for event in watch.stream(
                         self._objs_api.list_namespaced_custom_object,
                         *self._custom_resource, timeout_seconds=60):
-                    # if there is an arriving job
-                    if event["type"] == "ADDED":
-                        await self.lock.acquire()
-                        # re-read the job , compared with the previous readjob
-                        job_old = event["object"]
-                        namespace_old = job_old["metadata"]["namespace"]
-                        name_old = job_old["metadata"]["name"]
+                    self._new_job_helper(event)
+                   
+                   
+    async def _new_job_helper(self):
+        # if there is an arriving job
+        if event["type"] == "ADDED":
+            async with self.lock:
+                # re-read the job , compared with the previous readjob
+                job_old = event["object"]
+                namespace_old = job_old["metadata"]["namespace"]
+                name_old = job_old["metadata"]["name"]
 
-                        job_list = await \
-                            self._objs_api.list_namespaced_custom_object(
-                                "adaptdl.petuum.com", "v1", "", "adaptdljobs")
+                job_list = await \
+                    self._objs_api.list_namespaced_custom_object(
+                        "adaptdl.petuum.com", "v1", "", "adaptdljobs")
 
-                        job = None
-                        for job_new in job_list["items"]:
-                            namespace_new = job_new["metadata"]["namespace"]
-                            name_new = job_new["metadata"]["name"]
-                            # found the old job
-                            if namespace_new == namespace_old \
-                                    and name_new == name_old:
-                                job = job_new
-                                break
-                        else:
-                            # This job is don
-                            self.lock.release()
-                            continue
+                job = None
+                for job_new in job_list["items"]:
+                    namespace_new = job_new["metadata"]["namespace"]
+                    name_new = job_new["metadata"]["name"]
+                    # found the old job
+                    if namespace_new == namespace_old \
+                            and name_new == name_old:
+                        job = job_new
+                        break
+                    else:
+                        continue
 
-                        # some other coroutine has handled this
-                        LOG.info(job.get("status", {}).get("allocation", []))
-                        if len(job.get("status", {})
-                                .get("allocation", [])) != 0:
-                            # release the lock before continuing
-                            self.lock.release()
-                            continue
+                # some other coroutine has handled this
+                LOG.info(job.get("status", {}).get("allocation", []))
+                if not job.get("status", {}).get("allocation"):
+                    continue
 
-                        namespace = job["metadata"]["namespace"]
-                        name = job["metadata"]["name"]
-                        # if this is a restarted job, skip i
-                        LOG.info("detected an added job %s/%s.",
-                                 namespace, name)
-                        # parse the job infomation
-                        job_info = {}
-                        self._get_job_info(job, job_info)
+                namespace = job["metadata"]["namespace"]
+                name = job["metadata"]["name"]
+                # if this is a restarted job, skip i
+                LOG.info("detected an added job %s/%s.",
+                         namespace, name)
+                # parse the job infomation
+                job_info = {}
+                self._get_job_info(job, job_info)
 
-                        # find available nodes
-                        node_info_list, _ = await self._find_nodes()
+                # find available nodes
+                node_info_list, _ = await self._find_nodes()
 
-                        # get the node to allocate
-                        new_allocation = self._policy._allocate_job(
-                                            job_info, node_info_list)
-                        # allocate the job on the suggest_node
-                        if new_allocation:
-                            patch = {"status": {"allocation": new_allocation}}
-                            LOG.info("Patch AdaptdlJob %s/%s: %s ",
-                                     namespace, name, patch)
-                            await patch_job_status(self._objs_api, namespace,
-                                                   name, patch)
-                        # release lock
-                        self.lock.release()
+                # get the node to allocate
+                new_allocation = self._policy._allocate_job(
+                                    job_info, node_info_list)
+                # allocate the job on the suggest_node
+                if new_allocation:
+                    patch = {"status": {"allocation": new_allocation}}
+                    LOG.info("Patch AdaptdlJob %s/%s: %s ",
+                             namespace, name, patch)
+                    await patch_job_status(self._objs_api, namespace,
+                                           name, patch)
 
     async def _periodic_optimize(self):
         while True:
             # try to gain lock
-            await self.lock.acquire()
-            LOG.info("Running allocator loop")
-            nodes, node_template = await self._find_nodes()
-            LOG.info("Node resources: %s",
-                     {k: v.resources for k, v in nodes.items()})
-            jobs, prev_allocations = await self._find_jobs_and_allocations()
-            LOG.info("Job resources: %s",
-                     {k: v.resources for k, v in jobs.items()})
-            start = time.time()
-            allocations = self._allocate(jobs, nodes, prev_allocations,
-                                         node_template)
-            duration = time.time() - start
-            LOG.info("Allocations (in %.3f sec): %s", duration, allocations)
-            await self._update_allocations(allocations)
-            # release lock before sleeping
-            self.lock.release()
+            async with self.lock:
+                self._periodic_helper()
 
             LOG.info("Sleep for 60 seconds")
             await asyncio.sleep(60)
+
+    async def _periodic_helper(self):
+        LOG.info("Running allocator loop")
+        nodes, node_template = await self._find_nodes()
+        LOG.info("Node resources: %s",
+                {k: v.resources for k, v in nodes.items()})
+        jobs, prev_allocations = \
+            await self._find_jobs_and_allocations()
+        LOG.info("Job resources: %s",
+                {k: v.resources for k, v in jobs.items()})
+        start = time.time()
+        allocations = self._allocate(jobs, nodes, prev_allocations,
+                                     node_template)
+        duration = time.time() - start
+        LOG.info("Allocations (in %.3f sec): %s", duration, 
+                allocations)
+        await self._update_allocations(allocations)
 
     async def _update_allocations(self, allocations):
         job_list = await self._objs_api.list_namespaced_custom_object(
