@@ -402,16 +402,13 @@ class AdaptDLController(object):
                     "name": "NVIDIA_VISIBLE_DEVICES",
                     "value": "none",
                 })
-        pod = self._pod_update(pod)
+        pod = self._patch_pod_and_containers(pod)
         await self._core_api.create_namespaced_pod(
             job_metadata["namespace"], pod)
 
-    def _pod_update(self, pod):
-        patch = config.get_job_pod_patch()
-        if not patch:
-            return pod
-        pod_patch = patch.get("podPatch", None)
-        container_patch = patch.get("containerPatch", None)
+    def _patch_pod_and_containers(self, pod):
+        pod_patch = config.get_job_pod_patch()
+        container_patch = config.get_job_container_patch()
         if pod_patch:
             pod = jsonpatch.apply_patch(pod, pod_patch)
         if container_patch:
