@@ -49,96 +49,80 @@ class AdaptDLAllocator(object):
         # two functionality: (1) watch for new job and start if possible.
         # (2) periodically optimize existing jobs
         await asyncio.gather(
-            self._new_job_allocate(),
-            self._periodic_optimize()
+            self._allocate_one_loop(),
+            self._optimize_all_loop()
         )
 
-    async def _new_job_allocate(self):
+    async def _allocate_one_loop(self):
         async with kubernetes.watch.Watch() as watch:
             while True:
                 async for event in watch.stream(
                         self._objs_api.list_namespaced_custom_object,
                         *self._custom_resource, timeout_seconds=60):
-                    self._new_job_helper(event)
-                   
-                   
-    async def _new_job_helper(self):
-        # if there is an arriving job
-        if event["type"] == "ADDED":
-            async with self.lock:
-                # re-read the job , compared with the previous readjob
-                job_old = event["object"]
-                namespace_old = job_old["metadata"]["namespace"]
-                name_old = job_old["metadata"]["name"]
+                    if event["type"] == "ADDED":  # there is a n arriving job
+                        async with self.lock:
+                            await self._allocate_one(event)
 
-                job_list = await \
-                    self._objs_api.list_namespaced_custom_object(
-                        "adaptdl.petuum.com", "v1", "", "adaptdljobs")
+    async def _allocate_one(self, event):
+        # re-read the job , compared with the previous readjob
+        job = event["object"]
+        namespace = job["metadata"]["namespace"]
+        name = job["metadata"]["name"]
 
-                job = None
-                for job_new in job_list["items"]:
-                    namespace_new = job_new["metadata"]["namespace"]
-                    name_new = job_new["metadata"]["name"]
-                    # found the old job
-                    if namespace_new == namespace_old \
-                            and name_new == name_old:
-                        job = job_new
-                        break
-                    else:
-                        continue
+        job = await self._objs_api.get_namespaced_custom_object(
+            "adaptdl.petuum.com", "v1", namespace, "adaptdljobs", name
+        )
+        # some other coroutine has handled this
+        if job.get("status", {}).get("allocation") or\
+                job.get("status", {}).get("group"):
+            return
 
-                # some other coroutine has handled this
-                LOG.info(job.get("status", {}).get("allocation", []))
-                if not job.get("status", {}).get("allocation"):
-                    continue
+        namespace = job["metadata"]["namespace"]
+        name = job["metadata"]["name"]
+        # if this is a restarted job, skip i
+        LOG.info("detected an added job %s/%s.",
+                 namespace, name)
+        # parse the job infomation
+        job_info = {}
+        job_info[(namespace, name)] = self._get_job_info(job)
 
-                namespace = job["metadata"]["namespace"]
-                name = job["metadata"]["name"]
-                # if this is a restarted job, skip i
-                LOG.info("detected an added job %s/%s.",
-                         namespace, name)
-                # parse the job infomation
-                job_info = {}
-                self._get_job_info(job, job_info)
+        # find available nodes
+        node_info_list, _ = await self._find_nodes()
 
-                # find available nodes
-                node_info_list, _ = await self._find_nodes()
+        # get the node to allocate
+        new_allocation = self._policy._allocate_job(
+                            job_info, node_info_list)
+        # allocate the job on the suggest_node
+        if new_allocation:
+            patch = {"status": {"allocation": new_allocation}}
+            LOG.info("Patch AdaptdlJob %s/%s: %s ",
+                     namespace, name, patch)
+            await patch_job_status(self._objs_api, namespace, name, patch)
 
-                # get the node to allocate
-                new_allocation = self._policy._allocate_job(
-                                    job_info, node_info_list)
-                # allocate the job on the suggest_node
-                if new_allocation:
-                    patch = {"status": {"allocation": new_allocation}}
-                    LOG.info("Patch AdaptdlJob %s/%s: %s ",
-                             namespace, name, patch)
-                    await patch_job_status(self._objs_api, namespace,
-                                           name, patch)
-
-    async def _periodic_optimize(self):
+    async def _optimize_all_loop(self):
         while True:
             # try to gain lock
             async with self.lock:
-                self._periodic_helper()
+                await self._optimize_all()
 
             LOG.info("Sleep for 60 seconds")
             await asyncio.sleep(60)
 
-    async def _periodic_helper(self):
+    async def _optimize_all(self):
         LOG.info("Running allocator loop")
         nodes, node_template = await self._find_nodes()
         LOG.info("Node resources: %s",
-                {k: v.resources for k, v in nodes.items()})
+                 {k: v.resources for k, v in nodes.items()})
         jobs, prev_allocations = \
             await self._find_jobs_and_allocations()
         LOG.info("Job resources: %s",
-                {k: v.resources for k, v in jobs.items()})
+                 {k: v.resources for k, v in jobs.items()})
         start = time.time()
         allocations = self._allocate(jobs, nodes, prev_allocations,
                                      node_template)
         duration = time.time() - start
-        LOG.info("Allocations (in %.3f sec): %s", duration, 
-                allocations)
+        LOG.info("Allocations (in %.3f sec): %s", duration,
+                 allocations)
         await self._update_allocations(allocations)
 
     async def _update_allocations(self, allocations):
@@ -184,16 +168,7 @@ class AdaptDLAllocator(object):
         node_template = NodeInfo(max_resources, True)
         return node_infos, node_template
 
-    def _get_job_info(self, job, job_infos, allocations=None):
-        if allocations and job.get("status", {}).get("phase") \
-                not in ["Pending", "Running", "Starting", "Stopping"]:
-            LOG.info("unkown status:", job, job.get("status", {}).get("phase"))
-            return
-        if allocations and "allocation" in job.get("status", {}):
-            namespace = job["metadata"]["namespace"]
-            name = job["metadata"]["name"]
-            allocations[namespace, name] = \
-                list(job["status"]["allocation"])
+    def _get_job_info(self, job):
         job["spec"]["template"]["spec"] = \
             set_default_resources(job["spec"]["template"]["spec"])
         resources = get_pod_requests(job["spec"]["template"]["spec"])
@@ -231,9 +206,7 @@ class AdaptDLAllocator(object):
             speedup_fn = lambda n, r: r  # noqa: E731
         creation_ts = dateutil.parser.isoparse(
                 job["metadata"]["creationTimestamp"])
-        namespace = job["metadata"]["namespace"]
-        name = job["metadata"]["name"]
-        job_infos[(namespace, name)] = JobInfo(
+        return JobInfo(
                 resources, speedup_fn, creation_ts, min_replicas,
                 max_replicas, preemptible)
 
@@ -242,8 +215,24 @@ class AdaptDLAllocator(object):
             "adaptdl.petuum.com", "v1", "", "adaptdljobs")
         job_infos = {}
         allocations = {}
+
         for job in job_list["items"]:
-            self._get_job_info(job, job_infos, allocations)
+            if job.get("status", {}).get("phase") \
+                    not in ["Pending", "Running", "Starting", "Stopping"]:
+                LOG.info("unkown status:", job,
+                         job.get("status", {}).get("phase"))
+                continue
+
+            namespace = job["metadata"]["namespace"]
+            name = job["metadata"]["name"]
+
+            if "allocation" in job.get("status", {}):
+                allocations[namespace, name] = \
+                    list(job["status"]["allocation"])
+
+            job_info = self._get_job_info(job)
+            job_infos[(namespace, name)] = job_info
+
         return job_infos, allocations
 
     def _allocate(self, jobs, nodes, prev_allocations, node_template):

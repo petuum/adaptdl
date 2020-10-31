@@ -87,22 +87,22 @@ def test_allocate_job():
     min_replicas = 0
     job_1 = {
         "1": JobInfo({"gpu": 1, "cpu": 500, "pods": 1}, speedup_fn,
-                   now + timedelta(minutes=0), min_replicas, max_replicas=1),
+                     now + timedelta(minutes=0), min_replicas, max_replicas=1),
     }
 
     job_2 = {
         "2": JobInfo({"gpu": 1, "cpu": 1000, "pods": 1}, speedup_fn,
-                   now + timedelta(minutes=1), min_replicas, max_replicas=1),
+                     now + timedelta(minutes=1), min_replicas, max_replicas=1),
     }
 
     job_3 = {
         "3": JobInfo({"gpu": 1, "cpu": 1000, "pods": 1}, speedup_fn,
-                   now + timedelta(minutes=1), 2, max_replicas=1),
+                     now + timedelta(minutes=1), 2, max_replicas=2),
     }
 
     job_4 = {
         "4": JobInfo({"gpu": 1, "cpu": 2000, "pods": 1}, speedup_fn,
-                   now + timedelta(minutes=1), 2, max_replicas=1),
+                     now + timedelta(minutes=1), 2, max_replicas=2),
     }
     policy = PolluxPolicy()
 
@@ -110,7 +110,6 @@ def test_allocate_job():
     assert(policy._allocate_job(job_2, nodes) == ["1"])
     assert(policy._allocate_job(job_3, nodes) == ["1", "1"])
     assert(policy._allocate_job(job_4, nodes) is None)
-    
 
 
 def test_unusable_node():
@@ -145,7 +144,3 @@ def test_unusable_node():
     assert max(len(alloc) for alloc in allocations.values()) == 1
     # Check two jobs were allocated.
     assert sum(len(alloc) for alloc in allocations.values()) == 2
-
-
-
-test_allocate_job()
