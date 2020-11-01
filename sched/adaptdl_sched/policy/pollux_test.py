@@ -85,25 +85,14 @@ def test_allocate_job():
                                  atomic_bsz_range=(64, 256))
     now = datetime.now()
     min_replicas = 0
-    job_1 = {
-        "1": JobInfo({"gpu": 1, "cpu": 500, "pods": 1}, speedup_fn,
-                     now + timedelta(minutes=0), min_replicas, max_replicas=1),
-    }
-
-    job_2 = {
-        "2": JobInfo({"gpu": 1, "cpu": 1000, "pods": 1}, speedup_fn,
-                     now + timedelta(minutes=1), min_replicas, max_replicas=1),
-    }
-
-    job_3 = {
-        "3": JobInfo({"gpu": 1, "cpu": 1000, "pods": 1}, speedup_fn,
-                     now + timedelta(minutes=1), 2, max_replicas=2),
-    }
-
-    job_4 = {
-        "4": JobInfo({"gpu": 1, "cpu": 2000, "pods": 1}, speedup_fn,
-                     now + timedelta(minutes=1), 2, max_replicas=2),
-    }
+    job_1 = JobInfo({"gpu": 1, "cpu": 500, "pods": 1}, speedup_fn,
+                    now + timedelta(minutes=0), min_replicas, max_replicas=1)
+    job_2 = JobInfo({"gpu": 1, "cpu": 1000, "pods": 1}, speedup_fn,
+                    now + timedelta(minutes=1), min_replicas, max_replicas=1)
+    job_3 = JobInfo({"gpu": 1, "cpu": 1000, "pods": 1}, speedup_fn,
+                    now + timedelta(minutes=1), 2, max_replicas=2)
+    job_4 = JobInfo({"gpu": 1, "cpu": 2000, "pods": 1}, speedup_fn,
+                    now + timedelta(minutes=1), 2, max_replicas=2)
     policy = PolluxPolicy()
 
     assert(policy.allocate_job(job_1, nodes) == ["0"])
