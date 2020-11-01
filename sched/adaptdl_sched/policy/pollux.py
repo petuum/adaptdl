@@ -40,6 +40,40 @@ class PolluxPolicy(object):
         self._min_util = 0.35
         self._max_util = 0.65
 
+    def allocate_job(self, job_info, nodes):
+        """
+        A simple strategy that find the first available node for a new job.
+        This method is intended to allocate a single arriving job. It expects
+        the node resources to take into account adaptdl and non-adaptdl pods.
+
+        Arguments:
+            job_info (JobInfo): JobInfo object of the job
+            nodes (dict): dict from node name to node_info
+
+        Returns:
+            list(str): allocation of the job,
+                e.g. [node name 0, node name 1, ...] if found available
+                     node, else an empty list.
+        """
+        job_resources = job_info.resources
+        min_replicas = max(job_info.min_replicas, 1)
+        node_list = []
+        nodes = self._sort_nodes(nodes)
+        for node_name, node in nodes.items():
+            # number of replica fit in this node
+            replica_this = min(node.resources.get(key, 0) // val
+                               for key, val in job_resources.items())
+            if replica_this >= min_replicas:
+                node_list = [node_name] * min_replicas
+                return node_list
+        else:
+            return []
+
+    def _sort_nodes(self, nodes):
+        return OrderedDict(  # Sort preemptible nodes last.
+            sorted(nodes.items(), key=lambda kv: (kv[1].preemptible,
+                                                  kv[0])))
+
     def _allocations_to_state(self, allocations, jobs, nodes):
         jobs_index = {key: idx for idx, key in enumerate(jobs)}
         nodes_index = {key: idx for idx, key in enumerate(nodes)}
@@ -110,6 +144,8 @@ class PolluxPolicy(object):
     def optimize(self, jobs, nodes, base_allocations, node_template):
         """
         Run one optimization cycle of the Pollux scheduling policy.
+        This method expects the node resources to only take into account
+        non-adaptdl pods.
 
         Arguments:
             jobs (dict): map from job keys to `JobInfo` objects which
@@ -143,8 +179,7 @@ class PolluxPolicy(object):
                                   key=lambda kv: (not ispinned(kv[0], kv[1]),
                                                   kv[1].min_replicas,
                                                   kv[1].creation_timestamp)))
-        nodes = OrderedDict(  # Sort preemptible nodes last.
-            sorted(nodes.items(), key=lambda kv: (kv[1].preemptible, kv[0])))
+        nodes = self._sort_nodes(nodes)
         base_state = np.concatenate(
             (self._allocations_to_state(base_allocations, jobs, nodes),
              np.zeros((len(jobs), len(nodes)), dtype=np.int)), axis=1)

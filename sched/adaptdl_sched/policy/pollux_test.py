@@ -71,6 +71,36 @@ def test_optimize(num_nodes, total_devices=16):
             assert count <= nodes[node_key].resources["pods"]
 
 
+def test_allocate_job():
+    nodes = {
+        "0": NodeInfo({"gpu": 1, "cpu": 500, "pods": 32}, preemptible=False),
+        "1": NodeInfo({"gpu": 2, "cpu": 2000, "pods": 32}, preemptible=False),
+        "2": NodeInfo({"gpu": 2, "cpu": 3000, "pods": 32}, preemptible=True),
+    }
+    perf_params = PerfParams(0.121, 0.00568, 0.0236, 0.00634,
+                             0.0118, 0.00317, 1.14)
+    grad_params = GradParams(sqr=0.00136, var=0.000502)
+    goodput_fn = GoodputFunction(perf_params, grad_params, 128)
+    speedup_fn = SpeedupFunction(goodput_fn, max_batch_size=1280,
+                                 atomic_bsz_range=(64, 256))
+    now = datetime.now()
+    min_replicas = 0
+    job_1 = JobInfo({"gpu": 1, "cpu": 500, "pods": 1}, speedup_fn,
+                    now + timedelta(minutes=0), min_replicas, max_replicas=1)
+    job_2 = JobInfo({"gpu": 1, "cpu": 1000, "pods": 1}, speedup_fn,
+                    now + timedelta(minutes=1), min_replicas, max_replicas=1)
+    job_3 = JobInfo({"gpu": 1, "cpu": 1000, "pods": 1}, speedup_fn,
+                    now + timedelta(minutes=1), 2, max_replicas=2)
+    job_4 = JobInfo({"gpu": 1, "cpu": 2000, "pods": 1}, speedup_fn,
+                    now + timedelta(minutes=1), 2, max_replicas=2)
+    policy = PolluxPolicy()
+
+    assert(policy.allocate_job(job_1, nodes) == ["0"])
+    assert(policy.allocate_job(job_2, nodes) == ["1"])
+    assert(policy.allocate_job(job_3, nodes) == ["1", "1"])
+    assert(policy.allocate_job(job_4, nodes) == [])
+
+
 def test_unusable_node():
     # Test where one of the nodes can't be used due to one resource type.
     nodes = {
