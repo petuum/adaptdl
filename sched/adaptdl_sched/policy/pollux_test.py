@@ -98,7 +98,7 @@ def test_allocate_job():
     assert(policy.allocate_job(job_1, nodes) == ["0"])
     assert(policy.allocate_job(job_2, nodes) == ["1"])
     assert(policy.allocate_job(job_3, nodes) == ["1", "1"])
-    assert(policy.allocate_job(job_4, nodes) is None)
+    assert(policy.allocate_job(job_4, nodes) == [])
 
 
 def test_unusable_node():
