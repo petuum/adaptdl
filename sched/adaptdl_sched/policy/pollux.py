@@ -43,9 +43,8 @@ class PolluxPolicy(object):
     def allocate_job(self, job_info, nodes):
         """
         A simple strategy that find the first available node for a new job.
-        This method is intended to allocate a single arriving job. This method
-        expects all jobs have been accounted for, while optimize() expects only
-        non-adaptdl jobs have been accounted for.
+        This method is intended to allocate a single arriving job. It expects
+        the node resources to take into account adaptdl and non-adaptdl pods.
 
         Arguments:
             job_info (JobInfo): JobInfo object of the job
@@ -145,6 +144,8 @@ class PolluxPolicy(object):
     def optimize(self, jobs, nodes, base_allocations, node_template):
         """
         Run one optimization cycle of the Pollux scheduling policy.
+        This method expects the node resources to only take into account
+        non-adaptdl pods.
 
         Arguments:
             jobs (dict): map from job keys to `JobInfo` objects which
