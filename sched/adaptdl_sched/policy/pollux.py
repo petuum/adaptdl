@@ -40,37 +40,33 @@ class PolluxPolicy(object):
         self._min_util = 0.35
         self._max_util = 0.65
 
-    def _allocate_job(self, job_info, node_info_list):
+    def allocate_job(self, job_info, nodes):
         """
         A simple strategy that find the first available node for a new job.
 
         Arguments:
-            job_info (dict): single element dictionary of the job info
-            node_info_list (dict): dict from node name to node_info
+            job_info (JobInfo): JobInfo object of the job
+            nodes (dict): dict from node name to node_info
 
         Returns:
             list(str): allocation of the job,
                 e.g. [node name 0, node name 1, ...] if found available
-                     node, else None/
+                     node, else None.
         """
-        job_key = list(job_info.keys())[0]
-        job_resources = job_info[job_key].resources
-        min_replicas = max(job_info[job_key].min_replicas, 1)
+        job_resources = job_info.resources
+        min_replicas = max(job_info.min_replicas, 1)
         node_list = []
-        node_info_list = OrderedDict(  # Sort preemptible nodes last.
-            sorted(node_info_list.items(), key=lambda kv: (kv[1].preemptible,
-                                                           kv[0])))
-        for node_name, node in node_info_list.items():
+        nodes = OrderedDict(  # Sort preemptible nodes last.
+            sorted(nodes.items(), key=lambda kv: (kv[1].preemptible,
+                                                  kv[0])))
+        for node_name, node in nodes.items():
             # number of replica fit in this node
             replica_this = min(node.resources.get(key, 0) // val
                                for key, val in job_resources.items())
             if replica_this >= min_replicas:
                 node_list = [node_name] * min_replicas
-                LOG.info("find %s for job %s with minimum replicas: %s",
-                         node_list, job_key, min_replicas)
                 return node_list
         else:
-            LOG.info("Job %s is not immediately schedulable", job_key)
             return None
 
     def _allocations_to_state(self, allocations, jobs, nodes):

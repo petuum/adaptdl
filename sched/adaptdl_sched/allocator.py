@@ -43,7 +43,7 @@ class AdaptDLAllocator(object):
         self._cluster_expander = expander
         self._policy = PolluxPolicy()
         # lock for the two corountines in run()
-        self.lock = asyncio.Lock()
+        self._lock = asyncio.Lock()
 
     async def run(self):
         # two functionality: (1) watch for new job and start if possible.
@@ -60,7 +60,7 @@ class AdaptDLAllocator(object):
                         self._objs_api.list_namespaced_custom_object,
                         *self._custom_resource, timeout_seconds=60):
                     if event["type"] == "ADDED":  # there is a n arriving job
-                        async with self.lock:
+                        async with self._lock:
                             await self._allocate_one(event)
 
     async def _allocate_one(self, event):
@@ -69,12 +69,18 @@ class AdaptDLAllocator(object):
         namespace = job["metadata"]["namespace"]
         name = job["metadata"]["name"]
 
-        job = await self._objs_api.get_namespaced_custom_object(
-            "adaptdl.petuum.com", "v1", namespace, "adaptdljobs", name
-        )
+        try:
+            job = await self._objs_api.get_namespaced_custom_object(
+                "adaptdl.petuum.com", "v1", namespace, "adaptdljobs", name
+            )
+        except kubernetes.client.rest.ApiException as exc:
+            if exc.status == 404:
+                return
+            raise  # unexpected
+
         # some other coroutine has handled this
         if job.get("status", {}).get("allocation") or\
-                job.get("status", {}).get("group"):
+                job.get("status", {}).get("group") is not None:
             return
 
         namespace = job["metadata"]["namespace"]
@@ -83,15 +89,14 @@ class AdaptDLAllocator(object):
         LOG.info("detected an added job %s/%s.",
                  namespace, name)
         # parse the job infomation
-        job_info = {}
-        job_info[(namespace, name)] = self._get_job_info(job)
+        job_info = self._get_job_info(job)
 
-        # find available nodes
-        node_info_list, _ = await self._find_nodes()
+        # find available nodes.
+        node_infos, _ = await self._find_nodes()
 
         # get the node to allocate
-        new_allocation = self._policy._allocate_job(
-                            job_info, node_info_list)
+        new_allocation = self._policy.allocate_job(
+                            job_info, node_infos)
         # allocate the job on the suggest_node
         if new_allocation:
             patch = {"status": {"allocation": new_allocation}}
@@ -102,7 +107,7 @@ class AdaptDLAllocator(object):
     async def _optimize_all_loop(self):
         while True:
             # try to gain lock
-            async with self.lock:
+            async with self._lock:
                 await self._optimize_all()
 
             LOG.info("Sleep for 60 seconds")
@@ -110,7 +115,9 @@ class AdaptDLAllocator(object):
 
     async def _optimize_all(self):
         LOG.info("Running allocator loop")
-        nodes, node_template = await self._find_nodes()
+        nodes, node_template = await self._find_nodes(
+                                   selector="!adaptdl/job"
+                               )
         LOG.info("Node resources: %s",
                  {k: v.resources for k, v in nodes.items()})
         jobs, prev_allocations = \
@@ -138,7 +145,7 @@ class AdaptDLAllocator(object):
                 LOG.info("Patch AdaptDLJob %s/%s: %s", namespace, name, patch)
                 await patch_job_status(self._objs_api, namespace, name, patch)
 
-    async def _find_nodes(self):
+    async def _find_nodes(self, selector=None):
         node_infos = {}
         node_list = await self._core_api.list_node()
         # Find all non-AdaptDL pods which are taking up resources and subtract
@@ -146,8 +153,11 @@ class AdaptDLAllocator(object):
         # more efficient way to get currently available resources in k8s?. We
         # also check if we have reached the pod limit on the node. This number
         # denotes (allocatable pods - Non-terminated pods) on that node.
-        pod_list = await self._core_api.list_pod_for_all_namespaces(
-                label_selector="!adaptdl/job")
+        if selector:
+            pod_list = await self._core_api.list_pod_for_all_namespaces(
+                    label_selector=selector)
+        else:
+            pod_list = await self._core_api.list_pod_for_all_namespaces()
         for node in node_list.items:
             if allowed_taints(node.spec.taints):
                 resources = get_node_unrequested(node, pod_list.items)
@@ -219,8 +229,6 @@ class AdaptDLAllocator(object):
         for job in job_list["items"]:
             if job.get("status", {}).get("phase") \
                     not in ["Pending", "Running", "Starting", "Stopping"]:
-                LOG.info("unkown status:", job,
-                         job.get("status", {}).get("phase"))
                 continue
 
             namespace = job["metadata"]["namespace"]
