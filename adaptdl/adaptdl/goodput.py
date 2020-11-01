@@ -63,9 +63,10 @@ class GoodputFunction(object):
         return self.evaluate(num_nodes, num_replicas, atomic_bsz, accum_steps)
 
     def evaluate(self, num_nodes, num_replicas, atomic_bsz, accum_steps):
-        return (self.throughput(num_nodes, num_replicas,
-                                atomic_bsz, accum_steps) *
-                self.efficiency(num_replicas * atomic_bsz * (accum_steps + 1)))
+        batch_size = num_replicas * atomic_bsz * (accum_steps + 1)
+        assert np.all(self._init_batch_size <= batch_size)
+        return self.throughput(num_nodes, num_replicas, atomic_bsz,
+                               accum_steps) * self.efficiency(batch_size)
 
     def throughput(self, num_nodes, num_replicas, atomic_bsz, accum_steps):
         step_time, _, _ = _predict(self._perf_params, num_nodes,
@@ -76,7 +77,7 @@ class GoodputFunction(object):
     def efficiency(self, batch_size):
         grad_sqr = self._grad_params.sqr
         grad_var = self._grad_params.var
-        scale = batch_size * self._init_batch_size
+        scale = batch_size / self._init_batch_size
         denom = grad_var / scale + grad_sqr
         gain = np.where(denom > 0, (grad_var + grad_sqr) / denom, 1.0)
         return gain / scale
