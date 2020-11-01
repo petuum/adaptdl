@@ -79,7 +79,7 @@ class AdaptDLAllocator(object):
             raise  # unexpected
 
         # some other coroutine has handled this
-        if job.get("status", {}).get("allocation") or\
+        if job.get("status", {}).get("allocation") is not None or\
                 job.get("status", {}).get("group") is not None:
             return
 
@@ -97,12 +97,10 @@ class AdaptDLAllocator(object):
         # get the node to allocate
         new_allocation = self._policy.allocate_job(
                             job_info, node_infos)
-        # allocate the job on the suggest_node
-        if new_allocation:
-            patch = {"status": {"allocation": new_allocation}}
-            LOG.info("Patch AdaptdlJob %s/%s: %s ",
-                     namespace, name, patch)
-            await patch_job_status(self._objs_api, namespace, name, patch)
+        patch = {"status": {"allocation": new_allocation}}
+        LOG.info("Patch AdaptdlJob %s/%s: %s ",
+                 namespace, name, patch)
+        await patch_job_status(self._objs_api, namespace, name, patch)
 
     async def _optimize_all_loop(self):
         while True:
@@ -116,7 +114,7 @@ class AdaptDLAllocator(object):
     async def _optimize_all(self):
         LOG.info("Running allocator loop")
         nodes, node_template = await self._find_nodes(
-                                   selector="!adaptdl/job"
+                                   pod_label_selector="!adaptdl/job"
                                )
         LOG.info("Node resources: %s",
                  {k: v.resources for k, v in nodes.items()})
@@ -145,7 +143,7 @@ class AdaptDLAllocator(object):
                 LOG.info("Patch AdaptDLJob %s/%s: %s", namespace, name, patch)
                 await patch_job_status(self._objs_api, namespace, name, patch)
 
-    async def _find_nodes(self, selector=None):
+    async def _find_nodes(self, pod_label_selector=None):
         node_infos = {}
         node_list = await self._core_api.list_node()
         # Find all non-AdaptDL pods which are taking up resources and subtract
@@ -153,11 +151,8 @@ class AdaptDLAllocator(object):
         # more efficient way to get currently available resources in k8s?. We
         # also check if we have reached the pod limit on the node. This number
         # denotes (allocatable pods - Non-terminated pods) on that node.
-        if selector:
-            pod_list = await self._core_api.list_pod_for_all_namespaces(
-                    label_selector=selector)
-        else:
-            pod_list = await self._core_api.list_pod_for_all_namespaces()
+        pod_list = await self._core_api.list_pod_for_all_namespaces(
+                                label_selector=pod_label_selector)
         for node in node_list.items:
             if allowed_taints(node.spec.taints):
                 resources = get_node_unrequested(node, pod_list.items)

@@ -43,6 +43,9 @@ class PolluxPolicy(object):
     def allocate_job(self, job_info, nodes):
         """
         A simple strategy that find the first available node for a new job.
+        This method is intended to allocate a single arriving job. This method
+        expects all jobs have been accounted for, while optimize() expects only
+        non-adaptdl jobs have been accounted for.
 
         Arguments:
             job_info (JobInfo): JobInfo object of the job
@@ -51,14 +54,12 @@ class PolluxPolicy(object):
         Returns:
             list(str): allocation of the job,
                 e.g. [node name 0, node name 1, ...] if found available
-                     node, else None.
+                     node, else an empty list.
         """
         job_resources = job_info.resources
         min_replicas = max(job_info.min_replicas, 1)
         node_list = []
-        nodes = OrderedDict(  # Sort preemptible nodes last.
-            sorted(nodes.items(), key=lambda kv: (kv[1].preemptible,
-                                                  kv[0])))
+        nodes = self._sort_nodes(nodes)
         for node_name, node in nodes.items():
             # number of replica fit in this node
             replica_this = min(node.resources.get(key, 0) // val
@@ -67,7 +68,12 @@ class PolluxPolicy(object):
                 node_list = [node_name] * min_replicas
                 return node_list
         else:
-            return None
+            return []
+
+    def _sort_nodes(self, nodes):
+        return OrderedDict(  # Sort preemptible nodes last.
+            sorted(nodes.items(), key=lambda kv: (kv[1].preemptible,
+                                                  kv[0])))
 
     def _allocations_to_state(self, allocations, jobs, nodes):
         jobs_index = {key: idx for idx, key in enumerate(jobs)}
@@ -172,8 +178,7 @@ class PolluxPolicy(object):
                                   key=lambda kv: (not ispinned(kv[0], kv[1]),
                                                   kv[1].min_replicas,
                                                   kv[1].creation_timestamp)))
-        nodes = OrderedDict(  # Sort preemptible nodes last.
-            sorted(nodes.items(), key=lambda kv: (kv[1].preemptible, kv[0])))
+        nodes = self._sort_nodes(nodes)
         base_state = np.concatenate(
             (self._allocations_to_state(base_allocations, jobs, nodes),
              np.zeros((len(jobs), len(nodes)), dtype=np.int)), axis=1)
