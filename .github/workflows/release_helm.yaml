@@ -19,7 +19,7 @@ jobs:
       run: |
         export ADAPTDL_VERSION=${GITHUB_REF#"refs/tags/v"}
         mkdir -p helm/repo
-        helm repo add stable https://kubernetes-charts.storage.googleapis.com/
+        helm repo add stable https://charts.helm.sh/stable
         helm dependency update helm/adaptdl-sched
         helm package helm/adaptdl-sched --destination . --version $ADAPTDL_VERSION --app-version $ADAPTDL_VERSION
         git add adaptdl-sched-$ADAPTDL_VERSION.tgz
