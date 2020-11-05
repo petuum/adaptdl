@@ -34,6 +34,12 @@ intermediate Docker images when submitting jobs with the AdaptDL CLI.
    ``--set docker-registry.enabled=true`` option, and then the AdaptDL CLI may
    be configured to use the alternative secure registry.
 
+.. note::
+
+   If installing AdaptDL together with the insecure registry, you may need to
+   first install the Helm stable repository with the ``helm repo add stable
+   https://charts.helm.sh/stable`` command.
+
 Check that the AdaptDL scheduler and Docker registry are running:
 
 .. code-block::
