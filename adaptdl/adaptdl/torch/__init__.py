@@ -65,6 +65,24 @@ def init_process_group(backend):
 
     LOG.info("torch.distributed initialized")
 
+def write_config():
+    # call from chief
+    url = adaptdl.env.supervisor_url()
+    if url:
+        key = adaptdl.env.job_id()
+        group = adaptdl.env.num_restarts()
+        while True:
+            response = requests.get(url=f"{url}/discover/{key}/{group}")
+            if response.status_code != 408:  # Timeout.
+                break
+        response.raise_for_status()
+        master_addr = response.json()[0]
+    else:
+        raise ValueError("supervisor url not found.")
+    # write to the share path
+    path = os.path.join(adaptdl.env.share_path(), "resource_spec.yml")
+    LOG.info(f"writing to {path}")
+    LOG.info(response.json())
 
 __all__ = [
     "init_process_group",
