@@ -31,6 +31,7 @@ from .epoch import current_epoch, finished_epochs, remaining_epochs_until
 from .data import current_dataloader, AdaptiveDataLoader, ElasticSampler
 from .parallel import AdaptiveDataParallel
 from .accumulator import Accumulator
+import os
 
 logging.basicConfig(level=logging.INFO)
 LOG = logging.getLogger(__name__)
@@ -72,17 +73,29 @@ def write_config():
         key = adaptdl.env.job_id()
         group = adaptdl.env.num_restarts()
         while True:
-            response = requests.get(url=f"{url}/discover/{key}/{group}")
+            response = requests.get(url=f"{url}/discover_gpu/{key}/{group}")
             if response.status_code != 408:  # Timeout.
                 break
         response.raise_for_status()
-        master_addr = response.json()[0]
+        master_addr = response.json()[0][0]
     else:
         raise ValueError("supervisor url not found.")
     # write to the share path
     path = os.path.join(adaptdl.env.share_path(), "resource_spec.yml")
     LOG.info(f"writing to {path}")
-    LOG.info(response.json())
+    LOG.info(f"pod, gpu num: %s", response.json())
+    # start writing to the yml file
+    f = open(path, "w")
+    f.write("nodes: \n" )
+    num_nodes = len(response.json())
+    for i in range(num_nodes):
+        f.write(f"address: {response.json()[i][0]} \n")
+        f.write(f"gpu: [{range(response.json()[i][1])}] \n")
+        if i == 0: # chief
+            f.write("chief: true \n")
+        else: # provide ssh config
+            f.write("")
+
 
 __all__ = [
     "init_process_group",
