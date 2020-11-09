@@ -20,9 +20,9 @@ FROM pytorch/pytorch:1.4-cuda10.1-cudnn7-runtime
 WORKDIR /root
 
 # Set default shell to /bin/bash
-#SHELL ["/bin/bash", "-cu"]
+# SHELL ["/bin/bash", "-cu"]
 
-#RUN rm -rf /etc/bash.bashrc
+# RUN rm -rf /etc/bash.bashrc
 
 # Install apps
 COPY adaptdl adaptdl
@@ -38,19 +38,21 @@ RUN rm -rf adaptdl/dist
 
 #COPY examples examples
 #RUN apt-get update && apt-get install -y --no-install-recommends apt-utils
-RUN apt-get update && apt-get --assume-yes install systemd
+RUN apt-get update && apt-get --assume-yes install systemd && apt-get install sudo
+
 RUN curl https://get.docker.com | sh \
-    && service docker start\
-    && systemctl enable docker
+#    && sudo systemctl start docker\
+    && sudo service docker start \ 
+#    && sudo systemctl enable docker
+    && sudo update-rc.d docker enable
 
 RUN distribution=$(. /etc/os-release;echo $ID$VERSION_ID) \
-   && curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | apt-key add - \
-   && curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | tee /etc/apt/sources.list.d/nvidia-docker.list
+   && curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add - \
+   && curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | sudo tee /etc/apt/sources.list.d/nvidia-docker.list
 
-RUN apt-get update && apt-get install -y nvidia-docker2
-RUN service docker restart
-RUN service docker start
-RUN apt-get install sudo
+RUN sudo apt-get update && sudo apt-get install -y nvidia-docker2
+#RUN sudo systemclt restart docker
+RUN sudo service docker restart
 RUN git clone https://github.com/petuum/autodist.git &&\
     cd autodist && sudo docker build -t autodist:latest -f docker/Dockerfile.gpu .
 
