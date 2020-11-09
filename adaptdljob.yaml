@@ -1,0 +1,18 @@
+apiVersion: adaptdl.petuum.com/v1
+kind: AdaptDLJob
+metadata:
+  generateName: integration-
+spec:
+        #  minReplicas: 2
+  template:
+    spec:
+      containers:
+      - name: main
+        command:
+        - python3
+        - /root/examples/image_classifier.py
+        resources:
+          limits:
+            nvidia.com/gpu: 1
+
+
