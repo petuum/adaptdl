@@ -32,7 +32,8 @@ from .data import current_dataloader, AdaptiveDataLoader, ElasticSampler
 from .parallel import AdaptiveDataParallel
 from .accumulator import Accumulator
 import os
-
+import getpass
+import paramiko
 logging.basicConfig(level=logging.INFO)
 LOG = logging.getLogger(__name__)
 LOG.setLevel(logging.INFO)
@@ -86,15 +87,45 @@ def write_config():
     LOG.info(f"pod, gpu num: %s", response.json())
     # start writing to the yml file
     f = open(path, "w")
-    f.write("nodes: \n" )
+    f.write("nodes: ")
+    f.write("\n")
     num_nodes = len(response.json())
     for i in range(num_nodes):
-        f.write(f"address: {response.json()[i][0]} \n")
-        f.write(f"gpu: [{range(response.json()[i][1])}] \n")
+        f.write(f"  - address: {response.json()[i][0]} \n")
+      #  f.write("\n")
+        f.write(f"    gpus: {list(range(response.json()[i][1]))} \n")
+    #    f.write("\n")
         if i == 0: # chief
-            f.write("chief: true \n")
+            f.write("    chief: true \n")
+           # f.write("\n")
         else: # provide ssh config
-            f.write("")
+            f.write("    ssh_config: conf \n")
+           # f.write("\n")
+    f.write("ssh: \n")
+   # f.write("\n")
+    f.write("  conf: \n")
+   # f.write("\n")
+    f.write(f"    username: '{getpass.getuser()}' \n")
+   # f.write("\n")
+    f.write("    key_file: '/root/.ssh/id_rsa' \n")
+    f.close()
+    # try logging in here
+    client = paramiko.SSHClient()
+    client.load_system_host_keys()
+    client.set_missing_host_key_policy(paramiko.WarningPolicy)
+    hostname = response.json()[i][0]
+    g = open("/root/.ssh/id_rsa", "r")
+    for l in g.readlines():
+        print(l)
+    pkey = paramiko.RSAKey.from_private_key_file(os.path.expanduser(os.path.abspath('/root/.ssh/id_rsa')))
+    username = getpass.getuser()
+    port = 22
+    client.connect(hostname=hostname,port = port, username=username, pkey=pkey)
+    f = open(path, "r")
+    for l in f.readlines():
+        print(l.rstrip())
+    f.close()
+
 
 
 __all__ = [

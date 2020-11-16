@@ -63,8 +63,7 @@ transform_test = transforms.Compose([
 adaptdl.torch.init_process_group("nccl" if torch.cuda.is_available() else "gloo")
 
 # chief need to write the config file
-if adaptdl.env.replica_rank() == 0:
-    adaptdl.torch.write_config()
+adaptdl.torch.write_config()
 
 if adaptdl.env.replica_rank() == 0:
     trainset = torchvision.datasets.CIFAR10(root=adaptdl.env.share_path(), train=True, download=True, transform=transform_train)

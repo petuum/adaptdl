@@ -3,14 +3,14 @@ kind: AdaptDLJob
 metadata:
   generateName: integration-
 spec:
-        #  minReplicas: 2
+  minReplicas: 2
   template:
     spec:
       containers:
       - name: main
         command:
         - python3
-        - /root/examples/image_classifier.py
+        - /root/examples_adaptdl/pytorch-cifar/main.py 
         resources:
           limits:
             nvidia.com/gpu: 1
