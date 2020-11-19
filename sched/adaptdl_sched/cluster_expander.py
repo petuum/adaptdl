@@ -66,7 +66,6 @@ class ClusterExpander(object):
                                                 'values': ['true']
                                             }]
                                         },
-                                    'namespaces': ['default'],
                                     'topologyKey': 'kubernetes.io/hostname'
                                     }
                                 ]
