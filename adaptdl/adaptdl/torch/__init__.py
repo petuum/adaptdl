@@ -24,7 +24,7 @@ import logging
 import portpicker
 import requests
 import torch.distributed
-
+import time
 import adaptdl.collective
 import adaptdl.env
 from .epoch import current_epoch, finished_epochs, remaining_epochs_until
@@ -33,7 +33,7 @@ from .parallel import AdaptiveDataParallel
 from .accumulator import Accumulator
 import os
 import getpass
-import paramiko
+import socket
 logging.basicConfig(level=logging.INFO)
 LOG = logging.getLogger(__name__)
 LOG.setLevel(logging.INFO)
@@ -96,6 +96,7 @@ def write_config():
         f.write(f"    gpus: {list(range(response.json()[i][1]))} \n")
     #    f.write("\n")
         if i == 0: # chief
+            master_addr = response.json()[i][0]
             f.write("    chief: true \n")
            # f.write("\n")
         else: # provide ssh config
@@ -109,24 +110,15 @@ def write_config():
    # f.write("\n")
     f.write("    key_file: '/root/.ssh/id_rsa' \n")
     f.close()
-    # try logging in here
-    client = paramiko.SSHClient()
-    client.load_system_host_keys()
-    client.set_missing_host_key_policy(paramiko.WarningPolicy)
-    hostname = response.json()[i][0]
-    g = open("/root/.ssh/id_rsa", "r")
-    for l in g.readlines():
-        print(l)
-    pkey = paramiko.RSAKey.from_private_key_file(os.path.expanduser(os.path.abspath('/root/.ssh/id_rsa')))
-    username = getpass.getuser()
-    port = 22
-    client.connect(hostname=hostname,port = port, username=username, pkey=pkey)
-    f = open(path, "r")
-    for l in f.readlines():
-        print(l.rstrip())
-    f.close()
+    
+    master_port = adaptdl.env.master_port()
 
-
+    # Initialize collective module.
+    adaptdl.collective.initialize(master_addr, master_port)
+    
+    #if 
+    # pre-start tf_server
+    #path, lines = adaptdl.collective.broadcast(None)
 
 __all__ = [
     "init_process_group",
