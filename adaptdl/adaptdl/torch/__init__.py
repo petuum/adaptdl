@@ -24,14 +24,14 @@ import logging
 import portpicker
 import requests
 import torch.distributed
-
 import adaptdl.collective
 import adaptdl.env
 from .epoch import current_epoch, finished_epochs, remaining_epochs_until
 from .data import current_dataloader, AdaptiveDataLoader, ElasticSampler
 from .parallel import AdaptiveDataParallel
 from .accumulator import Accumulator
-
+import os
+import getpass
 logging.basicConfig(level=logging.INFO)
 LOG = logging.getLogger(__name__)
 LOG.setLevel(logging.INFO)
@@ -64,6 +64,44 @@ def init_process_group(backend):
     torch.distributed.init_process_group(backend, init_method)
 
     LOG.info("torch.distributed initialized")
+
+
+def write_config():
+    url = adaptdl.env.supervisor_url()
+    if url:
+        key = adaptdl.env.job_id()
+        group = adaptdl.env.num_restarts()
+        while True:
+            response = requests.get(url=f"{url}/discover_gpu/{key}/{group}")
+            if response.status_code != 408:  # Timeout.
+                break
+        response.raise_for_status()
+        master_addr = response.json()[0][0]
+    else:
+        raise ValueError("supervisor url not found.")
+    # write to the share path
+    path = os.path.join(adaptdl.env.share_path(), "resource_spec.yml")
+    LOG.info(f"writing to {path}")
+
+    f = open(path, "w")
+    f.write("nodes: \n")
+    num_nodes = len(response.json())
+    for i in range(num_nodes):
+        f.write(f"  - address: {response.json()[i][0]} \n")
+        f.write(f"    gpus: {list(range(response.json()[i][1]))} \n")
+        if i == 0:  # chief
+            master_addr = response.json()[i][0]
+            f.write("    chief: true \n")
+        else:
+            f.write("    ssh_config: conf \n")
+    f.write("ssh: \n")
+    f.write("  conf: \n")
+    f.write(f"    username: '{getpass.getuser()}' \n")
+    f.write("    key_file: '/root/.ssh/id_rsa' \n")
+    f.close()
+    # Initialize collective module.
+    master_port = adaptdl.env.master_port()
+    adaptdl.collective.initialize(master_addr, master_port)
 
 
 __all__ = [
