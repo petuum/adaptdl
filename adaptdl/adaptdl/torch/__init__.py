@@ -24,12 +24,14 @@ import logging
 import portpicker
 import requests
 import torch.distributed
+
 import adaptdl.collective
 import adaptdl.env
 from .epoch import current_epoch, finished_epochs, remaining_epochs_until
 from .data import current_dataloader, AdaptiveDataLoader, ElasticSampler
 from .parallel import AdaptiveDataParallel
 from .accumulator import Accumulator
+
 logging.basicConfig(level=logging.INFO)
 LOG = logging.getLogger(__name__)
 LOG.setLevel(logging.INFO)
