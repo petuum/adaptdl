@@ -63,11 +63,12 @@ class Supervisor:
                         pod_ip_list = [None] * replicas
                     pod_ip_list[rank] = pod.status.pod_ip
                     if all(pod_ip is not None for pod_ip in pod_ip_list):
-                            return web.json_response(pod_ip_list)
+                        return web.json_response(pod_ip_list)
         return web.json_response(status=408)  # Timeout.
 
     async def _handle_discover_gpu(self, request):
-        # Long-polling endpoint used for discovering pod IPs for a given job.
+        # Long-polling endpoint used for discoverin
+        # pod IPs and GPU for a given job.
         namespace = request.match_info["namespace"]
         name = request.match_info["name"]
         group = request.match_info["group"]
@@ -95,13 +96,15 @@ class Supervisor:
                         int(container[0].resources.requests[
                                 'nvidia.com/gpu'])
                     if all(pod_gpu is not None for pod_gpu in pod_gpu_list)\
-                        and all(pod_ip is not None for pod_ip in pod_ip_list):
+                        and all(pod_ip is not None
+                                for pod_ip in pod_ip_list):
                         assert len(pod_ip_list) == len(pod_gpu_list)
-                        return_list = [(pod_ip_list[i], pod_gpu_list[i]) for i in range(len(pod_ip_list))]
+                        return_list = [(pod_ip_list[i], pod_gpu_list[i])
+                                       for i in range(len(pod_ip_list))]
                         LOG.info(return_list)
                         return web.json_response(return_list)
         return web.json_response(status=408)  # Timeout.
-    
+
     async def _handle_report(self, request):
         namespace = request.match_info['namespace']
         name = request.match_info['name']

@@ -24,7 +24,6 @@ import logging
 import portpicker
 import requests
 import torch.distributed
-import time
 import adaptdl.collective
 import adaptdl.env
 from .epoch import current_epoch, finished_epochs, remaining_epochs_until
@@ -33,7 +32,6 @@ from .parallel import AdaptiveDataParallel
 from .accumulator import Accumulator
 import os
 import getpass
-import socket
 logging.basicConfig(level=logging.INFO)
 LOG = logging.getLogger(__name__)
 LOG.setLevel(logging.INFO)
@@ -67,8 +65,8 @@ def init_process_group(backend):
 
     LOG.info("torch.distributed initialized")
 
+
 def write_config():
-    # call from chief
     url = adaptdl.env.supervisor_url()
     if url:
         key = adaptdl.env.job_id()
@@ -84,41 +82,27 @@ def write_config():
     # write to the share path
     path = os.path.join(adaptdl.env.share_path(), "resource_spec.yml")
     LOG.info(f"writing to {path}")
-    LOG.info(f"pod, gpu num: %s", response.json())
-    # start writing to the yml file
+
     f = open(path, "w")
-    f.write("nodes: ")
-    f.write("\n")
+    f.write("nodes: \n")
     num_nodes = len(response.json())
     for i in range(num_nodes):
         f.write(f"  - address: {response.json()[i][0]} \n")
-      #  f.write("\n")
         f.write(f"    gpus: {list(range(response.json()[i][1]))} \n")
-    #    f.write("\n")
-        if i == 0: # chief
+        if i == 0:  # chief
             master_addr = response.json()[i][0]
             f.write("    chief: true \n")
-           # f.write("\n")
-        else: # provide ssh config
+        else:
             f.write("    ssh_config: conf \n")
-           # f.write("\n")
     f.write("ssh: \n")
-   # f.write("\n")
     f.write("  conf: \n")
-   # f.write("\n")
     f.write(f"    username: '{getpass.getuser()}' \n")
-   # f.write("\n")
     f.write("    key_file: '/root/.ssh/id_rsa' \n")
     f.close()
-    
-    master_port = adaptdl.env.master_port()
-
     # Initialize collective module.
+    master_port = adaptdl.env.master_port()
     adaptdl.collective.initialize(master_addr, master_port)
-    
-    #if 
-    # pre-start tf_server
-    #path, lines = adaptdl.collective.broadcast(None)
+
 
 __all__ = [
     "init_process_group",
