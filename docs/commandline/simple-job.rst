@@ -35,7 +35,7 @@ For example, you may copy the following code (into ``hello_world/hello_world.py`
 
    time.sleep(100)
 
-Please note that stdout is only accessiblewhile a job is still running.
+Please note that stdout is only accessible while a job is still running.
 Therefore, the ``time.sleep(100)`` call is important for this tutorial.
 
 Writing a Dockerfile
@@ -55,11 +55,9 @@ Copy the following docker file into ``hello_world/Dockerfile``:
 ::
 
     FROM python:3.7-slim
-    COPY adaptdl adaptdl
-    COPY examples/requirements.txt .
-    RUN python3 -m pip install -e adaptdl
+    RUN python3 -m pip install adaptdl
 
-    COPY hello_world/hello_world.py hello_world.py
+    COPY hello_world.py /root/hello_world.py
 
     ENV PYTHONUNBUFFERED=true
 
@@ -179,7 +177,7 @@ value from the output of ``adaptdl ls`` in step 10:
 
 ::
 
-    adaptdl cp <adaptdl-job> -r adaptdl/share/foo.txt -l foo.txt
+    adaptdl cp <adaptdl-job>:/adaptdl/share/foo.txt foo.txt
 
 ``foo.txt`` on your local client should then contain ``hello world``
 

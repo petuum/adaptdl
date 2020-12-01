@@ -17,7 +17,7 @@ are running via the following code:
 ::
 
    os.path.join(os.getenv("ADAPTDL_TENSORBOARD_LOGDIR"),
-                          adaptdl.env.get_job_id())
+                          adaptdl.env.job_id())
 
 Following :doc:`AdaptDL with PyTorch <../adaptdl-pytorch>`, the following changes are made to the ``test`` function
 to write to tensorboard:
@@ -28,7 +28,7 @@ to write to tensorboard:
         test_loss = stats["test_loss"] / len(test_loader.dataset)
         correct = stats["correct"]
         tensorboard_dir = os.path.join(os.getenv("ADAPTDL_TENSORBOARD_LOGDIR", "/tmp"),
-                                       adaptdl.env.get_job_id())
+                                       adaptdl.env.job_id())
         with SummaryWriter(tensorboard_dir) as writer:
             writer.add_scalar("Test/Loss", test_loss, epoch)
             writer.add_scalar("Test/Accuracy", 100. * correct / len(test_loader.dataset), epoch)

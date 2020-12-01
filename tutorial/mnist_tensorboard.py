@@ -70,7 +70,7 @@ def test(model, device, test_loader, epoch): # Changed for tensorboard
         test_loss = stats["test_loss"] / len(test_loader.dataset) # Changed in step 5
         correct = stats["correct"] # Changed in step 5
         tensorboard_dir = os.path.join(os.getenv("ADAPTDL_TENSORBOARD_LOGDIR", "/tmp"),
-                                       adaptdl.env.get_job_name()) # Added for tensorboard
+                                       adaptdl.env.job_id()) # Added for tensorboard
         with SummaryWriter(tensorboard_dir) as writer: # Added for tensorboard
             writer.add_scalar("Test/Loss", test_loss, epoch) # Added for tensorboard
             writer.add_scalar("Test/Accuracy", 100. * correct / len(test_loader.dataset), epoch) # Added for tensorboard
