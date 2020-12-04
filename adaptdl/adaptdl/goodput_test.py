@@ -249,3 +249,28 @@ def test_optimize_accumulation(perf_params, grad_params):
     assert(np.all(steps >= 0))
     assert(np.all(np.logical_or(np.multiply(steps, bsz) >= 256,
                                 steps == 0)))
+
+
+@pytest.mark.parametrize("perf_params", PERF_PARAMS)
+@pytest.mark.parametrize("grad_params", GRAD_PARAMS)
+def test_one_replica_accumulation(perf_params, grad_params):
+    fun = GoodputFunction(perf_params, grad_params, 128)
+
+    replicas = np.asarray([1])
+    max_batch_sizes = np.asarray(range(128, 128 * 20, 128))
+    # single-node
+    for max_batch_size in max_batch_sizes:
+        goodput, bsz, steps = fun.optimize(np.ones_like(replicas), replicas,
+                                           max_batch_size=1280,
+                                           atomic_bsz_range=(64, 256),
+                                           accumulation=True)
+        assert(np.all(np.logical_or(bsz >= (64),
+                                    goodput == 0.0)))
+        assert(np.all(bsz <= (256)))
+        assert(np.all(np.logical_or(bsz * (steps + 1) <=
+                                    max_batch_size,
+                                    goodput == 0.0)))
+        assert(np.all(np.logical_or(bsz >= np.ceil(128 / replicas).astype(int),
+                                    goodput == 0.0)))
+        assert(np.all(np.logical_or(bsz * (steps + 1) != 128,
+                                    steps == 0)))
