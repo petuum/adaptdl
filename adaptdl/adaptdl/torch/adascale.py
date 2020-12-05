@@ -79,8 +79,7 @@ class AdaScale(object):
         patch_optimizer (bool): If True, monkey-patches the ``step`` method of
             the optimizer with the AdaScale ``step`` method.
 
-    .. _AdaScale: https://proceedings.icml.cc/static/paper_files/icml/2020/4682-Supplemental.pdf
-    """  # noqa: E501
+    .. _AdaScale: https://proceedings.icml.cc/static/paper_files/icml/2020/4682-Supplemental.pdf"""  # noqa: E501
     def __init__(self, adp, optimizer, num_replicas=None,
                  accum_scale=None, patch_optimizer=False):
         self._adp = adp

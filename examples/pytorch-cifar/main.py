@@ -72,7 +72,7 @@ else:
     trainloader = adl.AdaptiveDataLoader(trainset, batch_size=args.bs, shuffle=True, num_workers=2, drop_last=True)
 
 if args.autoscale_bsz:
-    trainloader.autoscale_batch_size(4096, local_bsz_bounds=(32, 1028), gradient_accumulation=True)
+    trainloader.autoscale_batch_size(512, local_bsz_bounds=(32, 256), gradient_accumulation=False)
 
 validset = torchvision.datasets.CIFAR10(root=adaptdl.env.share_path(), train=False, download=False, transform=transform_test)
 validloader = adl.AdaptiveDataLoader(validset, batch_size=100, shuffle=False, num_workers=2)
@@ -102,7 +102,7 @@ optimizer = optim.SGD([{"params": [param]} for param in net.parameters()],
 lr_scheduler = MultiStepLR(optimizer, [30, 45], 0.1)
 
 net = adl.AdaptiveDataParallel(net, optimizer, lr_scheduler)
-
+scaler = torch.cuda.amp.GradScaler(enabled=True)
 # Training
 def train(epoch):
     print('\nEpoch: %d' % epoch)
@@ -112,13 +112,17 @@ def train(epoch):
     batchsize = 0
     accumulation_steps = 0
     for inputs, targets in trainloader:
-        inputs, targets = inputs.to(device), targets.to(device)
-        optimizer.zero_grad()
-        outputs = net(inputs)
+        with torch.cuda.amp.autocast():
+            inputs, targets = inputs.to(device), targets.to(device)
+            optimizer.zero_grad(set_to_none=True)
+            outputs = net(inputs)
         loss = criterion(outputs, targets)
-        loss.backward()
-        optimizer.step()
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+#        optimizer.step()
+        scaler.update()
 
+        
         stats["loss_sum"] += loss.item() * targets.size(0)
         _, predicted = outputs.max(1)
         stats["total"] += targets.size(0)
