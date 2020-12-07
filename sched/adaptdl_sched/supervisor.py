@@ -83,7 +83,7 @@ class Supervisor:
                     if all(pod_ip is not None for pod_ip in pod_ip_list):
                         return web.json_response(pod_ip_list)
         return web.json_response(status=408)  # Timeout.
-    
+
     async def _handle_report(self, request):
         namespace = request.match_info['namespace']
         name = request.match_info['name']
