@@ -509,7 +509,7 @@ class AdaptiveDataLoader(DataLoader, AdaptiveDataLoaderMixin):
                         # Increment by the number of data samples processed
                         self._elastic.current_index += (
                             self._elastic.current_local_bsz *
-                            adaptdl.env.num_replicas())
+                            num_replicas)
                         if self._elastic.max_batch_size is not None and \
                            get_progress() >= len(self.dataset) * \
                            (epoch + 1) / self.batch_size:
