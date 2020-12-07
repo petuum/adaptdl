@@ -43,8 +43,7 @@ def init_process_group(backend):
         key = adaptdl.env.job_id()
         group = adaptdl.env.num_restarts()
         while True:
-            response = requests.get(url=f"{url}/discover/{key}/{group}",
-                                    params={'gpu': False})
+            response = requests.get(url=f"{url}/discover/{key}/{group}")
             if response.status_code != 408:  # Timeout.
                 break
         response.raise_for_status()
