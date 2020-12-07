@@ -63,7 +63,11 @@ class Supervisor:
                     if pod_ip_list is None:
                         pod_ip_list = [None] * replicas
                     pod_ip_list[rank] = pod.status.pod_ip
-                    if request.rel_url.query["gpu"]:
+                    try:
+                        gpu_request = request.rel_url.query["gpu"]
+                    except KeyError:
+                        gpu_request = False
+                    if gpu_request:
                         if pod_gpu_list is None:
                             pod_gpu_list = [None] * replicas
                         container = pod.spec.containers
