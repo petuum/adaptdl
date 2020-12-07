@@ -49,6 +49,7 @@ class Supervisor:
         group = request.match_info["group"]
         timeout = int(request.query.get("timeout", "30"))
         pod_ip_list = None
+        pod_gpu_list = None
         async with kubernetes.watch.Watch() as w:
             stream = w.stream(self._core_api.list_namespaced_pod, namespace,
                               label_selector="adaptdl/job={}".format(name),
@@ -62,6 +63,23 @@ class Supervisor:
                     if pod_ip_list is None:
                         pod_ip_list = [None] * replicas
                     pod_ip_list[rank] = pod.status.pod_ip
+                    if request.rel_url.query["gpu"]:
+                        if pod_gpu_list is None:
+                            pod_gpu_list = [None] * replicas
+                        container = pod.spec.containers
+                        assert len(container) == 1
+                        pod_gpu_list[rank] = \
+                            int(container[0].resources.requests[
+                                'nvidia.com/gpu'])
+                        if all(pod_gpu is not None
+                                for pod_gpu in pod_gpu_list) and \
+                                all(pod_ip is not None
+                                    for pod_ip in pod_ip_list):
+                            assert len(pod_ip_list) == len(pod_gpu_list)
+                            return_list = [(pod_ip_list[i], pod_gpu_list[i])
+                                           for i in range(len(pod_ip_list))]
+                            LOG.info(return_list)
+                            return web.json_response(return_list)
                     if all(pod_ip is not None for pod_ip in pod_ip_list):
                         return web.json_response(pod_ip_list)
         return web.json_response(status=408)  # Timeout.
@@ -124,8 +142,6 @@ class Supervisor:
             web.get('/healthz', self._handle_healthz),
             web.get('/discover/{namespace}/{name}/{group}',
                     self._handle_discover),
-            web.get('/discover_gpu/{namespace}/{name}/{group}',
-                    self._handle_discover_gpu),
             web.put('/hints/{namespace}/{name}', self._handle_report),
         ])
         LOG.info("%s %s", self._host, self._port)
