@@ -129,6 +129,8 @@ class GoodputFunction(object):
                 np.logical_and(
                     atomic_bsz <= max_atomic_bsz,
                     np.logical_or(
+                        # Disallow 1 replica scaling without
+                        # gradient accumulation
                         num_replicas > 1,
                         np.logical_or(
                             accum_steps > 0,
