@@ -25,7 +25,7 @@ cat << EOF | adaptdl submit --checkpoint-storage-size 1Gi $ROOT --tensorboard te
 apiVersion: adaptdl.petuum.com/v1
 kind: AdaptDLJob
 metadata:
-  generateName: bert-no-acc-
+  generateName: bert-
 spec:
   template:
     spec:
