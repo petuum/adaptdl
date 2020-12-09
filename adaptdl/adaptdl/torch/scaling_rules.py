@@ -15,11 +15,11 @@
 
 import functools
 
+import math
 import numpy as np
 import torch.distributed
 import torch.optim
 from torch.autograd import Variable
-
 
 __all__ = ["AdaScale"]
 
@@ -46,7 +46,81 @@ def _normsqr_groups(grads):
     return np.array(ret)
 
 
-class AdaScale(object):
+class ScalingRuleBase(object):
+    """
+    Base class for scaling rules.
+
+    Arguments:
+        optimizer (torch.optim.Optimizer): Optimizer to apply this scaling rule to.
+        scale (float): Scaling factor of the batch size, e.g. using a 10x
+            larger batch size (summed across all replicas) means a scale of
+            10. If None, defaults to ``num_replicas``.
+        num_replicas (int): Number of replicas for distributed training. If
+            None, defaults to ``torch.distributed.get_world_size()``.
+        patch_optimizer (bool): If True, monkey-patches the ``step`` method of
+            the optimizer with this scaling rule's ``step`` method.
+    """
+
+    def __init__(self, optimizer, scale=None, num_replicas=None,
+                 patch_optimizer=False):
+        self._optimizer = optimizer
+        self._optimizer_step = optimizer.step
+        self._num_replicas = (num_replicas if num_replicas is not None
+                              else torch.distributed.get_world_size())
+        self._scale = 1.0
+        self.set_scale(self._num_replicas if scale is None else scale)
+
+        self._made_step = False
+
+        if patch_optimizer:
+            self.patch_optimizer()
+
+    @property
+    def scale(self):
+        """
+        The scaling factor of the current batch size, relative to the baseline
+        batch size when training with a single replica. For example, if the
+        baseline batch size is 32, but using a scaled-up batch size of 80, then
+        the scaling factor is 2.5.
+        """
+        return self._scale
+
+    def set_scale(self, scale):
+        """
+        Set the scaling factor of the current batch size.
+
+        Arguments:
+            scale (float): New scaling factor to be applied.
+        """
+        self._scale = scale
+
+    def patch_optimizer(self):
+        """
+        Monkey-patch the optimizer's step function with :meth:`self.step`.
+        """
+
+        # TODO: detect if the optimizer has already been patched.
+
+        @functools.wraps(self._optimizer.step)
+        def wrapper(*args, **kwargs):
+            return self.step(*args, **kwargs)
+
+        old_zero_grad = self._optimizer.zero_grad
+
+        @functools.wraps(self._optimizer.zero_grad)
+        def zero_wrapper(*args, **kwargs):
+            if self._made_step:
+                return old_zero_grad(*args, **kwargs)
+            return None
+
+        self._optimizer.step = wrapper
+        self._optimizer.zero_grad = zero_wrapper
+
+    def step(self, *args, **kwargs):
+        pass
+
+
+class AdaScale(ScalingRuleBase):
     """
     Implements the AdaScale_ algorithm for scaling the learning rate for
     distributed and large batch size training. Can be used in combination with
@@ -77,51 +151,31 @@ class AdaScale(object):
 
     .. _AdaScale: https://proceedings.icml.cc/static/paper_files/icml/2020/4682-Supplemental.pdf
     """  # noqa: E501
-    def __init__(self, optimizer, scale=None,
-                 num_replicas=None, patch_optimizer=False):
-        self._optimizer = optimizer
-        self._optimizer_step = optimizer.step
-        self._local_sqr = None
-        self._num_replicas = (num_replicas if num_replicas is not None
-                              else torch.distributed.get_world_size())
-        self._prev_grads = None
-        self._made_step = False
-        self._accumulation_steps = 1
-        self._current_accumulation_step = 0
 
-        self._optimizer.state.setdefault("adascale", {
+    def __init__(self, optimizer, scale=None, num_replicas=None, patch_optimizer=False):
+        optimizer.state.setdefault("adascale", {
             "replicas": 0.0,
 
             # Averages of n and v
             "norm_avg": np.ones(len(optimizer.param_groups)),
             "var_avg": np.zeros(len(optimizer.param_groups)),
         })
-
-        self.set_scale(self._num_replicas if scale is None else scale)
+        super().__init__(optimizer, scale, num_replicas, patch_optimizer)
+        self._local_sqr = None
+        self._prev_grads = None
+        self._accumulation_steps = 1
+        self._current_accumulation_step = 0
 
         for idx, param_group in enumerate(self._optimizer.param_groups):
             for param in param_group["params"]:
                 param.register_hook(
                     functools.partial(self._backward_hook, idx))
 
-        if patch_optimizer:
-            self.patch_optimizer()
-
         self._smoothing = 0.999
 
     @property
     def _state(self):
         return self._optimizer.state["adascale"]
-
-    @property
-    def scale(self):
-        """
-        The scaling factor of the current batch size, relative to the baseline
-        batch size when training with a single replica. For example, if the
-        baseline batch size is 32, but using a scaled-up batch size of 80, then
-        then the scaling factor is 2.5.
-        """
-        return self._scale
 
     def set_scale(self, scale):
         """
@@ -293,7 +347,7 @@ class AdaScale(object):
             args: Positional arguments passed to ``optimizer.step``.
             kwargs: Keyword arguments passed to ``optimizer.step``.
         """
-        if (self.is_accumulation_step()):
+        if self.is_accumulation_step():
             self._current_accumulation_step += 1
             self._made_step = False
             return
@@ -310,21 +364,26 @@ class AdaScale(object):
         for lr, param_group in zip(initial_lr, self._optimizer.param_groups):
             param_group["lr"] = lr
 
-    def patch_optimizer(self):
-        """
-        Monkey-patch the optimizer's step function with :meth:`AdaScale.step`.
-        """
-        # TODO: detect if the optimizer has already been patched.
 
-        @functools.wraps(self._optimizer.step)
-        def wrapper(*args, **kwargs):
-            return self.step(*args, **kwargs)
-        old_zero_grad = self._optimizer.zero_grad
+class LinearScale(ScalingRuleBase):
 
-        @functools.wraps(self._optimizer.zero_grad)
-        def zero_wrapper(*args, **kwargs):
-            if self._made_step:
-                return old_zero_grad(*args, **kwargs)
-            return None
-        self._optimizer.step = wrapper
-        self._optimizer.zero_grad = zero_wrapper
+    def step(self, *args, **kwargs):
+        self._made_step = True
+        initial_lr = [pg["lr"] for pg in self._optimizer.param_groups]
+        for idx, param_group in enumerate(self._optimizer.param_groups):
+            param_group["lr"] = self.scale * param_group["lr"]
+        self._optimizer_step(*args, **kwargs)
+        for lr, param_group in zip(initial_lr, self._optimizer.param_groups):
+            param_group["lr"] = lr
+
+
+class SqrtScale(ScalingRuleBase):
+
+    def step(self, *args, **kwargs):
+        self._made_step = True
+        initial_lr = [pg["lr"] for pg in self._optimizer.param_groups]
+        for idx, param_group in enumerate(self._optimizer.param_groups):
+            param_group["lr"] = math.sqrt(self.scale) * param_group["lr"]
+        self._optimizer_step(*args, **kwargs)
+        for lr, param_group in zip(initial_lr, self._optimizer.param_groups):
+            param_group["lr"] = lr

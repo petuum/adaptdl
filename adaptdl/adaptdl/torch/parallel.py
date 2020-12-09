@@ -24,7 +24,7 @@ from torch.nn.parallel import DistributedDataParallel
 import adaptdl.checkpoint
 import adaptdl.env
 from adaptdl.torch.data import current_dataloader
-from adaptdl.torch.adascale import AdaScale
+from adaptdl.torch.scaling_rules import AdaScale
 from adaptdl.torch._metrics import profile_sync_time
 
 

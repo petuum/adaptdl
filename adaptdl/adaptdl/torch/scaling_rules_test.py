@@ -16,7 +16,7 @@
 import numpy as np
 import torch
 
-import adaptdl.torch.adascale as adascale
+import adaptdl.torch.scaling_rules as adascale
 
 
 def test_object():
