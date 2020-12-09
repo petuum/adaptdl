@@ -79,14 +79,17 @@ class AdaScale(object):
         patch_optimizer (bool): If True, monkey-patches the ``step`` method of
             the optimizer with the AdaScale ``step`` method.
 
-    .. _AdaScale: https://proceedings.icml.cc/static/paper_files/icml/2020/4682-Supplemental.pdf"""  # noqa: E501
-    def __init__(self, adp, optimizer, num_replicas=None,
+    .. _AdaScale: https://proceedings.icml.cc/static/paper_files/icml/2020/4682-Supplemental.pdf
+    """  # noqa: E501
+    def __init__(self, adp, optimizer, mp_scaler=None, num_replicas=None,
                  accum_scale=None, patch_optimizer=False):
         self._adp = adp
         self._optimizer = optimizer
         self._orig_optimizer_step = optimizer.step
         self._orig_optimizer_zero_grad = optimizer.zero_grad
         self._should_zero_grad = True
+        self._mp_scaler = mp_scaler
+        self._local_sqr = None
         self._num_replicas = (num_replicas if num_replicas is not None
                               else torch.distributed.get_world_size())
         self._accum_scale = accum_scale or self._num_replicas
@@ -112,9 +115,6 @@ class AdaScale(object):
             self.patch_optimizer()
 
         self._smoothing = 0.999
-
-        self.raw_grad_sqr = np.ones(len(optimizer.param_groups))
-        self.raw_grad_var = np.zeros(len(optimizer.param_groups))
 
         self._reset_accumulation()
 
@@ -233,7 +233,11 @@ class AdaScale(object):
                     grads[-1].append(None)
                     continue
                 param.grad.div_(self._accum_count)
-                grads[-1].append(param.grad.detach())
+                grad = param.grad.detach()
+                if (self._mp_scaler is not None and
+                        self._mp_scaler.get_scale() != 0):
+                    grad = grad / self._mp_scaler.get_scale()
+                grads[-1].append(grad)
 
         check = [g.sum() for group in grads for g in group]
         if any(c != c or c in (float('inf'), -float('inf')) for c in check):
@@ -267,8 +271,6 @@ class AdaScale(object):
         if count > 1:
             grad_sqr = (count * total_sqr - local_sqr) / (count - 1)
             grad_var = (local_sqr - total_sqr) * scale / (count - 1)
-            self.raw_grad_sqr = grad_sqr
-            self.raw_grad_var = grad_var
             theta = self._smoothing ** scale
             self._update_avg('sqr_avg', grad_sqr, theta)
             self._update_avg('var_avg', grad_var, theta)
