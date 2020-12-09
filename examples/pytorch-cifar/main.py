@@ -74,7 +74,7 @@ else:
     trainloader = adl.AdaptiveDataLoader(trainset, batch_size=args.bs, shuffle=True, num_workers=2, drop_last=True)
 
 if args.autoscale_bsz:
-    trainloader.autoscale_batch_size(4096, local_bsz_bounds=(32, 256), gradient_accumulation=False)
+    trainloader.autoscale_batch_size(4096, local_bsz_bounds=(32, 1024), gradient_accumulation=False)
 
 validset = torchvision.datasets.CIFAR10(root=adaptdl.env.share_path(), train=False, download=False, transform=transform_test)
 validloader = adl.AdaptiveDataLoader(validset, batch_size=100, shuffle=False, num_workers=2)
