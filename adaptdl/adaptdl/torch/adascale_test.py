@@ -180,7 +180,7 @@ def test_gradient_accumulation_optimization_2():
         sgd.step()
         if adp.require_backward_grad_sync:
             schedule.step()
-        if params.allclose(torch.tensor([1.0, 1.0]), atol=ATOL):
+        if params.allclose(torch.tensor([1.0, 1.0]), atol=10 * ATOL):
             break
     else:
         pytest.fail(f"Did not converge: {params}")
