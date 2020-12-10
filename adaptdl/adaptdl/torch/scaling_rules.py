@@ -85,7 +85,8 @@ class ScalingRuleBase(object):
     Base class for scaling rules.
 
     Arguments:
-        optimizer (torch.optim.Optimizer): Optimizer to apply this scaling rule to.
+        optimizer (torch.optim.Optimizer): Optimizer to apply this scaling rule
+        to.
         scale (float): Scaling factor of the batch size, e.g. using a 10x
             larger batch size (summed across all replicas) means a scale of
             10. If None, defaults to ``num_replicas``.
