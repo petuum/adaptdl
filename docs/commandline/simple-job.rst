@@ -17,7 +17,7 @@ Writing a Simple Program
 ------------------------
 
 For the purpose of this guide, you will want a simple python script that
-produces output to ``adaptdl.get_share_dir()``, the directory used for
+produces output to ``adaptdl.env.share_path()``, the directory used for
 your job for storing general files.
 
 For example, you may copy the following code (into ``hello_world/hello_world.py``):
@@ -30,7 +30,7 @@ For example, you may copy the following code (into ``hello_world/hello_world.py`
 
    print("Hello, world!")
 
-   with open(os.path.join(adaptdl.env.get_share_dir(), "foo.txt"), "w") as f:
+   with open(os.path.join(adaptdl.env.share_path(), "foo.txt"), "w") as f:
        f.write("Hello, world!")
 
    time.sleep(100)
