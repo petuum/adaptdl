@@ -17,7 +17,7 @@ Writing a Simple Program
 ------------------------
 
 For the purpose of this guide, you will want a simple python script that
-produces output to ``adaptdl.share_path()``, the directory used for
+produces output to ``adaptdl.env.share_path()``, the directory used for
 your job for storing general files.
 
 For example, you may copy the following code (into ``hello_world/hello_world.py``):
