@@ -13,6 +13,8 @@
 # limitations under the License.
 
 
+import collections.abc
+import copy
 import functools
 
 import math
@@ -46,6 +48,34 @@ def _normsqr_groups(grads):
     return np.array(ret)
 
 
+class _LocalVariables(collections.abc.MutableMapping):
+    def __init__(self):
+        self.data_copy = {}
+        self.data = {}
+
+    def set_initial_values(self, data: dict):
+        self.data_copy = data
+        self.reset()
+
+    def reset(self):
+        self.data = copy.deepcopy(self.data_copy)
+
+    def __getitem__(self, item):
+        return self.data.__getitem__(item)
+
+    def __setitem__(self, key, value):
+        self.data.__setitem__(key, value)
+
+    def __delitem__(self, key):
+        self.data.__delitem__(key)
+
+    def __iter__(self):
+        return self.data.__iter__()
+
+    def __len__(self):
+        return self.data.__len__()
+
+
 class ScalingRuleBase(object):
     """
     Base class for scaling rules.
@@ -65,12 +95,20 @@ class ScalingRuleBase(object):
                  patch_optimizer=False):
         self._optimizer = optimizer
         self._optimizer_step = optimizer.step
+        self._accumulation_steps = 1
+        self._current_accumulation_step = 0
         self._num_replicas = (num_replicas if num_replicas is not None
                               else torch.distributed.get_world_size())
         self._scale = 1.0
         self.set_scale(self._num_replicas if scale is None else scale)
 
         self._made_step = False
+
+        # local variables that are rested when:
+        # 1. accumulation step restarts
+        # 2. gradients have been synchronized between all replicas
+        #    and accumulation steps
+        self._local_vars = _LocalVariables()
 
         if patch_optimizer:
             self.patch_optimizer()
@@ -94,6 +132,57 @@ class ScalingRuleBase(object):
         """
         self._scale = scale
 
+    def is_accumulation_step(self):
+        return self._current_accumulation_step != self._accumulation_steps - 1
+
+    def set_accumulation_steps(self, accumulation_steps):
+        """
+        Set the number of batches sampled before performing an optimizer
+        step for gradient accumulation. Also resets the current step number
+        for gradient accumulation to 0
+
+        Arguments:
+            accumulation_steps (int): new number of batches sampled before
+                                  stepping.
+        """
+        accumulation_steps = accumulation_steps + 1
+        if accumulation_steps != self._accumulation_steps:
+            self._current_accumulation_step = 0
+            self._accumulation_steps = int(accumulation_steps)
+            self._local_vars.reset()
+
+    def _calculate_scale_multiplier(self, pg_index=None) -> float:
+        """
+        Calculate the multiplier to be applied to the current learning rate.
+        Arguments:
+            pg_index: Index of current parameter group.
+        """
+        raise NotImplementedError
+
+    def step(self, *args, **kwargs):
+        """
+        Run one optimizer step using Adascale. Essentially just invokes
+        ``optimizer.step(*args, **kwargs)`` with a scaled learning rate.
+
+        Arguments:
+            args: Positional arguments passed to ``optimizer.step``.
+            kwargs: Keyword arguments passed to ``optimizer.step``.
+        """
+        if self.is_accumulation_step():
+            self._current_accumulation_step += 1
+            self._made_step = False
+            return
+
+        self._current_accumulation_step = 0
+        self._made_step = True
+        initial_lr = [pg["lr"] for pg in self._optimizer.param_groups]
+        for idx, param_group in enumerate(self._optimizer.param_groups):
+            param_group["lr"] = self._calculate_scale_multiplier(idx) \
+                                * param_group["lr"]
+        self._optimizer_step(*args, **kwargs)
+        for lr, param_group in zip(initial_lr, self._optimizer.param_groups):
+            param_group["lr"] = lr
+
     def patch_optimizer(self):
         """
         Monkey-patch the optimizer's step function with :meth:`self.step`.
@@ -115,9 +204,6 @@ class ScalingRuleBase(object):
 
         self._optimizer.step = wrapper
         self._optimizer.zero_grad = zero_wrapper
-
-    def step(self, *args, **kwargs):
-        pass
 
 
 class AdaScale(ScalingRuleBase):
@@ -152,7 +238,8 @@ class AdaScale(ScalingRuleBase):
     .. _AdaScale: https://proceedings.icml.cc/static/paper_files/icml/2020/4682-Supplemental.pdf
     """  # noqa: E501
 
-    def __init__(self, optimizer, scale=None, num_replicas=None, patch_optimizer=False):
+    def __init__(self, optimizer, scale=None, num_replicas=None,
+                 patch_optimizer=False):
         optimizer.state.setdefault("adascale", {
             "replicas": 0.0,
 
@@ -161,10 +248,8 @@ class AdaScale(ScalingRuleBase):
             "var_avg": np.zeros(len(optimizer.param_groups)),
         })
         super().__init__(optimizer, scale, num_replicas, patch_optimizer)
-        self._local_sqr = None
+        self._local_vars.set_initial_values({"local_sqr": None})
         self._prev_grads = None
-        self._accumulation_steps = 1
-        self._current_accumulation_step = 0
 
         for idx, param_group in enumerate(self._optimizer.param_groups):
             for param in param_group["params"]:
@@ -176,6 +261,15 @@ class AdaScale(ScalingRuleBase):
     @property
     def _state(self):
         return self._optimizer.state["adascale"]
+
+    # _local_sqr getter and setters for backward compatibility.
+    @property
+    def _local_sqr(self):
+        return self._local_vars["local_sqr"]
+
+    @_local_sqr.setter
+    def _local_sqr(self, value):
+        self._local_vars["local_sqr"] = value
 
     def set_scale(self, scale):
         """
@@ -193,25 +287,6 @@ class AdaScale(ScalingRuleBase):
             self._reset_avg("var_avg")
         self._scale = scale
         self._state['replicas'] = self._num_replicas
-
-    def set_accumulation_steps(self, accumulation_steps):
-        """
-        Set the number of batches sampled before performing an optimizer
-        step for gradient accumulation. Also resets the current step number
-        for gradient accumulation to 0
-
-        Arguments:
-            accumulation_steps (int): new number of batches sampled before
-                                  stepping.
-        """
-        accumulation_steps = accumulation_steps + 1
-        if accumulation_steps != self._accumulation_steps:
-            self._current_accumulation_step = 0
-            self._accumulation_steps = int(accumulation_steps)
-            self._local_sqr = None
-
-    def is_accumulation_step(self):
-        return self._current_accumulation_step != self._accumulation_steps - 1
 
     def norm_avg(self):
         """
@@ -336,54 +411,24 @@ class AdaScale(ScalingRuleBase):
             theta = self._smoothing ** scale
             self._update_avg('norm_avg', grad_sqr, theta)
             self._update_avg('var_avg', grad_var, theta)
-        self._local_sqr = None
+        self._local_vars.reset()
 
-    def step(self, *args, **kwargs):
-        """
-        Run one optimizer step using Adascale. Essentially just invokes
-        ``optimizer.step(*args, **kwargs)`` with a scaled learning rate.
-
-        Arguments:
-            args: Positional arguments passed to ``optimizer.step``.
-            kwargs: Keyword arguments passed to ``optimizer.step``.
-        """
-        if self.is_accumulation_step():
-            self._current_accumulation_step += 1
-            self._made_step = False
-            return
-
-        self._current_accumulation_step = 0
-        self._made_step = True
-        initial_lr = [pg["lr"] for pg in self._optimizer.param_groups]
-        for idx, param_group in enumerate(self._optimizer.param_groups):
-            grad_sqr = float(self._state["norm_avg"][idx])
-            grad_var = float(self._state["var_avg"][idx])
-            gain = (grad_var + grad_sqr) / (grad_var / self._scale + grad_sqr)
-            param_group["lr"] = gain * param_group["lr"]
-        self._optimizer_step(*args, **kwargs)
-        for lr, param_group in zip(initial_lr, self._optimizer.param_groups):
-            param_group["lr"] = lr
+    def _calculate_scale_multiplier(self, pg_idx=None) -> float:
+        if pg_idx is None:
+            raise ValueError("Parameter index must be provided.")
+        grad_sqr = float(self._state["norm_avg"][pg_idx])
+        grad_var = float(self._state["var_avg"][pg_idx])
+        gain = (grad_var + grad_sqr) / (grad_var / self._scale + grad_sqr)
+        return gain
 
 
 class LinearScale(ScalingRuleBase):
 
-    def step(self, *args, **kwargs):
-        self._made_step = True
-        initial_lr = [pg["lr"] for pg in self._optimizer.param_groups]
-        for idx, param_group in enumerate(self._optimizer.param_groups):
-            param_group["lr"] = self.scale * param_group["lr"]
-        self._optimizer_step(*args, **kwargs)
-        for lr, param_group in zip(initial_lr, self._optimizer.param_groups):
-            param_group["lr"] = lr
+    def _calculate_scale_multiplier(self, pg_index=None) -> float:
+        return self.scale
 
 
 class SqrtScale(ScalingRuleBase):
 
-    def step(self, *args, **kwargs):
-        self._made_step = True
-        initial_lr = [pg["lr"] for pg in self._optimizer.param_groups]
-        for idx, param_group in enumerate(self._optimizer.param_groups):
-            param_group["lr"] = math.sqrt(self.scale) * param_group["lr"]
-        self._optimizer_step(*args, **kwargs)
-        for lr, param_group in zip(initial_lr, self._optimizer.param_groups):
-            param_group["lr"] = lr
+    def _calculate_scale_multiplier(self, pg_index=None) -> float:
+        return math.sqrt(self.scale)

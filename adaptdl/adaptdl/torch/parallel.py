@@ -74,7 +74,7 @@ class AdaptiveDataParallel(DistributedDataParallel):
         accumulation_steps = dataloader.accumulation_steps
         # TODO: move this to the dataloader.__iter__
         self.adascale.set_accumulation_steps(accumulation_steps)
-        if (self.adascale.is_accumulation_step()):
+        if self.adascale.is_accumulation_step():
             with super().no_sync():
                 dataloader.is_accumulation_step = True
                 return super().forward(*args, **kwargs)
