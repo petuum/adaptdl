@@ -49,6 +49,10 @@ def _normsqr_groups(grads):
 
 
 class _LocalVariables(collections.abc.MutableMapping):
+    """
+    A dictionary that remembers initial values and has a ``reset`` function
+    to reset data to its initial state.
+    """
     def __init__(self):
         self.data_copy = {}
         self.data = {}
