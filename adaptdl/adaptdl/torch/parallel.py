@@ -15,6 +15,7 @@
 
 import functools
 import time
+from typing import Type, TypeVar, Union
 
 import torch
 import torch.cuda
@@ -24,8 +25,11 @@ from torch.nn.parallel import DistributedDataParallel
 import adaptdl.checkpoint
 import adaptdl.env
 from adaptdl.torch.data import current_dataloader
-from adaptdl.torch.scaling_rules import AdaScale
-from adaptdl.torch._metrics import profile_sync_time
+from adaptdl.torch.scaling_rules import ScalingRuleBase
+from adaptdl.torch._metrics import profile_sync_time, update_grad_params,\
+    update_progress
+
+SR = TypeVar("SR", bound=ScalingRuleBase)
 
 
 class AdaptiveDataParallel(DistributedDataParallel):
@@ -34,20 +38,29 @@ class AdaptiveDataParallel(DistributedDataParallel):
     adaptive batch sizes and checkpoint-restart elasticity. It automatically
     saves the given model, optimizer, and (optionally) LR scheduler whenever a
     checkpoint is triggered, and restores their states after restart. The
-    optimizer is automatically patched with AdaScale.
+    optimizer is automatically patched with the chosen scaling rule.
 
     Arguments:
         model (torch.nn.Module): Model to be distributed.
         optimizer (torch.optim.Optimizer): Optimizer used to update the given
-            model's parameters, will be patched using
-            :class:`adaptdl.torch.adascale.AdaScale`.
+            model's parameters, will be patched using subclass of
+            :class:`adaptdl.torch.adascale.ScalingRuleBase`.
+        scaling_rule (Union[str, Type[ScalingRuleBase]]): Scaling rule used to
+            patch the given optimizer.
         lr_scheduler (torch.optim.lr_scheduler._LRScheduler): LR scheduler used
             to anneal the learning rate for the given optimizer.
         name (string): Unique name for each instance of this class, needed only
             if multiple instances exist.
     """
-    def __init__(self, model, optimizer, lr_scheduler=None,
-                 name="adaptdl-dataparallel", **kwargs):
+
+    available_scaling_rules = {cls.__name__: cls
+                               for cls in ScalingRuleBase.subclasses}
+
+    def __init__(self, model, optimizer,
+                 lr_scheduler=None, name="adaptdl-dataparallel",
+                 scaling_rule: Union[str, Type[SR]] = "AdaScale", **kwargs):
+        # Before super call to catch bad scaling_rule early.
+        scaling_rule_cls: Type[SR] = self._get_scaling_rule_cls(scaling_rule)
         super().__init__(model, **kwargs)
         self._key = id(self)
         # Register backward hooks on model parameters. Depends on these hooks
@@ -58,8 +71,10 @@ class AdaptiveDataParallel(DistributedDataParallel):
         for param in model.parameters():
             param.register_hook(functools.partial(self._backward_hook, param))
 
-        # Setup for AdaScale, must be after registering backward hooks!
-        self.adascale = AdaScale(optimizer, patch_optimizer=True)
+        # Setup for the scaling_rule, must be after registering backward hooks
+        # because some of them need to register their own backward hooks.
+        self.scaling_rule: ScalingRuleBase = \
+            scaling_rule_cls(optimizer, patch_optimizer=True)
 
         self._state = _AdaptiveDataParallelState(model, optimizer,
                                                  lr_scheduler, name)
@@ -67,14 +82,31 @@ class AdaptiveDataParallel(DistributedDataParallel):
 
         self._sync_start = None
 
+    def _get_scaling_rule_cls(self,
+                              scaling_rule: Union[str, Type[SR]]) -> Type[SR]:
+        """Get the class object of the scaling rule."""
+        err_invalid = f"Invalid scaling rule: {scaling_rule}."
+        err_unrecognized = f"Unrecognized scaling rule: {scaling_rule}."
+        try:
+            if isinstance(scaling_rule, str):
+                return self.available_scaling_rules[scaling_rule]
+            elif issubclass(scaling_rule, ScalingRuleBase):
+                return scaling_rule
+            else:
+                raise ValueError(err_unrecognized)
+        except TypeError:
+            raise ValueError(err_invalid)
+        except KeyError:
+            raise ValueError(err_unrecognized)
+
     def forward(self, *args, **kwargs):
         # Do not do gradient synchronization during gradient accumulation
         # Otherwise, exactly the same as DistributedDataParallel's forward
         dataloader = current_dataloader()
         accumulation_steps = dataloader.accumulation_steps
         # TODO: move this to the dataloader.__iter__
-        self.adascale.set_accumulation_steps(accumulation_steps)
-        if self.adascale.is_accumulation_step():
+        self.scaling_rule.set_accumulation_steps(accumulation_steps)
+        if self.scaling_rule.is_accumulation_step():
             with super().no_sync():
                 dataloader.is_accumulation_step = True
                 return super().forward(*args, **kwargs)
@@ -132,27 +164,20 @@ class AdaptiveDataParallel(DistributedDataParallel):
         dataloader.train()
 
         scale = dataloader.current_batch_size / dataloader.batch_size
-        self.adascale.set_scale(scale)
-        self._state.gain = self.adascale.gain()
-        adaptdl.torch._metrics.update_progress(self.adascale.get_progress())
+        self.scaling_rule.set_scale(scale)
+        update_progress(self.scaling_rule.get_progress())
         if dataloader.max_batch_size and \
                 dataloader.max_batch_size > dataloader.batch_size:
-            adaptdl.torch._metrics.update_grad_params(
-                self._key, self.adascale.norm_avg(), self.adascale.var_avg())
+            update_grad_params(self._key,
+                               self.scaling_rule.norm_avg(),
+                               self.scaling_rule.var_avg())
         self._sync_start = None
 
     def zero_grad(self, *args, **kwargs):
-        if self.adascale.is_accumulation_step():
+        if self.scaling_rule.is_accumulation_step():
             return
         else:
             return super().zero_grad(*args, **kwargs)
-
-    @property
-    def gain(self):  # TODO: should be tracked in the metrics module instead.
-        """
-        Current estimate of the AdaScale gain (r_t) value.
-        """
-        return self._state.gain
 
     def to_tensorboard(self, writer, global_step, tag_prefix=""):
         """
@@ -166,12 +191,7 @@ class AdaptiveDataParallel(DistributedDataParallel):
         """
         if tag_prefix and not tag_prefix.endswith("/"):
             tag_prefix += "/"
-        writer.add_scalar(tag_prefix + "Gradient_Norm_Sqr",
-                          self.adascale.norm_avg(), global_step)
-        writer.add_scalar(tag_prefix + "Gradient_Variance",
-                          self.adascale.var_avg(), global_step)
-        writer.add_scalar(tag_prefix + "Learning_Rate_Factor",
-                          self.adascale.gain(), global_step)
+        self.scaling_rule.to_tensorboard(writer, global_step, tag_prefix)
 
 
 class _AdaptiveDataParallelState(adaptdl.checkpoint.State):
@@ -181,17 +201,15 @@ class _AdaptiveDataParallelState(adaptdl.checkpoint.State):
         self.model = model
         self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
-        # TODO: Gain/goodput should be tracked in the metrics module instead.
-        self.gain = 0.0
 
     def save(self, fileobj):
         state_dicts = [self.model.state_dict(), self.optimizer.state_dict()]
         if self.lr_scheduler is not None:
             state_dicts.append(self.lr_scheduler.state_dict())
-        torch.save((state_dicts, self.gain), fileobj)
+        torch.save(state_dicts, fileobj)
 
     def load(self, fileobj):
-        state_dicts, self.gain = torch.load(fileobj)
+        state_dicts = torch.load(fileobj)
         self.model.load_state_dict(state_dicts[0])
         self.optimizer.load_state_dict(state_dicts[1])
         if len(state_dicts) > 2:

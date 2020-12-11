@@ -42,6 +42,7 @@ parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
 parser.add_argument('--epochs', default=60, type=int, help='number of epochs')
 parser.add_argument('--model', default='ResNet18', type=str, help='model')
 parser.add_argument('--autoscale-bsz', dest='autoscale_bsz', default=False, action='store_true', help='autoscale batchsize')
+parser.add_argument('--lr-scaling-rule', default='AdaScale', type=str, help='learning rate scaling rule')
 args = parser.parse_args()
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -101,7 +102,7 @@ optimizer = optim.SGD([{"params": [param]} for param in net.parameters()],
                       lr=args.lr, momentum=0.9, weight_decay=5e-4)
 lr_scheduler = MultiStepLR(optimizer, [30, 45], 0.1)
 
-net = adl.AdaptiveDataParallel(net, optimizer, lr_scheduler)
+net = adl.AdaptiveDataParallel(net, optimizer, lr_scheduler, lr_scaling_rule)
 
 # Training
 def train(epoch):

@@ -23,7 +23,7 @@ import torch.distributed
 import torch.optim
 from torch.autograd import Variable
 
-__all__ = ["AdaScale"]
+__all__ = ["ScalingRuleBase", "AdaScale", "LinearScale", "SqrtScale"]
 
 
 def _average_groups(grads1, grads2):
@@ -95,6 +95,11 @@ class ScalingRuleBase(object):
         patch_optimizer (bool): If True, monkey-patches the ``step`` method of
             the optimizer with this scaling rule's ``step`` method.
     """
+    subclasses = []
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        cls.subclasses.append(cls)
 
     def __init__(self, optimizer, scale=None, num_replicas=None,
                  patch_optimizer=False):
@@ -160,7 +165,7 @@ class ScalingRuleBase(object):
         """
         Calculate the multiplier to be applied to the current learning rate.
         Arguments:
-            pg_index: Index of current parameter group.
+            pg_index (int): Index of current parameter group.
         """
         raise NotImplementedError
 
@@ -187,6 +192,21 @@ class ScalingRuleBase(object):
         self._optimizer_step(*args, **kwargs)
         for lr, param_group in zip(initial_lr, self._optimizer.param_groups):
             param_group["lr"] = lr
+
+    def get_progress(self):
+        raise NotImplementedError
+
+    def to_tensorboard(self, writer, global_step, tag_prefix=""):
+        """
+        Output some useful metrics to TensorBoard.
+
+        Arguments:
+            writer (torch.utils.tensorboard.SummaryWriter): ``SummaryWriter``
+                object to output metrics to.
+            global_step (int): Global step value to record.
+            tag_prefix (str): Prefix added to each metric's tag.
+        """
+        pass
 
     def patch_optimizer(self):
         """
@@ -331,6 +351,14 @@ class AdaScale(ScalingRuleBase):
         norm = self.norm_avg()
         return (var + norm) / (var / scale + norm)
 
+    def to_tensorboard(self, writer, global_step, tag_prefix=""):
+        writer.add_scalar(tag_prefix + "Gradient_Norm_Sqr",
+                          self.norm_avg(), global_step)
+        writer.add_scalar(tag_prefix + "Gradient_Variance",
+                          self.var_avg(), global_step)
+        writer.add_scalar(tag_prefix + "Learning_Rate_Factor",
+                          self.gain(), global_step)
+
     def _update_avg(self, param_name, value, factor):
         biased = self._state.get(param_name + "_biased", 0.0)
         unbias = self._state.get(param_name + "_unbias", 0.0)
@@ -432,8 +460,22 @@ class LinearScale(ScalingRuleBase):
     def _calculate_scale_multiplier(self, pg_index=None) -> float:
         return self.scale
 
+    def get_progress(self):
+        return self.scale
+
+    def to_tensorboard(self, writer, global_step, tag_prefix=""):
+        writer.add_scalar(tag_prefix + "Learning_Rate_Factor",
+                          self.scale, global_step)
+
 
 class SqrtScale(ScalingRuleBase):
 
     def _calculate_scale_multiplier(self, pg_index=None) -> float:
         return math.sqrt(self.scale)
+
+    def get_progress(self):
+        return math.sqrt(self.scale)
+
+    def to_tensorboard(self, writer, global_step, tag_prefix=""):
+        writer.add_scalar(tag_prefix + "Learning_Rate_Factor",
+                          math.sqrt(self.scale), global_step)
