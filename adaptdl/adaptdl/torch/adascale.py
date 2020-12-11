@@ -232,10 +232,9 @@ class AdaScale(object):
                 if param.grad is None:
                     grads[-1].append(None)
                     continue
-                param.grad.div_(self._accum_count)
-                grad = param.grad.detach()
-                if (self._mp_scaler is not None and
-                        self._mp_scaler.get_scale() != 0):
+                param.grad.div_(self._accumulation_steps)
+                grad = param.grad.detach().float()
+                if (self._mp_scaler is not None):
                     grad = grad / self._mp_scaler.get_scale()
                 grads[-1].append(grad)
 
@@ -272,8 +271,14 @@ class AdaScale(object):
             grad_sqr = (count * total_sqr - local_sqr) / (count - 1)
             grad_var = (local_sqr - total_sqr) * scale / (count - 1)
             theta = self._smoothing ** scale
-            self._update_avg('sqr_avg', grad_sqr, theta)
-            self._update_avg('var_avg', grad_var, theta)
+            # Note: mixed precision can result in nan/inf gradients,
+            # which propogate into our norm and variance estimates.
+            # Mixed precision autoscaling skips the skip where
+            # there are nan/inf, so we also skip the update here
+            if (np.all(np.isfinite(grad_sqr))
+                    and np.all(np.isfinite(grad_var))):
+                self._update_avg('norm_avg', grad_sqr, theta)
+                self._update_avg('var_avg', grad_var, theta)
 
     def step(self, *args, **kwargs):
         """
