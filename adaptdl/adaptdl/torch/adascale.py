@@ -14,11 +14,13 @@
 
 
 import functools
+import warnings
 
 import numpy as np
 import torch.distributed
 import torch.optim
 from torch.autograd import Variable
+from types import MethodType
 
 
 __all__ = ["AdaScale"]
@@ -41,7 +43,8 @@ def _average_groups(grads1, grads2):
 def _normsqr_groups(grads):
     ret = []
     for group in grads:
-        normsqr = [g.pow(2).sum() for g in group if g is not None]
+        normsqr = [g.pow(2).sum(dtype=torch.float64)
+                   for g in group if g is not None]
         ret.append(sum(normsqr).item() if normsqr else 0.0)
     return np.array(ret)
 
@@ -66,6 +69,7 @@ class AdaScale(object):
                 adascale.step()
 
     Arguments:
+        adp (adaptdl.torch.AdaptiveDataParallel): Model to apply AdaScale to.
         optimizer (torch.optim.Optimizer): Optimizer to apply AdaScale to.
         scale (float): Scaling factor of the batch size, e.g. using a 10x
             larger batch size (summed across all replicas) means a scale of
@@ -77,96 +81,72 @@ class AdaScale(object):
 
     .. _AdaScale: https://proceedings.icml.cc/static/paper_files/icml/2020/4682-Supplemental.pdf
     """  # noqa: E501
-    def __init__(self, optimizer, scale=None,
-                 num_replicas=None, patch_optimizer=False):
+    def __init__(self, adp, optimizer, num_replicas=None,
+                 accum_scale=None, patch_optimizer=False):
+        self._adp = adp
         self._optimizer = optimizer
-        self._optimizer_step = optimizer.step
-        self._local_sqr = None
+        self._optimizer_step = None
+        self._optimizer_zero_grad = None
         self._num_replicas = (num_replicas if num_replicas is not None
                               else torch.distributed.get_world_size())
+        self._accum_scale = accum_scale or self._num_replicas
         self._prev_grads = None
-        self._made_step = False
-        self._accumulation_steps = 1
-        self._current_accumulation_step = 0
 
         self._optimizer.state.setdefault("adascale", {
-            "replicas": 0.0,
-
+            "progress": 0.0,
+            "prev_scale": 0.0,
             # Averages of n and v
-            "norm_avg": np.ones(len(optimizer.param_groups)),
+            "sqr_avg": np.ones(len(optimizer.param_groups)),
             "var_avg": np.zeros(len(optimizer.param_groups)),
+            # Whether estimates are biased (using differenced estimator).
+            "biased": False,
         })
-
-        self.set_scale(self._num_replicas if scale is None else scale)
 
         for idx, param_group in enumerate(self._optimizer.param_groups):
             for param in param_group["params"]:
                 param.register_hook(
-                    functools.partial(self._backward_hook, idx))
+                    functools.partial(self._backward_hook, idx, param))
+        self._callback_queued = False
 
         if patch_optimizer:
             self.patch_optimizer()
 
         self._smoothing = 0.999
 
+        self.raw_grad_sqr = np.ones(len(optimizer.param_groups))
+        self.raw_grad_var = np.zeros(len(optimizer.param_groups))
+
+        self._reset_accumulation()
+
+    def _reset_accumulation(self):
+        if self._optimizer_zero_grad is None:
+            self._optimizer.zero_grad()
+        else:
+            self._optimizer_zero_grad()
+        self._local_sqr = None
+        self._accum_count = 0
+
     @property
     def _state(self):
         return self._optimizer.state["adascale"]
 
     @property
-    def scale(self):
-        """
-        The scaling factor of the current batch size, relative to the baseline
-        batch size when training with a single replica. For example, if the
-        baseline batch size is 32, but using a scaled-up batch size of 80, then
-        then the scaling factor is 2.5.
-        """
-        return self._scale
+    def accum_scale(self):
+        return self._accum_scale
 
-    def set_scale(self, scale):
-        """
-        Set the scaling factor of the current batch size. It is up to the
-        application to invoke this function to make sure that AdaScale's
-        scaling factor matches the actual batch size used during training.
+    def set_accum_scale(self, accum_scale):
+        if not np.isclose(self._accum_scale, accum_scale):
+            self._reset_accumulation()
+            self._accum_scale = accum_scale
 
-        Arguments:
-            scale (float): New scaling factor to be applied to AdaScale.
-        """
-        if self._state['replicas'] == 1 and self._num_replicas > 1:
-            # TODO: when to reset running averages should be decided outside of
-            # the AdaScale object.
-            self._reset_avg("norm_avg")
-            self._reset_avg("var_avg")
-        self._scale = scale
-        self._state['replicas'] = self._num_replicas
-
-    def set_accumulation_steps(self, accumulation_steps):
-        """
-        Set the number of batches sampled before performing an optimizer
-        step for gradient accumulation. Also resets the current step number
-        for gradient accumulation to 0
-
-        Arguments:
-            accumulation_steps (int): new number of batches sampled before
-                                  stepping.
-        """
-        accumulation_steps = accumulation_steps + 1
-        if accumulation_steps != self._accumulation_steps:
-            self._current_accumulation_step = 0
-            self._accumulation_steps = int(accumulation_steps)
-            self._local_sqr = None
-
-    def is_accumulation_step(self):
-        return self._current_accumulation_step != self._accumulation_steps - 1
-
-    def norm_avg(self):
+    def sqr_avg(self):
         """
         Current estimate of the squared l2-norm of the true gradient (sigma
         squared).
 
         Returns (float): Estimate of squared l2-norm.
         """
-        return np.sum(self._state["norm_avg"])
+        return float(np.sum(np.maximum(self._state["sqr_avg"], 0.0)))
 
     def var_avg(self):
         """
@@ -175,26 +155,22 @@ class AdaScale(object):
 
         Returns (float): Estimate of trace of the covariance.
         """
-        return np.sum(self._state["var_avg"])
+        return float(np.sum(np.maximum(self._state["var_avg"], 1e-6)))
 
-    def get_progress(self, scale=None):
-        if self._made_step:
-            return self.gain(scale)
-        else:
-            return 0.0
+    def get_progress(self):
+        return self._state["progress"]
 
-    def gain(self, scale=None):
+    def gain(self, scale):
         """
         Current estimate of the AdaScale gain ratio.
 
         Arguments:
-            scale (float): The batch size scale to estimate the gain ratio for.
+            scale (float): The total scale to estimate the gain ratio for.
 
         Returns (float): Estimate of gain ratio.
         """
-        scale = self._scale if scale is None else scale
         var = self.var_avg()
-        norm = self.norm_avg()
+        norm = self.sqr_avg()
         return (var + norm) / (var / scale + norm)
 
     def _update_avg(self, param_name, value, factor):
@@ -210,18 +186,18 @@ class AdaScale(object):
         self._state.pop(param_name + "_biased", None)
         self._state.pop(param_name + "_unbias", None)
 
-    def _backward_hook(self, idx, grad):
+    def _backward_hook(self, idx, param, grad):
         # This method should be invoked once for each parameter during the
         # backward pass, before gradients are synchronized between replicas.
         if self._local_sqr is None:
-            self._local_sqr = torch.zeros(
-                (self._accumulation_steps, len(self._optimizer.param_groups)),
-                device=grad.device)
-        self._local_sqr[self._current_accumulation_step][idx] += \
-            grad.pow(2).sum()
-        grad /= self._accumulation_steps
-        self._final_callback_queued = False
-        Variable._execution_engine.queue_callback(self._queue_callback)
+            self._local_sqr = torch.zeros(len(self._optimizer.param_groups),
+                                          device=grad.device,
+                                          dtype=torch.float64)
+        # Update the local gradient square sum
+        self._local_sqr[idx] += grad.pow(2).sum(dtype=torch.float64)
+        if not self._callback_queued:
+            Variable._execution_engine.queue_callback(self._queue_callback)
+        self._callback_queued = True
 
     def _queue_callback(self):
         # This method should be invoked after the entire backward pass. We want
@@ -231,58 +207,68 @@ class AdaScale(object):
         # callback, which might not yet be executed. Therefore, we enqueue
         # self._final_callback from this method, which should ensure it is
         # invoked after the gradient synchronization callback.
-        if self.is_accumulation_step() or self._final_callback_queued:
-            return
-        self._final_callback_queued = True
-        Variable._execution_engine.queue_callback(self._final_callback)
-        # Asynchronously sum the local squared-gradient statistics. The actual
-        # gradient averaging should also be happening at the same time, until
-        # self._final_callback is invoked.
-        if self._num_replicas > 1:
-            self._local_sqr = (self._local_sqr,
-                               torch.distributed.all_reduce(self._local_sqr,
-                                                            async_op=True))
+        self._callback_queued = False
+        self._accum_count += 1
+        if self._adp.require_backward_grad_sync:
+            # Asynchronously sum the local squared-gradient statistics. The
+            # actual gradient averaging should also be happening at the same
+            # time, until self._final_callback is invoked.
+            self._async_op = torch.distributed.all_reduce(self._local_sqr,
+                                                          async_op=True)
+            Variable._execution_engine.queue_callback(self._final_callback)
 
     def _final_callback(self):
         # This method should be invoked once the gradients have been
         # synchronized between all replicas and accumulation steps.
-        self._final_callback_queued = False
+        self._async_op.wait()
 
-        grads = [[p.grad.detach() for p in group["params"]]
-                 for group in self._optimizer.param_groups]
+        grads = []
+        for group in self._optimizer.param_groups:
+            grads.append([])
+            for param in group["params"]:
+                if param.grad is None:
+                    grads[-1].append(None)
+                    continue
+                param.grad.div_(self._accum_count)
+                grads[-1].append(param.grad.detach())
 
-        # Average local squared-norm samples across replicas.
-        if self._num_replicas > 1:
-            self._local_sqr[1].wait()
-            self._local_sqr = self._local_sqr[0] / self._num_replicas
-        count = self._num_replicas * self._accumulation_steps
-        scale = self._scale
+        check = [g.sum() for group in grads for g in group]
+        if any(c != c or c in (float('inf'), -float('inf')) for c in check):
+            print("AdaScale detected invalid gradient! Skipping step.")
+            return
+
+        count = self._num_replicas * self._accum_count
+        scale = self._accum_scale * self._accum_count
         if count > 1:
-            # Average local squared-norm samples across accumulation steps.
-            local_sqr = self._local_sqr.cpu().numpy().mean(axis=0)
+            # Average local squared-norm samples.
+            local_sqr = self._local_sqr.cpu().numpy() / count
             total_sqr = _normsqr_groups(grads)
+            if self._state["biased"]:
+                self._reset_avg("sqr_avg")
+                self._reset_avg("var_avg")
+            self._state["biased"] = False
             self._prev_grads = None
-        # Single gradient datapoint, use difference estimation.
         else:
+            # Single gradient datapoint, use difference estimation.
             if self._prev_grads is not None:
                 local_sqr = (_normsqr_groups(self._prev_grads) +
                              _normsqr_groups(grads)) / 2
-                total_sqr = \
-                    _normsqr_groups(_average_groups(grads, self._prev_grads))
+                avg_grads = _average_groups(grads, self._prev_grads)
+                total_sqr = _normsqr_groups(avg_grads)
                 count = 2
-                scale = 2 * self._scale
+                scale = 2 * self._accum_scale
+            self._state["biased"] = True
             self._prev_grads = [[g.clone() if g is not None else None
                                  for g in group] for group in grads]
 
         if count > 1:
             grad_sqr = (count * total_sqr - local_sqr) / (count - 1)
             grad_var = (local_sqr - total_sqr) * scale / (count - 1)
-            grad_sqr = np.maximum(grad_sqr, 0.0)
-            grad_var = np.maximum(grad_var, 1e-6)
+            self.raw_grad_sqr = grad_sqr
+            self.raw_grad_var = grad_var
             theta = self._smoothing ** scale
-            self._update_avg('norm_avg', grad_sqr, theta)
+            self._update_avg('sqr_avg', grad_sqr, theta)
             self._update_avg('var_avg', grad_var, theta)
-        self._local_sqr = None
 
     def step(self, *args, **kwargs):
         """
@@ -293,22 +279,25 @@ class AdaScale(object):
             args: Positional arguments passed to ``optimizer.step``.
             kwargs: Keyword arguments passed to ``optimizer.step``.
         """
-        if (self.is_accumulation_step()):
-            self._current_accumulation_step += 1
-            self._made_step = False
+        if not self._adp.require_backward_grad_sync:
             return
-
-        self._current_accumulation_step = 0
-        self._made_step = True
+        scale = self._accum_scale * self._accum_count
         initial_lr = [pg["lr"] for pg in self._optimizer.param_groups]
-        for idx, param_group in enumerate(self._optimizer.param_groups):
-            grad_sqr = float(self._state["norm_avg"][idx])
-            grad_var = float(self._state["var_avg"][idx])
-            gain = (grad_var + grad_sqr) / (grad_var / self._scale + grad_sqr)
-            param_group["lr"] = gain * param_group["lr"]
-        self._optimizer_step(*args, **kwargs)
-        for lr, param_group in zip(initial_lr, self._optimizer.param_groups):
-            param_group["lr"] = lr
+        for sqr, var, pg in zip(self._state["sqr_avg"], self._state["var_avg"],
+                                self._optimizer.param_groups):
+            sqr, var = max(float(sqr), 0.0), max(float(var), 1e-6)
+            pg["lr"] = (var + sqr) / (var / scale + sqr) * pg["lr"]
+        if self._optimizer_step is None:
+            self._optimizer.step(*args, **kwargs)
+        else:
+            self._optimizer_step(*args, **kwargs)
+        for lr, pg in zip(initial_lr, self._optimizer.param_groups):
+            pg["lr"] = lr
+        self._state["progress"] += self.gain(scale)
+        self._reset_accumulation()
+
+    def zero_grad(self, *args, **kwargs):
+        warnings.warn("zero_grad has no effect with AdaScale")
 
     def patch_optimizer(self):
         """
@@ -317,14 +306,13 @@ class AdaScale(object):
         # TODO: detect if the optimizer has already been patched.
 
         @functools.wraps(self._optimizer.step)
-        def wrapper(*args, **kwargs):
+        def step_wrapper(optim, *args, **kwargs):
             return self.step(*args, **kwargs)
-        old_zero_grad = self._optimizer.zero_grad
 
         @functools.wraps(self._optimizer.zero_grad)
-        def zero_wrapper(*args, **kwargs):
-            if self._made_step:
-                return old_zero_grad(*args, **kwargs)
-            return None
-        self._optimizer.step = wrapper
-        self._optimizer.zero_grad = zero_wrapper
+        def zero_wrapper(optim, *args, **kwargs):
+            return self.zero_grad(*args, **kwargs)
+        self._optimizer_step = self._optimizer.step
+        self._optimizer.step = MethodType(step_wrapper, self._optimizer)
+        self._optimizer_zero_grad = self._optimizer.zero_grad
+        self._optimizer.zero_grad = MethodType(zero_wrapper, self._optimizer)
