@@ -219,63 +219,58 @@ class AdaScale(object):
             Variable._execution_engine.queue_callback(self._final_callback)
 
     def _final_callback(self):
-        try:
-            # This method should be invoked once the gradients have been
-            # synchronized between all replicas and accumulation steps.
-            if self._num_replicas > 1:
-                self._async_op.wait()
+        # This method should be invoked once the gradients have been
+        # synchronized between all replicas and accumulation steps.
+        if self._num_replicas > 1:
+            self._async_op.wait()
 
-            grads = []
-            for group in self._optimizer.param_groups:
-                grads.append([])
-                for param in group["params"]:
-                    if param.grad is None:
-                        grads[-1].append(None)
-                        continue
-                    param.grad.div_(self._accum_count)
-                    grads[-1].append(param.grad.detach())
+        grads = []
+        for group in self._optimizer.param_groups:
+            grads.append([])
+            for param in group["params"]:
+                if param.grad is None:
+                    grads[-1].append(None)
+                    continue
+                param.grad.div_(self._accum_count)
+                grads[-1].append(param.grad.detach())
 
-            check = [g.sum() for group in grads for g in group]
-            if any(c != c or c in (float('inf'), -float('inf')) for c in check):
-                print("AdaScale detected invalid gradient! Skipping step.")
-                return
+        check = [g.sum() for group in grads for g in group]
+        if any(c != c or c in (float('inf'), -float('inf')) for c in check):
+            print("AdaScale detected invalid gradient! Skipping step.")
+            return
 
-            count = self._num_replicas * self._accum_count
-            scale = self._accum_scale * self._accum_count
-            if count > 1:
-                # Average local squared-norm samples.
-                local_sqr = self._local_sqr.cpu().numpy() / count
-                total_sqr = _normsqr_groups(grads)
-                if self._state["biased"]:
-                    self._reset_avg("sqr_avg")
-                    self._reset_avg("var_avg")
-                self._state["biased"] = False
-                self._prev_grads = None
-            else:
-                # Single gradient datapoint, use difference estimation.
-                if self._prev_grads is not None:
-                    local_sqr = (_normsqr_groups(self._prev_grads) +
-                                 _normsqr_groups(grads)) / 2
-                    avg_grads = _average_groups(grads, self._prev_grads)
-                    total_sqr = _normsqr_groups(avg_grads)
-                    count = 2
-                    scale = 2 * self._accum_scale
-                self._state["biased"] = True
-                self._prev_grads = [[g.clone() if g is not None else None
-                                     for g in group] for group in grads]
+        count = self._num_replicas * self._accum_count
+        scale = self._accum_scale * self._accum_count
+        if count > 1:
+            # Average local squared-norm samples.
+            local_sqr = self._local_sqr.cpu().numpy() / count
+            total_sqr = _normsqr_groups(grads)
+            if self._state["biased"]:
+                self._reset_avg("sqr_avg")
+                self._reset_avg("var_avg")
+            self._state["biased"] = False
+            self._prev_grads = None
+        else:
+            # Single gradient datapoint, use difference estimation.
+            if self._prev_grads is not None:
+                local_sqr = (_normsqr_groups(self._prev_grads) +
+                             _normsqr_groups(grads)) / 2
+                avg_grads = _average_groups(grads, self._prev_grads)
+                total_sqr = _normsqr_groups(avg_grads)
+                count = 2
+                scale = 2 * self._accum_scale
+            self._state["biased"] = True
+            self._prev_grads = [[g.clone() if g is not None else None
+                                 for g in group] for group in grads]
 
-            if count > 1:
-                grad_sqr = (count * total_sqr - local_sqr) / (count - 1)
-                grad_var = (local_sqr - total_sqr) * scale / (count - 1)
-                self.raw_grad_sqr = grad_sqr
-                self.raw_grad_var = grad_var
-                theta = self._smoothing ** scale
-                self._update_avg('sqr_avg', grad_sqr, theta)
-                self._update_avg('var_avg', grad_var, theta)
-        except:
-            import traceback
-            traceback.print_exc()
-            raise
+        if count > 1:
+            grad_sqr = (count * total_sqr - local_sqr) / (count - 1)
+            grad_var = (local_sqr - total_sqr) * scale / (count - 1)
+            self.raw_grad_sqr = grad_sqr
+            self.raw_grad_var = grad_var
+            theta = self._smoothing ** scale
+            self._update_avg('sqr_avg', grad_sqr, theta)
+            self._update_avg('var_avg', grad_var, theta)
 
     def step(self, *args, **kwargs):
         """

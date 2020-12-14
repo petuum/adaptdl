@@ -57,15 +57,16 @@ def test_optimization_1():
     adp.require_backward_grad_sync = True
     obj = adascale.AdaScale(adp, sgd, accum_scale=1.0, num_replicas=1,
                             patch_optimizer=True)
-    i = 0.0
-    while i < 100000:
+    for i in range(100000):
         sgd.zero_grad()
         loss = rosenbrock(params)
         loss.backward()
         sgd.step()
-        i += obj.get_progress()
         schedule.step()
-    assert(params.allclose(torch.tensor([1.0, 1.0]), atol=0.01))
+        if params.allclose(torch.tensor([1.0, 1.0]), atol=0.01):
+            break
+    else:
+        assert False, params
 
 
 def test_optimization_2():
@@ -84,15 +85,16 @@ def test_optimization_2():
     adp.require_backward_grad_sync = True
     obj = adascale.AdaScale(adp, sgd, accum_scale=1.0, num_replicas=1,
                             patch_optimizer=True)
-    i = 0.0
-    while i < 100000:
+    for i in range(100000):
         sgd.zero_grad()
         loss = rosenbrock_noisy(params)
         loss.backward()
         sgd.step()
-        i += obj.get_progress()
         schedule.step()
-    assert(params.allclose(torch.tensor([1.0, 1.0]), atol=0.01))
+        if params.allclose(torch.tensor([1.0, 1.0]), atol=0.01):
+            break
+    else:
+        assert False, params
 
 
 def test_optimization_3():
@@ -113,19 +115,18 @@ def test_optimization_3():
     adp.require_backward_grad_sync = True
     obj = adascale.AdaScale(adp, sgd, accum_scale=1.0, num_replicas=1,
                             patch_optimizer=True)
-    i = 0.0
-    while i < 100000:
+    for i in range(100000):
         sgd.zero_grad()
         loss = rosenbrock(params_t[0]['params'][0], params_t[1]['params'][0])
         loss.backward()
         sgd.step()
-        i += obj.get_progress()
         schedule.step()
-    print(params_t)
-    assert(params_t[0]['params'][0].allclose(torch.tensor([1.0]),
-                                             atol=0.01)
-           and params_t[1]['params'][0].allclose(torch.tensor([1.0]),
-                                                 atol=0.01))
+        if params_t[0]['params'][0].allclose(torch.tensor([1.0]), atol=0.01) \
+                and params_t[1]['params'][0].allclose(torch.tensor([1.0]),
+                                                      atol=0.01):
+            break
+    else:
+        assert False, params_t
 
 
 def test_gradient_accumulation_optimization_1():
@@ -142,19 +143,18 @@ def test_gradient_accumulation_optimization_1():
     adp = MagicMock()
     obj = adascale.AdaScale(adp, sgd, accum_scale=1.0, num_replicas=1,
                             patch_optimizer=True)
-    i = 0.0
-    j = 0
-    while i < 100000:
+    for i in range(1000000):
         adp.require_backward_grad_sync = i % 6 == 5
         sgd.zero_grad()
         loss = rosenbrock(params)
         loss.backward()
         sgd.step()
-        i += obj.get_progress()
-        j += 1
-        if j % 6 == 0:
+        if adp.require_backward_grad_sync:
             schedule.step()
-    assert(params.allclose(torch.tensor([1.0, 1.0]), atol=0.01))
+        if params.allclose(torch.tensor([1.0, 1.0]), atol=0.01):
+            break
+    else:
+        assert False, params
 
 
 def test_gradient_accumulation_optimization_2():
@@ -172,16 +172,15 @@ def test_gradient_accumulation_optimization_2():
     adp = MagicMock()
     obj = adascale.AdaScale(adp, sgd, accum_scale=1.0, num_replicas=1,
                             patch_optimizer=True)
-    i = 0.0
-    j = 0
-    while i < 100000:
+    for i in range(1000000):
         adp.require_backward_grad_sync = i % 6 == 5
         sgd.zero_grad()
         loss = rosenbrock_noisy(params)
         loss.backward()
         sgd.step()
-        i += obj.get_progress()
-        j += 1
-        if j % 6 == 0:
+        if adp.require_backward_grad_sync:
             schedule.step()
-    assert(params.allclose(torch.tensor([1.0, 1.0]), atol=0.01))
+        if params.allclose(torch.tensor([1.0, 1.0]), atol=0.01):
+            break
+    else:
+        assert False, params
