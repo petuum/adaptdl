@@ -16,6 +16,8 @@
 import numpy as np
 import torch
 
+from unittest.mock import MagicMock
+
 import adaptdl.torch.adascale as adascale
 
 
@@ -23,18 +25,20 @@ def test_object():
     params = [torch.tensor([[1., -1.], [2., 3.]], requires_grad=True),
               torch.tensor([[2., 3.]], requires_grad=True)]
     sgd = torch.optim.SGD(params, lr=0.1)
-    obj = adascale.AdaScale(sgd, scale=1.0, num_replicas=1)
-    assert(obj._scale == 1.0)
+    adp = MagicMock()
+    adp.require_backward_grad_sync = True
+    obj = adascale.AdaScale(adp, sgd, accum_scale=1.0, num_replicas=1)
+    assert(obj._accum_scale == 1.0)
     obj._num_replicas = 8
-    obj.set_scale(3.0)
-    assert(obj.scale == 3.0)
+    obj.set_accum_scale(3.0)
+    assert(obj.accum_scale == 3.0)
     obj._num_replicas = 4
-    obj.set_scale(3.0)
-    assert(obj.scale == 3.0)
-    assert(obj.gain(2.0) == 1.0)
+    obj.set_accum_scale(3.0)
+    assert(obj.accum_scale == 3.0)
+    assert(np.isclose(obj.gain(2.0), 1.0))
     obj._state['var_avg'] = 3.0
     obj._state['norm_avg'] = 1.0
-    assert(obj.gain(3.0) == 2.0)
+    assert(np.isclose(obj.gain(3.0), 2.0))
 
 
 def test_optimization_1():
@@ -49,11 +53,12 @@ def test_optimization_1():
     params = torch.autograd.Variable(params_t, requires_grad=True)
     sgd = torch.optim.SGD([params], lr=0.001)
     schedule = torch.optim.lr_scheduler.MultiStepLR(sgd, [1000])
-    obj = adascale.AdaScale(sgd, scale=1.0, num_replicas=1,
+    adp = MagicMock()
+    adp.require_backward_grad_sync = True
+    obj = adascale.AdaScale(adp, sgd, accum_scale=1.0, num_replicas=1,
                             patch_optimizer=True)
     i = 0.0
-    while i < 100000 and not params.allclose(torch.tensor([1.0, 1.0]),
-                                             atol=0.01):
+    while i < 100000:
         sgd.zero_grad()
         loss = rosenbrock(params)
         loss.backward()
@@ -75,11 +80,12 @@ def test_optimization_2():
     params = torch.autograd.Variable(params_t, requires_grad=True)
     sgd = torch.optim.SGD([params], lr=0.001)
     schedule = torch.optim.lr_scheduler.MultiStepLR(sgd, [1000])
-    obj = adascale.AdaScale(sgd, scale=2.0, num_replicas=1,
+    adp = MagicMock()
+    adp.require_backward_grad_sync = True
+    obj = adascale.AdaScale(adp, sgd, accum_scale=1.0, num_replicas=1,
                             patch_optimizer=True)
     i = 0.0
-    while i < 100000 and not params.allclose(torch.tensor([1.0, 1.0]),
-                                             atol=0.01):
+    while i < 100000:
         sgd.zero_grad()
         loss = rosenbrock_noisy(params)
         loss.backward()
@@ -103,14 +109,12 @@ def test_optimization_3():
 
     sgd = torch.optim.SGD(params_t, lr=0.001)
     schedule = torch.optim.lr_scheduler.MultiStepLR(sgd, [1000])
-    obj = adascale.AdaScale(sgd, scale=1.0, num_replicas=1,
+    adp = MagicMock()
+    adp.require_backward_grad_sync = True
+    obj = adascale.AdaScale(adp, sgd, accum_scale=1.0, num_replicas=1,
                             patch_optimizer=True)
     i = 0.0
-    while (i < 100000 and
-           not (params_t[0]['params'][0].allclose(torch.tensor([1.0]),
-                                                  atol=0.01)
-                and params_t[1]['params'][0].allclose(torch.tensor([1.0]),
-                                                      atol=0.01))):
+    while i < 100000:
         sgd.zero_grad()
         loss = rosenbrock(params_t[0]['params'][0], params_t[1]['params'][0])
         loss.backward()
@@ -135,13 +139,13 @@ def test_gradient_accumulation_optimization_1():
     params = torch.autograd.Variable(params_t, requires_grad=True)
     sgd = torch.optim.SGD([params], lr=0.001)
     schedule = torch.optim.lr_scheduler.MultiStepLR(sgd, [1000])
-    obj = adascale.AdaScale(sgd, scale=6.0, num_replicas=1,
+    adp = MagicMock()
+    obj = adascale.AdaScale(adp, sgd, accum_scale=1.0, num_replicas=1,
                             patch_optimizer=True)
-    obj.set_accumulation_steps(6)
     i = 0.0
     j = 0
-    while i < 100000 and not params.allclose(torch.tensor([1.0, 1.0]),
-                                             atol=0.01):
+    while i < 100000:
+        adp.require_backward_grad_sync = i % 6 == 5
         sgd.zero_grad()
         loss = rosenbrock(params)
         loss.backward()
@@ -165,13 +169,13 @@ def test_gradient_accumulation_optimization_2():
     params = torch.autograd.Variable(params_t, requires_grad=True)
     sgd = torch.optim.SGD([params], lr=0.001)
     schedule = torch.optim.lr_scheduler.MultiStepLR(sgd, [1000])
-    obj = adascale.AdaScale(sgd, scale=6.0, num_replicas=1,
+    adp = MagicMock()
+    obj = adascale.AdaScale(adp, sgd, accum_scale=1.0, num_replicas=1,
                             patch_optimizer=True)
-    obj.set_accumulation_steps(6)
     i = 0.0
     j = 0
-    while i < 100000 and not params.allclose(torch.tensor([1.0, 1.0]),
-                                             atol=0.01):
+    while i < 100000:
+        adp.require_backward_grad_sync = i % 6 == 5
         sgd.zero_grad()
         loss = rosenbrock_noisy(params)
         loss.backward()
