@@ -283,9 +283,13 @@ def ls(args, remaining):
             # fromisoformat does not handle the trailing 'Z'
             start_time = datetime.strptime(v["metadata"]["creationTimestamp"],
                                            "%Y-%m-%dT%H:%M:%SZ")
+            # Timezone with colon cannot be parsed correctly in Python 3.6
+            # see https://stackoverflow.com/questions/30999230/how-to-parse-timezone-with-colon
+            adjust = lambda time: time[:-3]+time[-2:] if len(time)>=3 and time[-3] == ":" else time
             current_timestamp = datetime.strptime(
-                v["status"].get("completionTimestamp",
-                                datetime.now(timezone.utc).isoformat()),
+                adjust(v["status"].get(
+                    "completionTimestamp",
+                    datetime.now(timezone.utc).isoformat())),
                 "%Y-%m-%dT%H:%M:%S.%f%z")
             run_time = current_timestamp.replace(tzinfo=None) \
                 - start_time.replace(tzinfo=None)
