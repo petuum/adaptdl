@@ -55,8 +55,8 @@ def test_optimization_1():
     schedule = torch.optim.lr_scheduler.MultiStepLR(sgd, [1000])
     adp = MagicMock()
     adp.require_backward_grad_sync = True
-    obj = adascale.AdaScale(adp, sgd, accum_scale=1.0, num_replicas=1,
-                            patch_optimizer=True)
+    adascale.AdaScale(adp, sgd, accum_scale=1.0, num_replicas=1,
+                      patch_optimizer=True)
     for i in range(100000):
         sgd.zero_grad()
         loss = rosenbrock(params)
@@ -83,8 +83,8 @@ def test_optimization_2():
     schedule = torch.optim.lr_scheduler.MultiStepLR(sgd, [1000])
     adp = MagicMock()
     adp.require_backward_grad_sync = True
-    obj = adascale.AdaScale(adp, sgd, accum_scale=1.0, num_replicas=1,
-                            patch_optimizer=True)
+    adascale.AdaScale(adp, sgd, accum_scale=1.0, num_replicas=1,
+                      patch_optimizer=True)
     for i in range(100000):
         sgd.zero_grad()
         loss = rosenbrock_noisy(params)
@@ -113,8 +113,8 @@ def test_optimization_3():
     schedule = torch.optim.lr_scheduler.MultiStepLR(sgd, [1000])
     adp = MagicMock()
     adp.require_backward_grad_sync = True
-    obj = adascale.AdaScale(adp, sgd, accum_scale=1.0, num_replicas=1,
-                            patch_optimizer=True)
+    adascale.AdaScale(adp, sgd, accum_scale=1.0, num_replicas=1,
+                      patch_optimizer=True)
     for i in range(100000):
         sgd.zero_grad()
         loss = rosenbrock(params_t[0]['params'][0], params_t[1]['params'][0])
@@ -141,8 +141,8 @@ def test_gradient_accumulation_optimization_1():
     sgd = torch.optim.SGD([params], lr=0.001)
     schedule = torch.optim.lr_scheduler.MultiStepLR(sgd, [1000])
     adp = MagicMock()
-    obj = adascale.AdaScale(adp, sgd, accum_scale=1.0, num_replicas=1,
-                            patch_optimizer=True)
+    adascale.AdaScale(adp, sgd, accum_scale=1.0, num_replicas=1,
+                      patch_optimizer=True)
     for i in range(1000000):
         adp.require_backward_grad_sync = i % 6 == 5
         sgd.zero_grad()
@@ -170,8 +170,8 @@ def test_gradient_accumulation_optimization_2():
     sgd = torch.optim.SGD([params], lr=0.001)
     schedule = torch.optim.lr_scheduler.MultiStepLR(sgd, [1000])
     adp = MagicMock()
-    obj = adascale.AdaScale(adp, sgd, accum_scale=1.0, num_replicas=1,
-                            patch_optimizer=True)
+    adascale.AdaScale(adp, sgd, accum_scale=1.0, num_replicas=1,
+                      patch_optimizer=True)
     for i in range(1000000):
         adp.require_backward_grad_sync = i % 6 == 5
         sgd.zero_grad()
