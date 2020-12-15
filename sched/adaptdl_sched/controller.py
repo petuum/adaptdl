@@ -16,6 +16,7 @@
 import asyncio
 import collections
 import copy
+import dateutil.parser
 import jsonpatch
 import kubernetes_asyncio as kubernetes
 import logging
@@ -166,6 +167,16 @@ class AdaptDLController(object):
             job["status"]["allocation"] = None
             job["status"]["replicas"] = None
             job["status"]["readyReplicas"] = None
+        # Update attained service if needed.
+        job["status"].setdefault("attainedServiceSeconds", 0)
+        attained_service_ts = \
+            job["status"].setdefault("attainedServiceTimestamp", current_ts)
+        if isinstance(attained_service_ts, str):
+            attained_service_ts = dateutil.parser.isoparse(attained_service_ts)
+        if replicas != (job["status"].get("replicas") or 0):
+            duration = (current_ts - attained_service_ts).total_seconds()
+            job["status"]["attainedServiceSeconds"] += duration * replicas
+            job["status"]["attainedServiceTimestamp"] = current_ts
         # Apply changes to AdaptDLJob status.
         patch = {"status": {k: v for k, v in job["status"].maps[0].items()
                             if v != job["status"].maps[1].get(k)}}
