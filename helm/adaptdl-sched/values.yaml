@@ -5,8 +5,8 @@ image:
   # Image digest, used instead of image tag if specified.
   digest: null
 
-  secrets:
-    name: null
+  pullSecrets:
+    - name: null
 
 sched:
  resources:
