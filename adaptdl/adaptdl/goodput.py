@@ -122,7 +122,7 @@ class GoodputFunction(object):
             accum_steps = np.zeros_like(local_bsz, dtype=np.int)
             atomic_bsz = np.where(
                 num_replicas == 1,
-                self._init_batch_size, local_bsz).astype(int)
+                self._init_batch_size, np.ceil(local_bsz - eps)).astype(int)
 
         # Evaluate the goodput of all candidate configurations.
         goodput = self.evaluate(num_nodes, num_replicas,
