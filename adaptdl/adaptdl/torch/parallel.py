@@ -44,7 +44,7 @@ class AdaptiveDataParallel(DistributedDataParallel):
         model (torch.nn.Module): Model to be distributed.
         optimizer (torch.optim.Optimizer): Optimizer used to update the given
             model's parameters, will be patched using subclass of
-            :class:`adaptdl.torch.adascale.ScalingRuleBase`.
+            :class:`adaptdl.torch.scaling_rules.ScalingRuleBase`.
         scaling_rule (Union[str, Type[ScalingRuleBase]]): Scaling rule used to
             patch the given optimizer.
         lr_scheduler (torch.optim.lr_scheduler._LRScheduler): LR scheduler used

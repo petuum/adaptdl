@@ -102,14 +102,13 @@ optimizer = optim.SGD([{"params": [param]} for param in net.parameters()],
                       lr=args.lr, momentum=0.9, weight_decay=5e-4)
 lr_scheduler = MultiStepLR(optimizer, [30, 45], 0.1)
 
-net = adl.AdaptiveDataParallel(net, optimizer, lr_scheduler, lr_scaling_rule)
+net = adl.AdaptiveDataParallel(net, optimizer, lr_scheduler, args.lr_scaling_rule)
 
 # Training
 def train(epoch):
     print('\nEpoch: %d' % epoch)
     net.train()
     stats = adl.Accumulator()
-    gain = net.gain
     batchsize = 0
     accumulation_steps = 0
     for inputs, targets in trainloader:
