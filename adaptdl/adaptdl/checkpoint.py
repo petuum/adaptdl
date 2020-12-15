@@ -110,9 +110,16 @@ def save_state(state, sync=True):
         state.sync()
     if replica_rank() == 0:
         name = _STATES_TO_NAMES[state]
+        tmp_name = f"_{name}"
         if checkpoint_path() is not None:
-            with open(os.path.join(checkpoint_path(), name), "wb") as f:
+            ckpt_file = os.path.join(checkpoint_path(), name)
+            tmp_ckpt_file = os.path.join(checkpoint_path(), tmp_name)
+
+            with open(tmp_ckpt_file, "wb") as f:
                 state.save(f)
+
+            # Save checkpoint atomically to avoid file corruption
+            os.rename(tmp_ckpt_file, ckpt_file)
 
 
 def load_state(state):
