@@ -85,8 +85,8 @@ class AdaScale(object):
                  accum_scale=None, patch_optimizer=False):
         self._adp = adp
         self._optimizer = optimizer
-        self._optimizer_step = None
-        self._optimizer_zero_grad = None
+        self._orig_optimizer_step = optimizer.step
+        self._orig_optimizer_zero_grad = optimizer.zero_grad
         self._num_replicas = (num_replicas if num_replicas is not None
                               else torch.distributed.get_world_size())
         self._accum_scale = accum_scale or self._num_replicas
@@ -119,10 +119,7 @@ class AdaScale(object):
         self._reset_accumulation()
 
     def _reset_accumulation(self):
-        if self._optimizer_zero_grad is None:
-            self._optimizer.zero_grad()
-        else:
-            self._optimizer_zero_grad()
+        self._orig_optimizer_zero_grad()
         self._local_sqr = None
         self._accum_count = 0
 
@@ -289,10 +286,7 @@ class AdaScale(object):
                                 self._optimizer.param_groups):
             sqr, var = max(float(sqr), 0.0), max(float(var), 1e-6)
             pg["lr"] = (var + sqr) / (var / scale + sqr) * pg["lr"]
-        if self._optimizer_step is None:
-            self._optimizer.step(*args, **kwargs)
-        else:
-            self._optimizer_step(*args, **kwargs)
+        self._orig_optimizer_step(*args, **kwargs)
         for lr, pg in zip(initial_lr, self._optimizer.param_groups):
             pg["lr"] = lr
         self._state["progress"] += self.gain(scale)
@@ -314,7 +308,5 @@ class AdaScale(object):
         @functools.wraps(self._optimizer.zero_grad)
         def zero_wrapper(optim, *args, **kwargs):
             return self.zero_grad(*args, **kwargs)
-        self._optimizer_step = self._optimizer.step
         self._optimizer.step = MethodType(step_wrapper, self._optimizer)
-        self._optimizer_zero_grad = self._optimizer.zero_grad
         self._optimizer.zero_grad = MethodType(zero_wrapper, self._optimizer)
