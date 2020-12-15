@@ -518,6 +518,7 @@ class AdaptiveDataLoader(DataLoader, AdaptiveDataLoaderMixin):
         restart, and continue where it left off.
         """
         epoch = current_epoch()
+        num_replicas = adaptdl.env.num_replicas()
         with self._elastic.context():
             if self._elastic.skipdone():
                 return
@@ -530,9 +531,8 @@ class AdaptiveDataLoader(DataLoader, AdaptiveDataLoaderMixin):
                     with self._elastic.profile(self.training and idx >= 1):
                         yield batch
                         # Increment by the number of data samples processed
-                        self._elastic.current_index += (
-                            adaptdl.env.num_replicas() *
-                            self.batch_sampler.batch_size)
+                        self._elastic.current_index += \
+                            num_replicas * self.batch_sampler.batch_size
                         if self._elastic.max_batch_size is not None and \
                                 get_progress() >= len(self.dataset) * \
                                 (epoch + 1) / self.batch_size:

@@ -19,7 +19,6 @@ import collections
 import scipy.optimize
 import scipy.stats
 
-
 # Parameters for a performance model which predicts the per-step time of
 # distributed SGD using all-reduce. At a high level, models compute time and
 # network time separately, and combines them with some degree of overlap.
@@ -121,9 +120,14 @@ class GoodputFunction(object):
                 np.logical_and(num_replicas == 1,
                                local_bsz > self._init_batch_size + eps),
                 np.maximum(accum_steps, 1), accum_steps).astype(int)
+            atomic_bsz = np.ceil(
+                local_bsz / (accum_steps + 1) - eps).astype(int)
         else:
             accum_steps = np.zeros_like(local_bsz, dtype=np.int)
-        atomic_bsz = np.ceil(local_bsz / (accum_steps + 1) - eps).astype(int)
+            atomic_bsz = np.where(
+                num_replicas == 1,
+                self._init_batch_size, np.ceil(local_bsz - eps)).astype(int)
+
         # Evaluate the goodput of all candidate configurations.
         goodput = self.evaluate(num_nodes, num_replicas,
                                 atomic_bsz, accum_steps)

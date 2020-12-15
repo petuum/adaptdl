@@ -1,0 +1,13 @@
+future>=0.17.1
+kubernetes_asyncio==9.1.0  # 10.0.0 is buggy
+pandas>=0.24.2
+prometheus_client>=0.7.1
+python-dateutil>=2.7.3
+redis>=3.3.8
+requests>=2.7.0
+scipy>=1.3.0
+numpy>=1.17.2
+statsmodels>=0.10.1
+tensorboard>=2.0.0
+torchvision>=0.7.0
+torchtext==0.7.0
