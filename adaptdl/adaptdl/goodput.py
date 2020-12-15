@@ -116,26 +116,18 @@ class GoodputFunction(object):
                 np.logical_and(num_replicas == 1,
                                local_bsz > self._init_batch_size),
                 np.maximum(accum_steps, 1), accum_steps).astype(int)
+            atomic_bsz = np.ceil(local_bsz / (accum_steps + 1) - eps).astype(int)
         else:
             accum_steps = np.zeros_like(local_bsz, dtype=np.int)
-        atomic_bsz = np.ceil(local_bsz / (accum_steps + 1) - eps).astype(int)
+            atomic_bsz = np.where(num_replicas == 1
+                self._init_batch_size, local_bsz)
+
         # Evaluate the goodput of all candidate configurations.
         goodput = self.evaluate(num_nodes, num_replicas,
                                 atomic_bsz, accum_steps)
         # Set the goodput of invalid configurations to 0.0.
-        goodput = np.where(
-            np.logical_and(
-                min_atomic_bsz <= atomic_bsz,
-                np.logical_and(
-                    atomic_bsz <= max_atomic_bsz,
-                    np.logical_or(
-                        # Disallow 1 replica scaling without
-                        # gradient accumulation
-                        num_replicas > 1,
-                        np.logical_or(
-                            accum_steps > 0,
-                            atomic_bsz == self._init_batch_size)))),
-            goodput, 0.0)
+        goodput = np.where((min_atomic_bsz <= atomic_bsz) &
+                           (atomic_bsz <= max_atomic_bsz), goodput, 0.0)
         # Find the indices of the best configurations.
         indices = np.argmax(goodput, axis=0), np.arange(goodput.shape[1])
         # Restore the correct output shape and return results.
