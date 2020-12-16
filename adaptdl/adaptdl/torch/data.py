@@ -15,9 +15,12 @@
 
 from contextlib import contextmanager
 import collections
+import functools
 import logging
 import math
+import numpy as np
 import pickle
+import random
 import torch
 from torch.utils.data import DataLoader, Sampler
 
@@ -147,6 +150,7 @@ class AdaptiveDataLoaderHelper(object):
         self.future_exit = None
         self._gradient_accumulation = False
         self._speedup_threshold = 1.05
+        self._accum_count = 0
 
     @property
     def current_index(self):
@@ -213,20 +217,17 @@ class AdaptiveDataLoaderHelper(object):
         """
         return self._state.accumulation_steps
 
-    @property
-    def is_accumulation_step(self):
+    def is_accum_step(self):
         """
-        True iff the current step is a gradient accumulation step:
-        I.e. if the model parameters aren't updated
+        Whether the current step's gradient will be accumulated.
         """
-        return self._is_accumulation_step
+        return self._accum_count < self._state.accumulation_steps
 
-    @is_accumulation_step.setter
-    def is_accumulation_step(self, value: bool):
+    def is_optim_step(self):
         """
-        Supports mutation of is_accumulation_step
+        Whether the optimizer step will be invoked in this step.
         """
-        self._is_accumulation_step = value
+        return not self.is_accum_step()
 
     def train(self):
         """
@@ -273,9 +274,7 @@ class AdaptiveDataLoaderHelper(object):
             self._state.current_local_bsz = math.ceil(
                 self.batch_size / adaptdl.env.num_replicas())
             self._state.accumulation_steps = 0
-        elif not self._state.current_local_bsz or \
-                (self._state.current_local_bsz * adaptdl.env.num_replicas()
-                 * (self._state.accumulation_steps + 1) < self.batch_size):
+        elif not self._state.current_local_bsz:
             # if init, use the batch size suggested
             _, atomic_bsz, accum_steps = goodput_fn.optimize(
                 adaptdl.env.num_nodes(), adaptdl.env.num_replicas(),
@@ -303,7 +302,6 @@ class AdaptiveDataLoaderHelper(object):
         self._state.current_local_bsz, self._state.accumulation_steps = \
             adaptdl.collective.broadcast((self._state.current_local_bsz,
                                           self._state.accumulation_steps))
-        self.is_accumulation_step = self._state.accumulation_steps != 0
         return self.current_local_bsz
 
     @property
@@ -311,11 +309,14 @@ class AdaptiveDataLoaderHelper(object):
         return self is AdaptiveDataLoaderHelper._training
 
     @contextmanager
-    def profile(self):
+    def profile(self, commit):
         """
         Every iteration of every epoch should be profiled under this context.
         Note that, custom DataLoader writers should make sure that it gets
         called equal number of times on each replica.
+
+        Arguments:
+            commit (bool): Whether to commit the profiled results.
         """
         # Synchronize the exit signal so all replicas exit after
         # the same iteration. Do this asynchronously to prevent
@@ -325,11 +326,12 @@ class AdaptiveDataLoaderHelper(object):
             exit(143)  # Standard exit code response to SIGTERM.
         self.future_exit = adaptdl.collective.allreduce_async(
                     get_exit_flag(), lambda a, b: a or b)
-        profile_step_start(self.current_local_bsz, self.accumulation_steps)
+        profile_step_start(self.current_local_bsz)
         yield
-        # Don't profile the first batch since it may be slower.
-        if self.training and self.current_index > self.current_batch_size:
-            profile_step_commit(self.is_accumulation_step)
+        if commit:
+            profile_step_commit(self.is_accum_step())
+        self._accum_count = (0 if self.is_optim_step()
+                             else self._accum_count + 1)
 
     @contextmanager
     def context(self):
@@ -429,6 +431,10 @@ class AdaptiveDataLoaderMixin(object):
         return self._elastic.accumulation_steps
 
     @property
+    def training(self):
+        return self._elastic.training
+
+    @property
     def current_batch_size(self):
         if AdaptiveDataLoaderHelper._current is not self._elastic:
             return None
@@ -437,6 +443,23 @@ class AdaptiveDataLoaderMixin(object):
     def to_tensorboard(self, writer, global_step, tag_prefix=""):
         self._elastic.to_tensorboard(writer, global_step, tag_prefix)
     to_tensorboard.__doc__ = AdaptiveDataLoaderHelper.to_tensorboard.__doc__
+
+
+def _worker_init_wrapper(worker_init_fn, num_workers):
+    # Set globally-unique python and numpy seeds for each worker.
+
+    @functools.wraps(worker_init_fn)
+    def wrapper(worker_id):
+        nonlocal num_workers
+        num_workers = num_workers or 1
+        # https://pytorch.org/docs/master/data.html#randomness-in-multi-process-data-loading.
+        seed = torch.initial_seed() + adaptdl.env.replica_rank() * num_workers
+        torch.manual_seed(seed)
+        np.random.seed(seed % 2 ** 32)
+        random.seed(seed)
+        if worker_init_fn is not None:
+            return worker_init_fn(worker_id)
+    return wrapper
 
 
 class AdaptiveDataLoader(DataLoader, AdaptiveDataLoaderMixin):
@@ -475,6 +498,8 @@ class AdaptiveDataLoader(DataLoader, AdaptiveDataLoaderMixin):
         # Custom sampler is incompatible with shuffle=True, so we always set
         # shuffle=False in __init__ and let our own sampler do the shuffling.
         kwargs["sampler"] = ElasticSampler(dataset, shuffle=shuffle)
+        kwargs["worker_init_fn"] = _worker_init_wrapper(
+            kwargs.get("worker_init_fn"), kwargs.get("num_workers"))
         super().__init__(dataset, batch_size, shuffle=False, **kwargs)
         AdaptiveDataLoaderMixin.__init__(self, batch_size)
 
@@ -493,21 +518,24 @@ class AdaptiveDataLoader(DataLoader, AdaptiveDataLoaderMixin):
         restart, and continue where it left off.
         """
         epoch = current_epoch()
+        num_replicas = adaptdl.env.num_replicas()
         with self._elastic.context():
             if self._elastic.skipdone():
                 return
             done = False
             while not done:
-                self.sampler.set_epoch(epoch, index=self._elastic.current_index)  # noqa: E501
+                self.sampler.set_epoch(
+                    epoch, index=self._elastic.current_index)
                 self.batch_sampler.batch_size = self._elastic._sync_local_bsz()
                 for idx, batch in enumerate(super().__iter__()):
-                    with self._elastic.profile():
+                    with self._elastic.profile(self.training and idx >= 1):
                         yield batch
                         # Increment by the number of data samples processed
-                        self._elastic.current_index += self.current_batch_size  # noqa: E501
+                        self._elastic.current_index += \
+                            num_replicas * self.batch_sampler.batch_size
                         if self._elastic.max_batch_size is not None and \
-                           get_progress() >= len(self.dataset) * \
-                           (epoch + 1) / self.batch_size:
+                                get_progress() >= len(self.dataset) * \
+                                (epoch + 1) / self.batch_size:
                             done = True
                             break
                 if self._elastic.max_batch_size is None:
@@ -540,10 +568,8 @@ class _AdaptiveDataLoaderState(adaptdl.checkpoint.State):
 
     def save(self, fileobj):
         pickle.dump((self.current_index, self.end_index,
-                     self.last_position, self.current_local_bsz,
-                     self.accumulation_steps), fileobj)
+                     self.last_position), fileobj)
 
     def load(self, fileobj):
-        self.current_index, self.end_index, self.last_position, \
-           self.current_local_bsz, self.accumulation_steps = \
+        self.current_index, self.end_index, self.last_position = \
            pickle.load(fileobj)

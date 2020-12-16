@@ -19,7 +19,6 @@ import collections
 import scipy.optimize
 import scipy.stats
 
-
 # Parameters for a performance model which predicts the per-step time of
 # distributed SGD using all-reduce. At a high level, models compute time and
 # network time separately, and combines them with some degree of overlap.
@@ -69,10 +68,14 @@ class GoodputFunction(object):
                                accum_steps) * self.efficiency(batch_size)
 
     def throughput(self, num_nodes, num_replicas, atomic_bsz, accum_steps):
-        step_time, _, _ = _predict(self._perf_params, num_nodes,
-                                   num_replicas, atomic_bsz, accum_steps)
+        accum_time = _predict_accum_time(self._perf_params, atomic_bsz)
+        network_time = _predict_network_time(self._perf_params,
+                                             num_nodes, num_replicas)
+        optim_time = np.exp(_predict_log_optim_time(self._perf_params,
+                                                    accum_time, network_time))
+        total_time = accum_steps * accum_time + optim_time
         batch_size = num_replicas * atomic_bsz * (accum_steps + 1)
-        return batch_size / step_time
+        return batch_size / total_time
 
     def efficiency(self, batch_size):
         grad_sqr = self._grad_params.sqr
@@ -115,11 +118,16 @@ class GoodputFunction(object):
             accum_steps = np.ceil(local_bsz / max_atomic_bsz - eps) - 1
             accum_steps = np.where(
                 np.logical_and(num_replicas == 1,
-                               local_bsz > self._init_batch_size),
+                               local_bsz > self._init_batch_size + eps),
                 np.maximum(accum_steps, 1), accum_steps).astype(int)
+            atomic_bsz = np.ceil(
+                local_bsz / (accum_steps + 1) - eps).astype(int)
         else:
             accum_steps = np.zeros_like(local_bsz, dtype=np.int)
-        atomic_bsz = np.ceil(local_bsz / (accum_steps + 1) - eps).astype(int)
+            atomic_bsz = np.where(
+                num_replicas == 1,
+                self._init_batch_size, np.ceil(local_bsz - eps)).astype(int)
+
         # Evaluate the goodput of all candidate configurations.
         goodput = self.evaluate(num_nodes, num_replicas,
                                 atomic_bsz, accum_steps)
@@ -139,11 +147,10 @@ class GoodputFunction(object):
         return goodput, atomic_bsz, accum_steps
 
 
-def fit_perf_params(nodes, replicas, local_bsz, accumulation_steps,
-                    step_time, step_time_compute, accumulation_time):
-    # Fit the performance model given step time and compute time measurements
-    # for different configurations of nodes, replicas, local_bsz, and
-    # accumulation_steps.
+def fit_perf_params(num_nodes, num_replicas, atomic_bsz,
+                    accum_step_time, optim_step_time):
+    # Fit the performance model given accum time and optim time measurements
+    # for different configurations of num_nodes, num_replicas, and atomic_bsz.
 
     # HACK: We want to use the original numpy module for calls from the
     # SpeedupFunction for performance reasons, but also need those functions to
@@ -153,11 +160,10 @@ def fit_perf_params(nodes, replicas, local_bsz, accumulation_steps,
     orig_np = np
     np = autograd.numpy
 
-    replicas = np.array(replicas)
-    local_bsz = np.array(local_bsz)
-    step_time = np.array(step_time)
-    step_time_compute = np.array(step_time_compute)
-    accumulation_time = np.array(accumulation_time)
+    num_nodes = np.array(num_nodes)
+    num_replicas = np.array(num_replicas)
+    accum_step_time = np.array(accum_step_time)
+    optim_step_time = np.array(optim_step_time)
 
     # Set initial params to reasonable values.
     params = [1e-1, 1e-2] * 3 + [1.0 + 1e-3]
@@ -165,34 +171,38 @@ def fit_perf_params(nodes, replicas, local_bsz, accumulation_steps,
     # bounds to avoid numerical instability issues.
     lower = [1e-8, 1e-8] * 3 + [1.0]
     upper = [np.inf, np.inf] * 3 + [10.0]
-    if len(np.unique(local_bsz)) == 1:
-        # Fix alpha_c if only observed a single local batch size.
+    if len(np.unique(atomic_bsz)) == 1:
+        # Fix alpha_c if only observed a single atomic batch size.
         # This makes the speedup model optimistic with respect to
         # scaling up the batchsize. This will assign equal weight
-        # to the constant and multplicative factors for compute time
+        # to the constant and multplicative factors for accum time
         # if there is only a single datapoint (which is by far the
         # most likely case for this scenario)
-        params[0] = upper[0] = lower[0] = np.mean(step_time_compute) / 2
-    if not any(nodes > 1):
+        params[0] = upper[0] = lower[0] = np.mean(accum_step_time) / 2
+    if not np.any(num_nodes > 1):
         # Fix alpha_n and beta_n if no multi-node observations.
         params[2] = upper[2] = lower[2]
         params[3] = upper[3] = lower[3]
-    if not any(np.logical_and(nodes == 1, replicas > 1)):
+    if not np.any(np.logical_and(num_nodes == 1, num_replicas > 1)):
         # Fix alpha_r and beta_r if no single-node/multi-replica observations.
         params[4] = upper[4] = lower[4]
         params[5] = upper[5] = lower[5]
-    if not any(replicas > 2):
+    if not np.any(num_replicas > 2):
         # Fix beta_n and beta_r if no replicas > 2.
         params[3] = upper[3] = lower[3]
         params[5] = upper[5] = lower[5]
     bounds = scipy.optimize.Bounds(lower, upper, keep_feasible=True)
-    args = (nodes, replicas, local_bsz, accumulation_steps,
-            step_time, step_time_compute, accumulation_time)
+    args = (num_nodes, num_replicas, atomic_bsz,
+            accum_step_time, optim_step_time)
     # FIXME: need to handle optimization failures and propagate to the Trainer.
     grad_fn = autograd.grad(_obj_fn)
     result = scipy.optimize.minimize(_obj_fn, params, args=args,
                                      jac=grad_fn, bounds=bounds)
     params = result.x
+    if not any(num_nodes > 1):
+        # Enforce prior: alpha_n and beta_n are at least alpha_r and beta_r.
+        params[2] = max(params[2], params[4] * 1.1)
+        params[3] = max(params[3], params[5] * 1.1)
     np = orig_np  # Restore original numpy.
     return PerfParams(*params)
 
@@ -201,16 +211,16 @@ def _rmse(pred, true):
     return np.sqrt(((pred - true) ** 2).mean())
 
 
-def _obj_fn(params, nodes, replicas, local_bsz, accumulation_steps,
-            step_time, step_time_compute, accumulation_time):
+def _obj_fn(params, num_nodes, num_replicas, atomic_bsz,
+            accum_step_time, optim_step_time):
     params = PerfParams(*params)
-    pred_step_time, pred_step_time_compute, _ = \
-        _predict(params, nodes, replicas, local_bsz, accumulation_steps)
-    # Error of total step time predictions.
-    err1 = _rmse(np.log(pred_step_time),
-                 np.log(step_time + accumulation_time * accumulation_steps))
-    # Error of compute time predictions.
-    err2 = _rmse(np.log(pred_step_time_compute), np.log(step_time_compute))
+    pred_accum = _predict_accum_time(params, atomic_bsz)
+    pred_network = _predict_network_time(params, num_nodes, num_replicas)
+    pred_log_optim = _predict_log_optim_time(params, pred_accum, pred_network)
+    # RMSLError of accum step time predictions.
+    err1 = _rmse(np.log(pred_accum), np.log(accum_step_time))
+    # RMSLError of optim step time predictions.
+    err2 = _rmse(pred_log_optim, np.log(optim_step_time))
     # L2 regularization towards a smaller gamma, because it's easier to
     # optimize the alpha and beta parameters when gamma is smaller.
     reg1 = 1e-3 * (params.gamma - 1) ** 2
@@ -220,33 +230,23 @@ def _obj_fn(params, nodes, replicas, local_bsz, accumulation_steps,
     return err1 + err2 + reg1 + reg2
 
 
-def _predict(params, nodes, replicas, local_bsz, accumulation_steps):
-    params = PerfParams(*params)
-    step_time_compute = _predict_compute(params, local_bsz)
-    step_time_network = _predict_network(params, nodes, replicas)
-    gamma = params.gamma
-    step_time = (
-        ((step_time_compute) ** gamma + step_time_network ** gamma) **
-        (1 / gamma)
-        + step_time_compute * accumulation_steps)
-    return (
-        step_time,
-        step_time_compute,
-        step_time_network)
-
-
-def _predict_compute(params, local_bsz):
+def _predict_accum_time(params, atomic_bsz):
     params = PerfParams(*params)
     # Forward/backward passes should scale linearly with the batch size.
-    return params.alpha_c + params.beta_c * local_bsz
+    return params.alpha_c + params.beta_c * atomic_bsz
 
 
-def _predict_network(params, nodes, replicas):
+def _predict_log_optim_time(params, accum_time, network_time):
+    gamma = PerfParams(*params).gamma
+    return np.log(accum_time ** gamma + network_time ** gamma) / gamma
+
+
+def _predict_network_time(params, num_nodes, num_replicas):
     params = PerfParams(*params)
     # Select the most significant link between replicas, currently either
     # inter-node (nodes > 1) or intra-node (replicas > 1). Note that if
     # replicas == 1 then neither of these two conditions are matched.
-    conds = [nodes > 1, replicas > 1]
+    conds = [num_nodes > 1, num_replicas > 1]
     # Bandwidth is bottlenecked by the most significant link, alpha models
     # the overhead of transferring data across that link.
     bottleneck = np.select(conds, [params.alpha_n, params.alpha_r], 1e-8)
@@ -254,5 +254,5 @@ def _predict_network(params, nodes, replicas):
     # equal to the number of replicas. beta models the performance
     # retrogression from increasing the number of replicas beyond 2.
     retrogress = np.select(conds, [params.beta_n, params.beta_r], 1e-8)
-    retrogress = retrogress * np.maximum(replicas - 2, 1e-8)
+    retrogress = retrogress * np.maximum(num_replicas - 2, 1e-8)
     return (bottleneck + retrogress)

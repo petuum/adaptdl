@@ -103,7 +103,7 @@ class AdaptiveBPTTIterator(BPTTIterator, AdaptiveDataLoaderMixin):
                     # times on all replicas
                     if self.iterations > min_steps_in_epoch:
                         break
-                    with self._elastic.profile():
+                    with self._elastic.profile(self.training and i > 0):
                         seq_len = min(self.bptt_len, data.size(0) - i - 1)
                         assert seq_len > 0
                         batch_text = data[i:i + seq_len]

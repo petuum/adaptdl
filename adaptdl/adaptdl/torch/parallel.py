@@ -15,6 +15,7 @@
 
 import functools
 import time
+import warnings
 from typing import Type, TypeVar, Union
 
 import torch
@@ -75,7 +76,7 @@ class AdaptiveDataParallel(DistributedDataParallel):
         # Setup for the scaling_rule, must be after registering backward hooks
         # because some of them need to register their own backward hooks.
         self.scaling_rule: SR = \
-            scaling_rule_cls(optimizer, patch_optimizer=True)
+            scaling_rule_cls(self, optimizer, patch_optimizer=True)
 
         self._state = _AdaptiveDataParallelState(model, optimizer,
                                                  lr_scheduler, name)
@@ -101,19 +102,14 @@ class AdaptiveDataParallel(DistributedDataParallel):
             raise ValueError(err_unrecognized)
 
     def forward(self, *args, **kwargs):
-        # Do not do gradient synchronization during gradient accumulation
-        # Otherwise, exactly the same as DistributedDataParallel's forward
+        # Do not do gradient synchronization during gradient accumulation.
         dataloader = current_dataloader()
-        accumulation_steps = dataloader.accumulation_steps
-        # TODO: move this to the dataloader.__iter__
-        self.scaling_rule.set_accumulation_steps(accumulation_steps)
-        if self.scaling_rule.is_accumulation_step():
-            with super().no_sync():
-                dataloader.is_accumulation_step = True
-                return super().forward(*args, **kwargs)
-        else:
-            dataloader.is_accumulation_step = False
-            return super().forward(*args, **kwargs)
+        if dataloader is not None and dataloader.training:
+            self.require_backward_grad_sync = dataloader.is_optim_step()
+            accum_scale = (dataloader.current_local_bsz *
+                           adaptdl.env.num_replicas() / dataloader.batch_size)
+            self.scaling_rule.set_accum_scale(accum_scale)
+        return super().forward(*args, **kwargs)
 
     def _backward_hook(self, param, grad):
         # This method should be invoked once for each parameter during the
@@ -165,20 +161,23 @@ class AdaptiveDataParallel(DistributedDataParallel):
         dataloader.train()
 
         scale = dataloader.current_batch_size / dataloader.batch_size
-        self.scaling_rule.set_scale(scale)
+        self._state.gain = self.scaling_rule.gain(scale)
         update_progress(self.scaling_rule.get_progress())
         if dataloader.max_batch_size and \
                 dataloader.max_batch_size > dataloader.batch_size:
-            update_grad_params(self._key,
-                               self.scaling_rule.norm_avg(),
+            update_grad_params(self._key, self.scaling_rule.sqr_avg(),
                                self.scaling_rule.var_avg())
         self._sync_start = None
 
     def zero_grad(self, *args, **kwargs):
-        if self.scaling_rule.is_accumulation_step():
-            return
-        else:
-            return super().zero_grad(*args, **kwargs)
+        warnings.warn("zero_grad has no effect with AdaptiveDataParallel")
+
+    @property
+    def gain(self):  # TODO: should be tracked in the metrics module instead.
+        """
+        Current estimate of the AdaScale gain (r_t) value.
+        """
+        return self._state.gain
 
     def to_tensorboard(self, writer, global_step, tag_prefix=""):
         """
@@ -193,9 +192,9 @@ class AdaptiveDataParallel(DistributedDataParallel):
         if tag_prefix and not tag_prefix.endswith("/"):
             tag_prefix += "/"
         writer.add_scalar(tag_prefix + "Gradient_Norm_Sqr",
-                          self.norm_avg(), global_step)
+                          self.scaling_rule.sqr_avg(), global_step)
         writer.add_scalar(tag_prefix + "Gradient_Variance",
-                          self.var_avg(), global_step)
+                          self.scaling_rule.var_avg(), global_step)
         self.scaling_rule.to_tensorboard(writer, global_step, tag_prefix)
 
 
@@ -206,15 +205,17 @@ class _AdaptiveDataParallelState(adaptdl.checkpoint.State):
         self.model = model
         self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
+        # TODO: Gain/goodput should be tracked in the metrics module instead.
+        self.gain = 1.0
 
     def save(self, fileobj):
         state_dicts = [self.model.state_dict(), self.optimizer.state_dict()]
         if self.lr_scheduler is not None:
             state_dicts.append(self.lr_scheduler.state_dict())
-        torch.save(state_dicts, fileobj)
+        torch.save((state_dicts, self.gain), fileobj)
 
     def load(self, fileobj):
-        state_dicts = torch.load(fileobj)
+        state_dicts, self.gain = torch.load(fileobj)
         self.model.load_state_dict(state_dicts[0])
         self.optimizer.load_state_dict(state_dicts[1])
         if len(state_dicts) > 2:
