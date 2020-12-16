@@ -18,7 +18,7 @@ import numpy as np
 import collections
 import scipy.optimize
 import scipy.stats
-
+import ipdb
 
 # Parameters for a performance model which predicts the per-step time of
 # distributed SGD using all-reduce. At a high level, models compute time and
@@ -98,7 +98,7 @@ class GoodputFunction(object):
         num_nodes = np.broadcast_to(num_nodes, output_shape).flatten()
         num_replicas = np.broadcast_to(num_replicas, output_shape).flatten()
         # Samples 50 different total batch sizes in geometric space.
-        min_batch_size = np.maximum(self._init_batch_size,
+        min_batch_size = np.minimum(self._init_batch_size,
                                     min_atomic_bsz * num_replicas)
         batch_size = np.geomspace(min_batch_size, max_batch_size)
         local_bsz = batch_size / num_replicas

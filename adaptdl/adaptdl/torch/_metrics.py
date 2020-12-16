@@ -62,7 +62,7 @@ def profile_step_commit(accumulation_step=False):
     if not accumulation_step:
         if _PREV_REPORT is None:
             _PREV_REPORT = time.time()
-        if adaptdl.env.replica_rank() == 0 and time.time() - _PREV_REPORT > 30:
+        if adaptdl.env.replica_rank() == 0:
             _fit_perf_params()
             _report_sched_hints()
             _PREV_REPORT = time.time()
@@ -97,6 +97,7 @@ def set_batch_size(init_batch_size, max_batch_size, local_bsz_bounds,
 
 def get_goodput_fn():
     state = _metrics_state()
+    print(state.grad_params, state.perf_params)
     if state.grad_params is None or state.perf_params is None:
         return None
     return GoodputFunction(state.perf_params, state.grad_params,
