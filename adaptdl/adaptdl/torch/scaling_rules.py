@@ -25,7 +25,7 @@ from torch.autograd import Variable
 from types import MethodType
 
 
-__all__ = ["TBDBase", "AdaScale", "LinearScale", "SqrtScale"]
+__all__ = ["ScalingRuleBase", "AdaScale", "LinearScale", "SqrtScale"]
 
 
 def _average_groups(grads1, grads2):
@@ -58,11 +58,11 @@ class _ScalingRuleBase(object):
     Arguments:
         adp (adaptdl.torch.AdaptiveDataParallel): Model to apply to.
         optimizer (torch.optim.Optimizer): Optimizer to apply to.
-        scale (float): Scaling factor of the batch size, e.g. using a 10x
-            larger batch size (summed across all replicas) means a scale of
-            10. If None, defaults to ``num_replicas``.
         num_replicas (int): Number of replicas for distributed training. If
             None, defaults to ``torch.distributed.get_world_size()``.
+        accum_scale (float): Scaling factor of the batch size, e.g. using a 10x
+            larger batch size (summed across all replicas) means a scale of
+            10. If None, defaults to ``num_replicas``.
         patch_optimizer (bool): If True, monkey-patches the ``step`` method of
             the optimizer with the scaling rule's ``step`` method.
     """
@@ -103,6 +103,14 @@ class _ScalingRuleBase(object):
         raise NotImplementedError
 
     def step(self, *args, **kwargs):
+        """
+        Run one optimizer step. Essentially just invokes
+        ``optimizer.step(*args, **kwargs)`` with a scaled learning rate.
+
+        Arguments:
+            args: Positional arguments passed to ``optimizer.step``.
+            kwargs: Keyword arguments passed to ``optimizer.step``.
+        """
         raise NotImplementedError
 
     def zero_grad(self, *args, **kwargs):
@@ -307,7 +315,12 @@ class _GradientNoiseScaleMixin(_Base):
             self._update_avg('var_avg', grad_var, theta)
 
 
-class TBDBase(_GradientNoiseScaleMixin, _ScalingRuleBase):
+class ScalingRuleBase(_GradientNoiseScaleMixin, _ScalingRuleBase):
+    """
+    Base class for scaling rules that has the ability to track gradient noise
+    scale calculations.
+    """
+
     subclasses = []
 
     def __init_subclass__(cls, **kwargs):
@@ -315,14 +328,6 @@ class TBDBase(_GradientNoiseScaleMixin, _ScalingRuleBase):
         cls.subclasses.append(cls)
 
     def step(self, *args, **kwargs):
-        """
-        Run one optimizer step using Adascale. Essentially just invokes
-        ``optimizer.step(*args, **kwargs)`` with a scaled learning rate.
-
-        Arguments:
-            args: Positional arguments passed to ``optimizer.step``.
-            kwargs: Keyword arguments passed to ``optimizer.step``.
-        """
         if not self._adp.require_backward_grad_sync:
             return
         scale = self._accum_scale * self._accum_count
@@ -337,7 +342,7 @@ class TBDBase(_GradientNoiseScaleMixin, _ScalingRuleBase):
         self._reset_accumulation()
 
 
-class AdaScale(TBDBase):
+class AdaScale(ScalingRuleBase):
     """
     Implements the AdaScale_ algorithm for scaling the learning rate for
     distributed and large batch size training. Can be used in combination with
@@ -373,7 +378,7 @@ class AdaScale(TBDBase):
         return self.gain(scale)
 
 
-class LinearScale(TBDBase):
+class LinearScale(ScalingRuleBase):
 
     def _calculate_lr_factors(self, scale):
         return [scale] * len(self._optimizer.param_groups)
@@ -382,7 +387,7 @@ class LinearScale(TBDBase):
         return scale
 
 
-class SqrtScale(TBDBase):
+class SqrtScale(ScalingRuleBase):
 
     def _calculate_lr_factors(self, scale):
         return [math.sqrt(scale)] * len(self._optimizer.param_groups)
