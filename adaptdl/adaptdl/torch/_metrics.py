@@ -105,7 +105,8 @@ def _fit_perf_params():
     state = _metrics_state()
     profile = {k: v for k, v in state.profile.items() if v.get("optim_count")}
     # Convert profile into numpy arrays.
-    num_nodes, num_replicas, atomic_bsz = (np.array(k) for k in zip(*profile))
+    num_nodes, num_replicas, atomic_bsz = (
+        np.array(k) for k in zip(*profile.keys()))
     accum_step_time = np.array([v.get("accum_step_time", 0.0)
                                 for v in profile.values()])
     accum_count = np.array([v.get("accum_count", 0) for v in profile.values()])

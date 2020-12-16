@@ -87,6 +87,7 @@ class AdaScale(object):
         self._optimizer = optimizer
         self._orig_optimizer_step = optimizer.step
         self._orig_optimizer_zero_grad = optimizer.zero_grad
+        self._should_zero_grad = True
         self._num_replicas = (num_replicas if num_replicas is not None
                               else torch.distributed.get_world_size())
         self._accum_scale = accum_scale or self._num_replicas
@@ -214,6 +215,11 @@ class AdaScale(object):
                 self._async_op = torch.distributed.all_reduce(self._local_sqr,
                                                               async_op=True)
             Variable._execution_engine.queue_callback(self._final_callback)
+            self._should_zero_grad = True
+        else:
+            # Keep on accumulating gradients, should not zero grad.
+            self._should_zero_grad = False
+
 
     def _final_callback(self):
         # This method should be invoked once the gradients have been
@@ -293,7 +299,10 @@ class AdaScale(object):
         self._reset_accumulation()
 
     def zero_grad(self, *args, **kwargs):
-        warnings.warn("zero_grad has no effect with AdaScale")
+        if self._should_zero_grad:
+            self._orig_optimizer_zero_grad(*args, **kwargs)
+        else:
+            warnings.warn("skipping zero_grad for accumulated gradient")
 
     def patch_optimizer(self):
         """
