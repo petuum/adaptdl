@@ -38,7 +38,7 @@ class LRIterableDataset(Dataset):
 
 
 def test_single_replica_parallel():
-    adl.init_process_group("nccl" if torch.cuda.is_available() else "gloo")
+    adl.init_process_group("gloo")
     true_values = np.asarray([3.0, 4.0])
     dataset = LRIterableDataset(1000, true_values, 1.0)
     dataloader = adl.AdaptiveDataLoader(
