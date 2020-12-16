@@ -13,17 +13,16 @@
 # limitations under the License.
 
 
-import collections.abc
-import copy
 import functools
-
+import typing
 import math
+
 import numpy as np
 import torch.distributed
 import torch.optim
 from torch.autograd import Variable
 
-__all__ = ["ScalingRuleBase", "AdaScale", "LinearScale", "SqrtScale"]
+__all__ = ["TBDBase", "AdaScale", "LinearScale", "SqrtScale"]
 
 
 def _average_groups(grads1, grads2):
@@ -48,39 +47,7 @@ def _normsqr_groups(grads):
     return np.array(ret)
 
 
-class _LocalVariables(collections.abc.MutableMapping):
-    """
-    A dictionary that remembers initial values and has a ``reset`` function
-    to reset data to its initial state.
-    """
-    def __init__(self):
-        self.data_copy = {}
-        self.data = {}
-
-    def set_initial_values(self, data: dict):
-        self.data_copy = data
-        self.reset()
-
-    def reset(self):
-        self.data = copy.deepcopy(self.data_copy)
-
-    def __getitem__(self, item):
-        return self.data.__getitem__(item)
-
-    def __setitem__(self, key, value):
-        self.data.__setitem__(key, value)
-
-    def __delitem__(self, key):
-        self.data.__delitem__(key)
-
-    def __iter__(self):
-        return self.data.__iter__()
-
-    def __len__(self):
-        return self.data.__len__()
-
-
-class ScalingRuleBase(object):
+class _ScalingRuleBase(object):
     """
     Base class for scaling rules.
 
@@ -95,11 +62,6 @@ class ScalingRuleBase(object):
         patch_optimizer (bool): If True, monkey-patches the ``step`` method of
             the optimizer with this scaling rule's ``step`` method.
     """
-    subclasses = []
-
-    def __init_subclass__(cls, **kwargs):
-        super().__init_subclass__(**kwargs)
-        cls.subclasses.append(cls)
 
     def __init__(self, optimizer, scale=None, num_replicas=None,
                  patch_optimizer=False):
@@ -113,12 +75,6 @@ class ScalingRuleBase(object):
         self.set_scale(self._num_replicas if scale is None else scale)
 
         self._made_step = False
-
-        # local variables that are rested when:
-        # 1. accumulation step restarts
-        # 2. gradients have been synchronized between all replicas
-        #    and accumulation steps
-        self._local_vars = _LocalVariables()
 
         if patch_optimizer:
             self.patch_optimizer()
@@ -159,19 +115,17 @@ class ScalingRuleBase(object):
         if accumulation_steps != self._accumulation_steps:
             self._current_accumulation_step = 0
             self._accumulation_steps = int(accumulation_steps)
-            self._local_vars.reset()
 
-    def _calculate_scale_multiplier(self, pg_index=None) -> float:
+    def _calculate_scale_factors(self):
         """
-        Calculate the multiplier to be applied to the current learning rate.
-        Arguments:
-            pg_index (int): Index of current parameter group.
+        Calculate a list of multipliers to be applied to the current learning
+        rate.
         """
         raise NotImplementedError
 
     def step(self, *args, **kwargs):
         """
-        Run one optimizer step using Adascale. Essentially just invokes
+        Run one optimizer step. Essentially just invokes
         ``optimizer.step(*args, **kwargs)`` with a scaled learning rate.
 
         Arguments:
@@ -186,9 +140,9 @@ class ScalingRuleBase(object):
         self._current_accumulation_step = 0
         self._made_step = True
         initial_lr = [pg["lr"] for pg in self._optimizer.param_groups]
+        lr_factors = self._calculate_scale_factors()
         for idx, param_group in enumerate(self._optimizer.param_groups):
-            param_group["lr"] = self._calculate_scale_multiplier(idx) \
-                                * param_group["lr"]
+            param_group["lr"] = lr_factors[idx] * param_group["lr"]
         self._optimizer_step(*args, **kwargs)
         for lr, param_group in zip(initial_lr, self._optimizer.param_groups):
             param_group["lr"] = lr
@@ -231,87 +185,65 @@ class ScalingRuleBase(object):
         self._optimizer.zero_grad = zero_wrapper
 
 
-class AdaScale(ScalingRuleBase):
+# Surpass type checking errors while making sure that `object` is inherited.
+_Base = _ScalingRuleBase if typing.TYPE_CHECKING else object
+
+
+class _GradientNoiseScaleMixin(_Base):
     """
-    Implements the AdaScale_ algorithm for scaling the learning rate for
-    distributed and large batch size training. Can be used in combination with
-    ``torch.nn.parallel.DistributedDataParallel`` and ``torch.optim.SGD``.
+    This Mixin class that makes ScalingRuleBase able to track gradient related
+    stats.
+    """
 
-    .. code-block:: python
-
-        optim = torch.optim.SGD(model, lr=0.001)
-        model = DistributedDataParallel(model)
-        adascale = AdaScale(optim)
-
-        for epoch in ...:
-            for batch in ...:
-                optim.zero_grad()
-                loss = ...
-                loss.backward()
-                adascale.step()
-
-    Arguments:
-        optimizer (torch.optim.Optimizer): Optimizer to apply AdaScale to.
-        scale (float): Scaling factor of the batch size, e.g. using a 10x
-            larger batch size (summed across all replicas) means a scale of
-            10. If None, defaults to ``num_replicas``.
-        num_replicas (int): Number of replicas for distributed training. If
-            None, defaults to ``torch.distributed.get_world_size()``.
-        patch_optimizer (bool): If True, monkey-patches the ``step`` method of
-            the optimizer with the AdaScale ``step`` method.
-
-    .. _AdaScale: https://proceedings.icml.cc/static/paper_files/icml/2020/4682-Supplemental.pdf
-    """  # noqa: E501
-
-    def __init__(self, optimizer, scale=None, num_replicas=None,
-                 patch_optimizer=False):
-        optimizer.state.setdefault("adascale", {
-            "replicas": 0.0,
+    def __init__(self, optimizer, scale=None,
+                 num_replicas=None, patch_optimizer=False):
+        super().__init__(optimizer, scale, num_replicas, patch_optimizer)
+        self._optimizer.state.setdefault("gradient_noise_scale", {
+            "replicas": self._num_replicas,
 
             # Averages of n and v
             "norm_avg": np.ones(len(optimizer.param_groups)),
             "var_avg": np.zeros(len(optimizer.param_groups)),
         })
-        super().__init__(optimizer, scale, num_replicas, patch_optimizer)
-        self._local_vars.set_initial_values({"local_sqr": None})
+
+        self._local_sqr = None
         self._prev_grads = None
+        self._smoothing = 0.999
 
         for idx, param_group in enumerate(self._optimizer.param_groups):
             for param in param_group["params"]:
                 param.register_hook(
                     functools.partial(self._backward_hook, idx))
 
-        self._smoothing = 0.999
-
     @property
     def _state(self):
-        return self._optimizer.state["adascale"]
+        return self._optimizer.state["gradient_noise_scale"]
 
-    # _local_sqr getter and setters for backward compatibility.
-    @property
-    def _local_sqr(self):
-        return self._local_vars["local_sqr"]
-
-    @_local_sqr.setter
-    def _local_sqr(self, value):
-        self._local_vars["local_sqr"] = value
-
-    def set_scale(self, scale):
+    def set_accumulation_steps(self, accumulation_steps):
         """
-        Set the scaling factor of the current batch size. It is up to the
-        application to invoke this function to make sure that AdaScale's
-        scaling factor matches the actual batch size used during training.
+        Override _ScalingRuleBase.set_accumulation_steps to reset `_local_sqr`.
+        """
+        accumulation_steps = accumulation_steps + 1
+        if accumulation_steps != self._accumulation_steps:
+            self._current_accumulation_step = 0
+            self._accumulation_steps = int(accumulation_steps)
+            self._local_sqr = None
+
+    def set_scale(self, scale=None):
+
+    def gain(self, scale=None):
+        """
+        Current estimate of the AdaScale gain ratio.
 
         Arguments:
-            scale (float): New scaling factor to be applied to AdaScale.
+            scale (float): The batch size scale to estimate the gain ratio for.
+
+        Returns (float): Estimate of gain ratio.
         """
-        if self._state['replicas'] == 1 and self._num_replicas > 1:
-            # TODO: when to reset running averages should be decided outside of
-            # the AdaScale object.
-            self._reset_avg("norm_avg")
-            self._reset_avg("var_avg")
-        self._scale = scale
-        self._state['replicas'] = self._num_replicas
+        scale = self._scale if scale is None else scale
+        var = self.var_avg()
+        norm = self.norm_avg()
+        return (var + norm) / (var / scale + norm)
 
     def norm_avg(self):
         """
@@ -331,34 +263,6 @@ class AdaScale(ScalingRuleBase):
         """
         return np.sum(self._state["var_avg"])
 
-    def get_progress(self, scale=None):
-        if self._made_step:
-            return self.gain(scale)
-        else:
-            return 0.0
-
-    def gain(self, scale=None):
-        """
-        Current estimate of the AdaScale gain ratio.
-
-        Arguments:
-            scale (float): The batch size scale to estimate the gain ratio for.
-
-        Returns (float): Estimate of gain ratio.
-        """
-        scale = self._scale if scale is None else scale
-        var = self.var_avg()
-        norm = self.norm_avg()
-        return (var + norm) / (var / scale + norm)
-
-    def to_tensorboard(self, writer, global_step, tag_prefix=""):
-        writer.add_scalar(tag_prefix + "Gradient_Norm_Sqr",
-                          self.norm_avg(), global_step)
-        writer.add_scalar(tag_prefix + "Gradient_Variance",
-                          self.var_avg(), global_step)
-        writer.add_scalar(tag_prefix + "Learning_Rate_Factor",
-                          self.gain(), global_step)
-
     def _update_avg(self, param_name, value, factor):
         biased = self._state.get(param_name + "_biased", 0.0)
         unbias = self._state.get(param_name + "_unbias", 0.0)
@@ -372,15 +276,24 @@ class AdaScale(ScalingRuleBase):
         self._state.pop(param_name + "_biased", None)
         self._state.pop(param_name + "_unbias", None)
 
+    def reset_avg_if_necessary(self):
+        if self._state['replicas'] == 1 and self._num_replicas > 1:
+            # TODO: when to reset running averages should be decided outside of
+            #       the scaling rule object.
+            self._reset_avg("norm_avg")
+            self._reset_avg("var_avg")
+        self._state['replicas'] = self._num_replicas
+
     def _backward_hook(self, idx, grad):
         # This method should be invoked once for each parameter during the
         # backward pass, before gradients are synchronized between replicas.
         if self._local_sqr is None:
             self._local_sqr = torch.zeros(
-                (self._accumulation_steps, len(self._optimizer.param_groups)),
+                (self._accumulation_steps,
+                 len(self._optimizer.param_groups)),
                 device=grad.device)
-        self._local_sqr[self._current_accumulation_step][idx] += \
-            grad.pow(2).sum()
+        self._local_sqr[self._current_accumulation_step][idx] \
+            += grad.pow(2).sum()
         grad /= self._accumulation_steps
         self._final_callback_queued = False
         Variable._execution_engine.queue_callback(self._queue_callback)
@@ -418,7 +331,7 @@ class AdaScale(ScalingRuleBase):
             self._local_sqr[1].wait()
             self._local_sqr = self._local_sqr[0] / self._num_replicas
         count = self._num_replicas * self._accumulation_steps
-        scale = self._scale
+        scale = self.scale
         if count > 1:
             # Average local squared-norm samples across accumulation steps.
             local_sqr = self._local_sqr.cpu().numpy().mean(axis=0)
@@ -432,7 +345,7 @@ class AdaScale(ScalingRuleBase):
                 total_sqr = \
                     _normsqr_groups(_average_groups(grads, self._prev_grads))
                 count = 2
-                scale = 2 * self._scale
+                scale = 2 * self.scale
             self._prev_grads = [[g.clone() if g is not None else None
                                  for g in group] for group in grads]
 
@@ -444,37 +357,76 @@ class AdaScale(ScalingRuleBase):
             theta = self._smoothing ** scale
             self._update_avg('norm_avg', grad_sqr, theta)
             self._update_avg('var_avg', grad_var, theta)
-        self._local_vars.reset()
+        self._local_sqr = None
 
-    def _calculate_scale_multiplier(self, pg_idx=None) -> float:
-        if pg_idx is None:
-            raise ValueError("Parameter index must be provided.")
-        grad_sqr = float(self._state["norm_avg"][pg_idx])
-        grad_var = float(self._state["var_avg"][pg_idx])
+
+class TBDBase(_GradientNoiseScaleMixin, _ScalingRuleBase):
+    """Base class for scaling rules that brings in gradient
+    noise scale calculations."""
+    subclasses = []
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        cls.subclasses.append(cls)
+
+    def get_progress(self, scale=None):
+        if self._made_step:
+            return self.gain(scale)
+        else:
+            return 0.0
+
+    def _calculate_scale_factors(self):
+        raise NotImplementedError
+
+
+class AdaScale(TBDBase):
+    """
+    Implements the AdaScale_ algorithm for scaling the learning rate for
+    distributed and large batch size training. Can be used in combination with
+    ``torch.nn.parallel.DistributedDataParallel`` and ``torch.optim.SGD``.
+
+    .. code-block:: python
+
+        optim = torch.optim.SGD(model, lr=0.001)
+        model = DistributedDataParallel(model, optim, scaling_rule="AdaScale")
+        adascale = model.scaling_rule
+
+        for epoch in ...:
+            for batch in ...:
+                optim.zero_grad()
+                loss = ...
+                loss.backward()
+                adascale.step()
+
+    .. _AdaScale: https://proceedings.icml.cc/static/paper_files/icml/2020/4682-Supplemental.pdf
+    """  # noqa: E501
+
+    def _calculate_scale_factors(self) -> float:
+        grad_sqr = self._state["norm_avg"]
+        grad_var = self._state["var_avg"]
         gain = (grad_var + grad_sqr) / (grad_var / self._scale + grad_sqr)
         return gain
 
+    def to_tensorboard(self, writer, global_step, tag_prefix=""):
+        writer.add_scalar(tag_prefix + "Learning_Rate_Factor",
+                          self.gain(), global_step)
 
-class LinearScale(ScalingRuleBase):
 
-    def _calculate_scale_multiplier(self, pg_index=None) -> float:
-        return self.scale
+class LinearScale(TBDBase):
 
-    def get_progress(self):
-        return self.scale
+    def _calculate_scale_factors(self) -> float:
+        return self.scale * np.ones(len(self._optimizer.param_groups))
 
     def to_tensorboard(self, writer, global_step, tag_prefix=""):
         writer.add_scalar(tag_prefix + "Learning_Rate_Factor",
                           self.scale, global_step)
 
 
-class SqrtScale(ScalingRuleBase):
+class SqrtScale(TBDBase):
 
-    def _calculate_scale_multiplier(self, pg_index=None) -> float:
-        return math.sqrt(self.scale)
-
-    def get_progress(self):
-        return math.sqrt(self.scale)
+    def _calculate_scale_factors(self, pg_index=None) -> float:
+        return math.sqrt(self.scale) \
+               * np.ones(len(self._optimizer.param_groups))
 
     def to_tensorboard(self, writer, global_step, tag_prefix=""):
         writer.add_scalar(tag_prefix + "Learning_Rate_Factor",

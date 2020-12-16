@@ -19,17 +19,18 @@ from typing import Type, TypeVar, Union
 
 import torch
 import torch.cuda
+import torch.distributed
 from torch.autograd import Variable
 from torch.nn.parallel import DistributedDataParallel
 
 import adaptdl.checkpoint
 import adaptdl.env
 from adaptdl.torch.data import current_dataloader
-from adaptdl.torch.scaling_rules import ScalingRuleBase
+from adaptdl.torch.scaling_rules import TBDBase
 from adaptdl.torch._metrics import profile_sync_time, update_grad_params,\
     update_progress
 
-SR = TypeVar("SR", bound=ScalingRuleBase)
+SR = TypeVar("SR", bound=TBDBase)
 
 
 class AdaptiveDataParallel(DistributedDataParallel):
@@ -45,7 +46,7 @@ class AdaptiveDataParallel(DistributedDataParallel):
         optimizer (torch.optim.Optimizer): Optimizer used to update the given
             model's parameters, will be patched using subclass of
             :class:`adaptdl.torch.scaling_rules.ScalingRuleBase`.
-        scaling_rule (Union[str, Type[ScalingRuleBase]]): Scaling rule used to
+        scaling_rule (Union[str, Type[TBDBase]]): Scaling rule used to
             patch the given optimizer.
         lr_scheduler (torch.optim.lr_scheduler._LRScheduler): LR scheduler used
             to anneal the learning rate for the given optimizer.
@@ -54,7 +55,7 @@ class AdaptiveDataParallel(DistributedDataParallel):
     """
 
     available_scaling_rules = {cls.__name__: cls
-                               for cls in ScalingRuleBase.subclasses}
+                               for cls in TBDBase.subclasses}
 
     def __init__(self, model, optimizer,
                  lr_scheduler=None, name="adaptdl-dataparallel",
@@ -73,7 +74,7 @@ class AdaptiveDataParallel(DistributedDataParallel):
 
         # Setup for the scaling_rule, must be after registering backward hooks
         # because some of them need to register their own backward hooks.
-        self.scaling_rule: ScalingRuleBase = \
+        self.scaling_rule: SR = \
             scaling_rule_cls(optimizer, patch_optimizer=True)
 
         self._state = _AdaptiveDataParallelState(model, optimizer,
@@ -90,7 +91,7 @@ class AdaptiveDataParallel(DistributedDataParallel):
         try:
             if isinstance(scaling_rule, str):
                 return self.available_scaling_rules[scaling_rule]
-            elif issubclass(scaling_rule, ScalingRuleBase):
+            elif issubclass(scaling_rule, TBDBase):
                 return scaling_rule
             else:
                 raise ValueError(err_unrecognized)
@@ -191,6 +192,10 @@ class AdaptiveDataParallel(DistributedDataParallel):
         """
         if tag_prefix and not tag_prefix.endswith("/"):
             tag_prefix += "/"
+        writer.add_scalar(tag_prefix + "Gradient_Norm_Sqr",
+                          self.norm_avg(), global_step)
+        writer.add_scalar(tag_prefix + "Gradient_Variance",
+                          self.var_avg(), global_step)
         self.scaling_rule.to_tensorboard(writer, global_step, tag_prefix)
 
 
