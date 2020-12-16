@@ -99,6 +99,9 @@ class _ScalingRuleBase(object):
     def _calculate_lr_factors(self, scale):
         raise NotImplementedError
 
+    def calculate_lr_factor_estimation(self, scale):
+        raise NotImplementedError
+
     def step(self, *args, **kwargs):
         raise NotImplementedError
 
@@ -124,6 +127,10 @@ class _ScalingRuleBase(object):
             return self.zero_grad(*args, **kwargs)
         self._optimizer.step = MethodType(step_wrapper, self._optimizer)
         self._optimizer.zero_grad = MethodType(zero_wrapper, self._optimizer)
+
+    def to_tensorboard(self, writer, global_step, tag_prefix):
+        """Output some useful metrics to TensorBoard."""
+        pass
 
 
 _Base = _ScalingRuleBase if typing.TYPE_CHECKING else object
@@ -353,6 +360,7 @@ class AdaScale(TBDBase):
     """  # noqa: E501
 
     def _calculate_lr_factors(self, scale):
+        """Calculate factors to be applied to lr for each parameter group."""
         lr_factors = []
         for sqr, var, pg in zip(self._state["sqr_avg"], self._state["var_avg"],
                                 self._optimizer.param_groups):
@@ -360,14 +368,24 @@ class AdaScale(TBDBase):
             lr_factors.append((var + sqr) / (var / scale + sqr))
         return lr_factors
 
+    def calculate_lr_factor_estimation(self, scale):
+        """Calculate a single lr factor estimation."""
+        return self.gain(scale)
+
 
 class LinearScale(TBDBase):
 
     def _calculate_lr_factors(self, scale):
         return [scale] * len(self._optimizer.param_groups)
 
+    def calculate_lr_factor_estimation(self, scale):
+        return scale
+
 
 class SqrtScale(TBDBase):
 
     def _calculate_lr_factors(self, scale):
         return [math.sqrt(scale)] * len(self._optimizer.param_groups)
+
+    def calculate_lr_factor_estimation(self, scale):
+        return math.sqrt(scale)

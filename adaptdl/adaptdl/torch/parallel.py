@@ -75,7 +75,7 @@ class AdaptiveDataParallel(DistributedDataParallel):
 
         # Setup for the scaling_rule, must be after registering backward hooks
         # because some of them need to register their own backward hooks.
-        self.scaling_rule: SR = \
+        self.scaling_rule: TBDBase = \
             scaling_rule_cls(self, optimizer, patch_optimizer=True)
 
         self._state = _AdaptiveDataParallelState(model, optimizer,
@@ -162,6 +162,8 @@ class AdaptiveDataParallel(DistributedDataParallel):
 
         scale = dataloader.current_batch_size / dataloader.batch_size
         self._state.gain = self.scaling_rule.gain(scale)
+        self._state.lr_factor = \
+            self.scaling_rule.calculate_lr_factor_estimation(scale)
         update_progress(self.scaling_rule.get_progress())
         if dataloader.max_batch_size and \
                 dataloader.max_batch_size > dataloader.batch_size:
@@ -195,7 +197,8 @@ class AdaptiveDataParallel(DistributedDataParallel):
                           self.scaling_rule.sqr_avg(), global_step)
         writer.add_scalar(tag_prefix + "Gradient_Variance",
                           self.scaling_rule.var_avg(), global_step)
-        self.scaling_rule.to_tensorboard(writer, global_step, tag_prefix)
+        writer.add_scalar(tag_prefix + "Learning_Rate_Factor",
+                          self._state.lr_factor, global_step)
 
 
 class _AdaptiveDataParallelState(adaptdl.checkpoint.State):
@@ -207,15 +210,17 @@ class _AdaptiveDataParallelState(adaptdl.checkpoint.State):
         self.lr_scheduler = lr_scheduler
         # TODO: Gain/goodput should be tracked in the metrics module instead.
         self.gain = 1.0
+        # lr_factor estimation
+        self.lr_factor = 1.0
 
     def save(self, fileobj):
         state_dicts = [self.model.state_dict(), self.optimizer.state_dict()]
         if self.lr_scheduler is not None:
             state_dicts.append(self.lr_scheduler.state_dict())
-        torch.save((state_dicts, self.gain), fileobj)
+        torch.save((state_dicts, self.gain, self.lr_factor), fileobj)
 
     def load(self, fileobj):
-        state_dicts, self.gain = torch.load(fileobj)
+        state_dicts, self.gain, self.lr_factor = torch.load(fileobj)
         self.model.load_state_dict(state_dicts[0])
         self.optimizer.load_state_dict(state_dicts[1])
         if len(state_dicts) > 2:
