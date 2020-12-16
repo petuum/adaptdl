@@ -220,7 +220,6 @@ class AdaScale(object):
             # Keep on accumulating gradients, should not zero grad.
             self._should_zero_grad = False
 
-
     def _final_callback(self):
         # This method should be invoked once the gradients have been
         # synchronized between all replicas and accumulation steps.
