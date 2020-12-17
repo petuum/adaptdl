@@ -21,6 +21,7 @@ after the current job restarts and resumed from where it left off.
 """
 
 import os
+import shutil
 
 from adaptdl.env import checkpoint_path, replica_rank
 
@@ -28,6 +29,9 @@ from adaptdl.env import checkpoint_path, replica_rank
 # applications which do not restart too often.
 _STATES_TO_NAMES = {}
 _NAMES_TO_STATES = {}
+
+CKPT_DIR_NAME = "checkpoints"
+CKPT_TMP_DIR_NAME = "_checkpoints"
 
 
 class State(object):
@@ -95,6 +99,17 @@ def save_all_states():
     for state in _STATES_TO_NAMES:
         save_state(state)
 
+    # Store the checkpoint file in a temporary folder and then rename the folder
+    # once all states are saved. This is to avoid corrupting original checkpoint
+    # files in case the process got killed during file writing.
+    if replica_rank() == 0 and checkpoint_path() is not None:
+        ckpt_dir = os.path.join(checkpoint_path(), CKPT_DIR_NAME)
+        if os.path.isdir(ckpt_dir):
+            shutil.rmtree(ckpt_dir)
+
+        ckpt_tmp_dir = os.path.join(checkpoint_path(), CKPT_TMP_DIR_NAME)
+        os.rename(ckpt_tmp_dir, ckpt_dir)
+
 
 def save_state(state, sync=True):
     """
@@ -108,18 +123,13 @@ def save_state(state, sync=True):
     """
     if sync:
         state.sync()
-    if replica_rank() == 0:
+
+    if replica_rank() == 0 and checkpoint_path() is not None:
         name = _STATES_TO_NAMES[state]
-        tmp_name = f"_{name}"
-        if checkpoint_path() is not None:
-            ckpt_file = os.path.join(checkpoint_path(), name)
-            tmp_ckpt_file = os.path.join(checkpoint_path(), tmp_name)
+        ckpt_file = os.path.join(checkpoint_path(), CKPT_TMP_DIR_NAME, name)
 
-            with open(tmp_ckpt_file, "wb") as f:
-                state.save(f)
-
-            # Save checkpoint atomically to avoid file corruption
-            os.rename(tmp_ckpt_file, ckpt_file)
+        with open(ckpt_file, "wb") as f:
+            state.save(f)
 
 
 def load_state(state):
@@ -137,10 +147,13 @@ def load_state(state):
     """
     if checkpoint_path() is None:
         return False
-    try:
-        name = _STATES_TO_NAMES[state]
-        with open(os.path.join(checkpoint_path(), name), "rb") as f:
-            state.load(f)
-        return True
-    except FileNotFoundError:
+
+    name = _STATES_TO_NAMES[state]
+    ckpt_file = os.path.join(checkpoint_path(), CKPT_DIR_NAME, name)
+    if not os.path.isfile(ckpt_file):
         return False
+
+    with open(ckpt_file, "rb") as f:
+        state.load(f)
+
+    return True
