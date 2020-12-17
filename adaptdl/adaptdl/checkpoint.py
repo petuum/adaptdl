@@ -99,9 +99,9 @@ def save_all_states():
     for state in _STATES_TO_NAMES:
         save_state(state)
 
-    # Store the checkpoint file in a temporary folder and then rename the folder
-    # once all states are saved. This is to avoid corrupting original checkpoint
-    # files in case the process got killed during file writing.
+    # Store the checkpoint file in a temporary folder and then rename the
+    # folder once all states are saved. This is to prevent corrupting original
+    # checkpoint files in case the process got killed during file writing.
     if replica_rank() == 0 and checkpoint_path() is not None:
         ckpt_dir = os.path.join(checkpoint_path(), CKPT_DIR_NAME)
         if os.path.isdir(ckpt_dir):
