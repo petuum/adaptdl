@@ -30,8 +30,8 @@ from adaptdl.env import checkpoint_path, replica_rank
 _STATES_TO_NAMES = {}
 _NAMES_TO_STATES = {}
 
-CKPT_DIR_NAME = "checkpoints"
-CKPT_TMP_DIR_NAME = "_checkpoints"
+CKPT_DIR_NAME = "checkpoint"
+CKPT_TMP_DIR_NAME = "_checkpoint"
 
 
 class State(object):
