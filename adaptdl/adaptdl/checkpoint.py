@@ -99,23 +99,25 @@ def save_all_states():
     for state in _STATES_TO_NAMES:
         save_state(state)
 
-    # Store the checkpoint file in a temporary folder and then rename the
-    # folder once all states are saved. This is to prevent corrupting original
-    # checkpoint files in case the process got killed during file writing.
+    # Prevent corrupting original state files in case the process got killed
+    # during state file writing.
     if replica_rank() == 0 and checkpoint_path() is not None:
         ckpt_dir = os.path.join(checkpoint_path(), CKPT_DIR_NAME)
         if os.path.isdir(ckpt_dir):
             shutil.rmtree(ckpt_dir)
 
+        os.makedirs(ckpt_dir, exist_ok=True)
         ckpt_tmp_dir = os.path.join(checkpoint_path(), CKPT_TMP_DIR_NAME)
-        os.rename(ckpt_tmp_dir, ckpt_dir)
+        os.rename(ckpt_tmp_dir, ckpt_dir)  # atomic
 
 
 def save_state(state, sync=True):
     """
     Saves a `State` object to persistent storage. First invokes `State.sync` on
     all replicas if `sync` is `True` (default), and then invokes `State.save`
-    on the replica of rank 0 only.
+    on the replica of rank 0 only. Note that we save state to a temporary
+    folder first. Then, it will be renamed to the formal checkpoint folder
+    after all states are saved.
 
     Arguments:
         state (State): The `State` object to save to persistent storage.
@@ -126,9 +128,11 @@ def save_state(state, sync=True):
 
     if replica_rank() == 0 and checkpoint_path() is not None:
         name = _STATES_TO_NAMES[state]
-        ckpt_file = os.path.join(checkpoint_path(), CKPT_TMP_DIR_NAME, name)
+        ckpt_tmp_dir = os.path.join(checkpoint_path(), CKPT_TMP_DIR_NAME)
+        state_file = os.path.join(ckpt_tmp_dir, name)
+        os.makedirs(ckpt_tmp_dir, exist_ok=True)
 
-        with open(ckpt_file, "wb") as f:
+        with open(state_file, "wb") as f:
             state.save(f)
 
 
@@ -149,11 +153,11 @@ def load_state(state):
         return False
 
     name = _STATES_TO_NAMES[state]
-    ckpt_file = os.path.join(checkpoint_path(), CKPT_DIR_NAME, name)
-    if not os.path.isfile(ckpt_file):
+    state_file = os.path.join(checkpoint_path(), CKPT_DIR_NAME, name)
+    if not os.path.isfile(state_file):
         return False
 
-    with open(ckpt_file, "rb") as f:
+    with open(state_file, "rb") as f:
         state.load(f)
 
     return True
