@@ -226,6 +226,10 @@ class AdaScale(object):
             self._async_op.wait()
 
         grads = []
+        if self._mp_scaler is not None:
+            mixed_precision_scale = self._mp_scaler.get_scale()
+        else:
+            mixed_precision_scale = 1.0
         for group in self._optimizer.param_groups:
             grads.append([])
             for param in group["params"]:
@@ -235,7 +239,7 @@ class AdaScale(object):
                 param.grad.div_(self._accumulation_steps)
                 grad = param.grad.detach().float()
                 if (self._mp_scaler is not None):
-                    grad = grad / self._mp_scaler.get_scale()
+                    grad = grad / mixed_precision_scale
                 grads[-1].append(grad)
 
         check = [g.sum() for group in grads for g in group]
@@ -248,6 +252,10 @@ class AdaScale(object):
         if count > 1:
             # Average local squared-norm samples.
             local_sqr = self._local_sqr.cpu().numpy() / count
+            # Gradient is squared in local_sqr, so need to square the
+            # mixed precision scale as well
+            local_sqr = (local_sqr / mixed_precision_scale ** 2)
+
             total_sqr = _normsqr_groups(grads)
             if self._state["biased"]:
                 self._reset_avg("sqr_avg")
@@ -268,15 +276,17 @@ class AdaScale(object):
                                  for g in group] for group in grads]
 
         if count > 1:
-            grad_sqr = (count * total_sqr - local_sqr) / (count - 1)
-            grad_var = (local_sqr - total_sqr) * scale / (count - 1)
-            theta = self._smoothing ** scale
             # Note: mixed precision can result in nan/inf gradients,
             # which propogate into our norm and variance estimates.
             # Mixed precision autoscaling skips the skip where
             # there are nan/inf, so we also skip the update here
-            if (np.all(np.isfinite(grad_sqr))
-                    and np.all(np.isfinite(grad_var))):
+            if (np.all(np.isfinite(total_sqr))
+                    and np.all(np.isfinite(local_sqr))):
+                grad_sqr = (count * total_sqr - local_sqr) / (count - 1)
+                grad_var = (local_sqr - total_sqr) * scale / (count - 1)
+                grad_sqr = np.maximum(grad_sqr, 0.0)
+                grad_var = np.maximum(grad_var, 1e-6)
+                theta = self._smoothing ** scale
                 self._update_avg('norm_avg', grad_sqr, theta)
                 self._update_avg('var_avg', grad_var, theta)
 
