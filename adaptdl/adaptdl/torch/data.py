@@ -306,8 +306,9 @@ class AdaptiveDataLoaderHelper(object):
                 self.current_local_bsz, self.accumulation_steps)
             # use only if speedup is significant
             speedup = suggest_goodput / max(current_goodput, 1e-8)
-            self._state.current_local_bsz = atomic_bsz
-            self._state.accumulation_steps = accum_steps
+            if speedup > self._speedup_threshold:
+                self._state.current_local_bsz = atomic_bsz
+                self._state.accumulation_steps = accum_steps
 
         self._state.current_local_bsz, self._state.accumulation_steps = \
             adaptdl.collective.broadcast((self._state.current_local_bsz,
