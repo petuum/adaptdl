@@ -21,14 +21,14 @@ import numpy as np
 
 import adaptdl.checkpoint
 import adaptdl.collective
+import adaptdl.env
 from adaptdl.goodput import GoodputFunction, fit_perf_params
 from adaptdl.sched_hints import SCHED_HINTS, PERF_PARAMS, post_sched_hints
 
 
-def profile_step_start(local_bsz, gradient_accumulation_steps):
+def profile_step_start(atomic_bsz):
     state = _metrics_state()
-    state.local_bsz = local_bsz
-    state.gradient_accumulation_steps = gradient_accumulation_steps
+    state.atomic_bsz = atomic_bsz
     state.step_start = time.time()
     state.sync_time = 0.0
 
@@ -46,17 +46,15 @@ def profile_step_commit(accumulation_step=False):
     step_time = time.time() - state.step_start
     num_nodes = adaptdl.env.num_nodes()
     num_replicas = adaptdl.env.num_replicas()
-    key = (num_nodes, num_replicas,
-           state.local_bsz, state.gradient_accumulation_steps)
+    key = (num_nodes, num_replicas, state.atomic_bsz)
     if accumulation_step:
-        state.profile[key]["accumulation_step_time"] += step_time
-        state.profile[key]["accumulation_count"] += 1
+        state.profile[key]["accum_step_time"] += step_time
+        state.profile[key]["accum_count"] += 1
     else:
-        state.profile[key]["step_time"] += step_time
-        state.profile[key]["sync_time"] += state.sync_time
-        state.profile[key]["count"] += 1
-    del state.local_bsz
-    del state.gradient_accumulation_steps
+        state.profile[key]["optim_step_time"] += step_time
+        state.profile[key]["optim_sync_time"] += state.sync_time
+        state.profile[key]["optim_count"] += 1
+    del state.atomic_bsz
     del state.step_start
     del state.sync_time
     if not accumulation_step:
@@ -78,8 +76,8 @@ def update_grad_params(edp_key, grad_norm_sqr, grad_variance):
     _metrics_state().grad_params = (grad_params[0], grad_params[1])
 
 
-def update_progress(gain):
-    _metrics_state().progress += gain
+def update_progress(progress):
+    _metrics_state().progress = progress
 
 
 def get_progress():
@@ -105,24 +103,28 @@ def get_goodput_fn():
 
 def _fit_perf_params():
     state = _metrics_state()
-    items = state.profile.items()
-    items = [item for item in items if item[1]["count"] > 0]
-    keys = [item[0] for item in items]
-    values = [item[1] for item in items]
-    num_nodes, num_replicas, local_bsz, accumulation_steps = \
-        (np.array(val) for val in zip(*keys))
-    step_time = np.array([val["step_time"] / val["count"] for val in values])
-    sync_time = np.array([val["sync_time"] / val["count"] for val in values])
-    accumulation_time = np.array(
-            [val["accumulation_step_time"] / val["accumulation_count"]
-             if val["accumulation_count"] > 0 else 0.0
-             for val in values])
-    compute_time = step_time - sync_time
-    accumulation_time = np.where(
-        accumulation_steps > 0, accumulation_time, compute_time)
-    state.perf_params = fit_perf_params(
-        num_nodes, num_replicas, local_bsz, accumulation_steps,
-        step_time, compute_time, accumulation_time)
+    profile = {k: v for k, v in state.profile.items() if v.get("optim_count")}
+    # Convert profile into numpy arrays.
+    num_nodes, num_replicas, atomic_bsz = (
+        np.array(k) for k in zip(*profile.keys()))
+    accum_step_time = np.array([v.get("accum_step_time", 0.0)
+                                for v in profile.values()])
+    accum_count = np.array([v.get("accum_count", 0) for v in profile.values()])
+    optim_step_time = np.array([v.get("optim_step_time", 0.0)
+                                for v in profile.values()])
+    optim_sync_time = np.array([v.get("optim_sync_time", 0.0)
+                                for v in profile.values()])
+    optim_count = np.array([v.get("optim_count", 0) for v in profile.values()])
+    assert np.all(optim_count > 0)
+    # Non-sync time during optimization steps should be approximately equal to
+    # accumulation step time, combine those data points.
+    assert np.all(optim_step_time >= optim_sync_time)
+    accum_step_time += optim_step_time - optim_sync_time
+    accum_count += optim_count
+    accum_step_time /= accum_count
+    optim_step_time /= optim_count
+    state.perf_params = fit_perf_params(num_nodes, num_replicas, atomic_bsz,
+                                        accum_step_time, optim_step_time)
 
 
 def _report_sched_hints():

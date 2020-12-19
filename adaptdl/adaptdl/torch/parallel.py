@@ -15,6 +15,7 @@
 
 import functools
 import time
+import warnings
 
 import torch
 import torch.cuda
@@ -59,7 +60,7 @@ class AdaptiveDataParallel(DistributedDataParallel):
             param.register_hook(functools.partial(self._backward_hook, param))
 
         # Setup for AdaScale, must be after registering backward hooks!
-        self.adascale = AdaScale(optimizer, patch_optimizer=True)
+        self.adascale = AdaScale(self, optimizer, patch_optimizer=True)
 
         self._state = _AdaptiveDataParallelState(model, optimizer,
                                                  lr_scheduler, name)
@@ -68,19 +69,14 @@ class AdaptiveDataParallel(DistributedDataParallel):
         self._sync_start = None
 
     def forward(self, *args, **kwargs):
-        # Do not do gradient synchronization during gradient accumulation
-        # Otherwise, exactly the same as DistributedDataParallel's forward
+        # Do not do gradient synchronization during gradient accumulation.
         dataloader = current_dataloader()
-        accumulation_steps = dataloader.accumulation_steps
-        # TODO: move this to the dataloader.__iter__
-        self.adascale.set_accumulation_steps(accumulation_steps)
-        if (self.adascale.is_accumulation_step()):
-            with super().no_sync():
-                dataloader.is_accumulation_step = True
-                return super().forward(*args, **kwargs)
-        else:
-            dataloader.is_accumulation_step = False
-            return super().forward(*args, **kwargs)
+        if dataloader is not None and dataloader.training:
+            self.require_backward_grad_sync = dataloader.is_optim_step()
+            accum_scale = (dataloader.current_local_bsz *
+                           adaptdl.env.num_replicas() / dataloader.batch_size)
+            self.adascale.set_accum_scale(accum_scale)
+        return super().forward(*args, **kwargs)
 
     def _backward_hook(self, param, grad):
         # This method should be invoked once for each parameter during the
@@ -132,20 +128,16 @@ class AdaptiveDataParallel(DistributedDataParallel):
         dataloader.train()
 
         scale = dataloader.current_batch_size / dataloader.batch_size
-        self.adascale.set_scale(scale)
-        self._state.gain = self.adascale.gain()
+        self._state.gain = self.adascale.gain(scale)
         adaptdl.torch._metrics.update_progress(self.adascale.get_progress())
         if dataloader.max_batch_size and \
                 dataloader.max_batch_size > dataloader.batch_size:
             adaptdl.torch._metrics.update_grad_params(
-                self._key, self.adascale.norm_avg(), self.adascale.var_avg())
+                self._key, self.adascale.sqr_avg(), self.adascale.var_avg())
         self._sync_start = None
 
     def zero_grad(self, *args, **kwargs):
-        if self.adascale.is_accumulation_step():
-            return
-        else:
-            return super().zero_grad(*args, **kwargs)
+        warnings.warn("zero_grad has no effect with AdaptiveDataParallel")
 
     @property
     def gain(self):  # TODO: should be tracked in the metrics module instead.
@@ -167,11 +159,11 @@ class AdaptiveDataParallel(DistributedDataParallel):
         if tag_prefix and not tag_prefix.endswith("/"):
             tag_prefix += "/"
         writer.add_scalar(tag_prefix + "Gradient_Norm_Sqr",
-                          self.adascale.norm_avg(), global_step)
+                          self.adascale.sqr_avg(), global_step)
         writer.add_scalar(tag_prefix + "Gradient_Variance",
                           self.adascale.var_avg(), global_step)
         writer.add_scalar(tag_prefix + "Learning_Rate_Factor",
-                          self.adascale.gain(), global_step)
+                          self._state.gain, global_step)
 
 
 class _AdaptiveDataParallelState(adaptdl.checkpoint.State):
@@ -182,7 +174,7 @@ class _AdaptiveDataParallelState(adaptdl.checkpoint.State):
         self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
         # TODO: Gain/goodput should be tracked in the metrics module instead.
-        self.gain = 0.0
+        self.gain = 1.0
 
     def save(self, fileobj):
         state_dicts = [self.model.state_dict(), self.optimizer.state_dict()]
