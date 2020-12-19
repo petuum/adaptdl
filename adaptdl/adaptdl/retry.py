@@ -21,7 +21,7 @@ LOG = logging.getLogger(__name__)
 LOG.setLevel(logging.INFO)
 
 def cudaoom(e):
-    return "RuntimeError: CUDA out of memory" in str(e)
+    return "CUDA out of memory" in str(e)
 
 def retry(dataloader):
     def deco(func):
@@ -32,7 +32,7 @@ def retry(dataloader):
                     func(*args, **kwargs)
                     break
                 except RuntimeError as e:
-                    LOG.info(f"-------------- {e} ---------------")
+                    LOG.info(f"{e}")
                     if dataloader._elastic.local_bsz_bounds and cudaoom(e):
                         low, high = dataloader._elastic.local_bsz_bounds
                         max_batch_size = dataloader._elastic.max_batch_size
