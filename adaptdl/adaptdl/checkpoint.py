@@ -23,15 +23,14 @@ after the current job restarts and resumed from where it left off.
 import os
 import shutil
 
-from adaptdl.env import checkpoint_path, replica_rank
+from adaptdl.env import checkpoint_path, replica_rank, num_restarts
+
+CKPT_DIR_PREFIX = "checkpoint-"
 
 # FIXME: Keeping global state like this will result in memory leaks for
 # applications which do not restart too often.
 _STATES_TO_NAMES = {}
 _NAMES_TO_STATES = {}
-
-CKPT_DIR_NAME = "checkpoint"
-CKPT_TMP_DIR_NAME = "_checkpoint"
 
 
 class State(object):
@@ -90,6 +89,15 @@ class State(object):
         pass
 
 
+def _get_tmp_ckpt_dir():
+    if checkpoint_path() is None:
+        return None
+
+    tmp_dir = os.path.join(checkpoint_path(), "_checkpoint")
+    os.makedirs(tmp_dir, exist_ok=True)
+    return tmp_dir
+
+
 def save_all_states():
     """
     Invokes `save_state` on all `State` objects for which `State.skip` is True.
@@ -102,13 +110,19 @@ def save_all_states():
     # Prevent corrupting original state files in case the process got killed
     # during state file writing.
     if replica_rank() == 0 and checkpoint_path() is not None:
-        ckpt_dir = os.path.join(checkpoint_path(), CKPT_DIR_NAME)
-        if os.path.isdir(ckpt_dir):
-            shutil.rmtree(ckpt_dir)
-
+        tmp_ckpt_dir = _get_tmp_ckpt_dir()
+        ckpt_dir = os.path.join(checkpoint_path(),
+                                f"{CKPT_DIR_PREFIX}{num_restarts()}")
         os.makedirs(ckpt_dir, exist_ok=True)
-        ckpt_tmp_dir = os.path.join(checkpoint_path(), CKPT_TMP_DIR_NAME)
-        os.rename(ckpt_tmp_dir, ckpt_dir)  # atomic
+        os.rename(tmp_ckpt_dir, ckpt_dir)  # atomic
+
+        for old_ckpt_dir in os.listdir(checkpoint_path()):
+            if (
+                os.path.isdir(old_ckpt_dir) and
+                old_ckpt_dir.startswith(CKPT_DIR_PREFIX) and
+                old_ckpt_dir != ckpt_dir
+            ):
+                shutil.rmtree(old_ckpt_dir)
 
 
 def save_state(state, sync=True):
@@ -128,9 +142,7 @@ def save_state(state, sync=True):
 
     if replica_rank() == 0 and checkpoint_path() is not None:
         name = _STATES_TO_NAMES[state]
-        ckpt_tmp_dir = os.path.join(checkpoint_path(), CKPT_TMP_DIR_NAME)
-        state_file = os.path.join(ckpt_tmp_dir, name)
-        os.makedirs(ckpt_tmp_dir, exist_ok=True)
+        state_file = os.path.join(_get_tmp_ckpt_dir(), name)
 
         with open(state_file, "wb") as f:
             state.save(f)
@@ -153,7 +165,9 @@ def load_state(state):
         return False
 
     name = _STATES_TO_NAMES[state]
-    state_file = os.path.join(checkpoint_path(), CKPT_DIR_NAME, name)
+    ckpt_dir = os.path.join(checkpoint_path(),
+                            f"{CKPT_DIR_PREFIX}{num_restarts() - 1}")
+    state_file = os.path.join(ckpt_dir, name)
     if not os.path.isfile(state_file):
         return False
 
