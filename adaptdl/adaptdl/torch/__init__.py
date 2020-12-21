@@ -28,6 +28,7 @@ import pkg_resources
 
 import adaptdl.collective
 import adaptdl.env
+import re
 from .epoch import current_epoch, finished_epochs, remaining_epochs_until
 from .data import current_dataloader, AdaptiveDataLoader, ElasticSampler
 from .parallel import AdaptiveDataParallel
@@ -38,9 +39,9 @@ LOG = logging.getLogger(__name__)
 LOG.setLevel(logging.INFO)
 
 
-def check_version(version, lib):
+def version_check(version, lib):
     if re.match("[0-9].[0-9].[0-9]", version) and \
-        version != "0.0.0" 
+        version != "0.0.0":
         return True
     else:
         LOG.info("adaptdl version of {} is a customer version".format(lib))
@@ -60,6 +61,7 @@ def init_process_group(backend):
         sched_version = response.json()[1]
         #sched_version = requests.get(url=f"{url}/discover/{key}/{group}/version")
         trainer_version = pkg_resources.get_distribution("adaptdl").version
+        LOG.info('==========version number==========='sched_version, trainer_version)
         if version_check(sched_version, lib="sched") and \
             version_check(train_version, lib="trainer"):
             if train_version != sched_version:
