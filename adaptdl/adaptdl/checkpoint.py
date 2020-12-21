@@ -22,8 +22,13 @@ after the current job restarts and resumed from where it left off.
 
 import os
 import shutil
+import logging
 
 from adaptdl.env import checkpoint_path, replica_rank, num_restarts
+
+logging.basicConfig(level=logging.INFO)
+LOG = logging.getLogger(__name__)
+LOG.setLevel(logging.INFO)
 
 CKPT_DIR_PREFIX = "checkpoint-"
 
@@ -113,16 +118,12 @@ def save_all_states():
         tmp_ckpt_dir = _get_tmp_ckpt_dir()
         ckpt_dir = os.path.join(checkpoint_path(),
                                 f"{CKPT_DIR_PREFIX}{num_restarts()}")
-        os.makedirs(ckpt_dir, exist_ok=True)
         os.rename(tmp_ckpt_dir, ckpt_dir)  # atomic
 
-        for old_ckpt_dir in os.listdir(checkpoint_path()):
-            if (
-                os.path.isdir(old_ckpt_dir) and
-                old_ckpt_dir.startswith(CKPT_DIR_PREFIX) and
-                old_ckpt_dir != ckpt_dir
-            ):
-                shutil.rmtree(old_ckpt_dir)
+        for dir_name in os.listdir(checkpoint_path()):
+            dir_path = os.path.join(checkpoint_path(), dir_name)
+            if dir_name.startswith(CKPT_DIR_PREFIX) and dir_path != ckpt_dir:
+                shutil.rmtree(dir_path)
 
 
 def save_state(state, sync=True):
@@ -164,11 +165,27 @@ def load_state(state):
     if checkpoint_path() is None:
         return False
 
-    name = _STATES_TO_NAMES[state]
+    ckpt_dirs = os.listdir(checkpoint_path())
+    if not ckpt_dirs:
+        LOG.info(f"No checkpoint found in {checkpoint_path()}.")
+        return False
+
+    latest_restart_id = 0
+    for dir_name in ckpt_dirs:
+        if dir_name.startswith(CKPT_DIR_PREFIX):
+            restart_id = int(dir_name[len(CKPT_DIR_PREFIX):])
+            latest_restart_id = max(latest_restart_id, restart_id)
+
+    if latest_restart_id != num_restarts() - 1:
+        LOG.warning("Cannot find checkpoint from the last restart. "
+                    f"Loading checkpoint from restart {latest_restart_id}.")
+
     ckpt_dir = os.path.join(checkpoint_path(),
-                            f"{CKPT_DIR_PREFIX}{num_restarts() - 1}")
+                            f"{CKPT_DIR_PREFIX}{latest_restart_id}")
+    name = _STATES_TO_NAMES[state]
     state_file = os.path.join(ckpt_dir, name)
     if not os.path.isfile(state_file):
+        LOG.warning(f"Cannot find state file {state_file}.")
         return False
 
     with open(state_file, "rb") as f:
