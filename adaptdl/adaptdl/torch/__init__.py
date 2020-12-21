@@ -24,6 +24,7 @@ import logging
 import portpicker
 import requests
 import torch.distributed
+import pkg_resources
 
 import adaptdl.collective
 import adaptdl.env
@@ -37,6 +38,14 @@ LOG = logging.getLogger(__name__)
 LOG.setLevel(logging.INFO)
 
 
+def check_version(version, lib):
+    if re.match("[0-9].[0-9].[0-9]", version) and \
+        version != "0.0.0" 
+        return True
+    else:
+        LOG.info("adaptdl version of {} is a customer version".format(lib))
+        return False
+
 def init_process_group(backend):
     url = adaptdl.env.supervisor_url()
     if url:
@@ -48,8 +57,17 @@ def init_process_group(backend):
                 break
         response.raise_for_status()
         master_addr = response.json()[0]
+        sched_version = response.json()[1]
+        #sched_version = requests.get(url=f"{url}/discover/{key}/{group}/version")
+        trainer_version = pkg_resources.get_distribution("adaptdl").version
+        if version_check(sched_version, lib="sched") and \
+            version_check(train_version, lib="trainer"):
+            if train_version != sched_version:
+                raise Exception('The adaptdl version between trainer \
+                    and scheduler should be same')
     else:
         master_addr = adaptdl.env.master_addr()
+
     master_port = adaptdl.env.master_port()
 
     # Initialize collective module.

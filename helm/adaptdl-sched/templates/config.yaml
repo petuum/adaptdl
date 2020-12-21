@@ -6,6 +6,7 @@ data:
   ADAPTDL_SUPERVISOR_URL: http://{{ .Release.Name }}-supervisor.{{ .Release.Namespace}}.svc.cluster.local:{{ .Values.supervisor.service.port }}
   ADAPTDL_STORAGE_SUBPATH: {{ .Release.Namespace }}
   ADAPTDL_IMAGE: {{ .Values.image.repository }}{{ empty .Values.image.digest | ternary ":" "@" }}{{ coalesce .Values.image.digest .Values.image.tag .Chart.AppVersion }}
+  ADAPTDL_VERSION: {{ .Chart.AppVersion }}
   ADAPTDL_SCHED_DEPLOYMENT: {{ .Release.Name }}-adaptdl-sched
   {{- if .Values.job.defaultResources }}
   ADAPTDL_JOB_DEFAULT_RESOURCES: {{ .Values.job.defaultResources | toJson | quote }}

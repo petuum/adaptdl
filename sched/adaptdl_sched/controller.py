@@ -342,6 +342,7 @@ class AdaptDLController(object):
         pod["metadata"]["annotations"]["adaptdl/group"] = str(group)
         pod["metadata"]["annotations"]["adaptdl/rank"] = str(rank)
         pod["metadata"]["annotations"]["adaptdl/node"] = node.metadata.name
+        pod["metadata"]["annotations"]["adaptdl/version"] = config.get_adaptdl_version()
         pod["spec"].setdefault("nodeSelector", {})
         pod["spec"]["hostname"] = f"{job_metadata['name']}-{group}-{rank}"
         pod["spec"]["nodeSelector"]["kubernetes.io/hostname"] = \
@@ -390,6 +391,10 @@ class AdaptDLController(object):
             container["env"].append({
                 "name": "ADAPTDL_SUPERVISOR_URL",
                 "value": config.get_supervisor_url(),
+            })
+            container["env"].append({
+                "name": "ADAPTDL_VERSION",
+                "value": config.get_adaptdl_version(),
             })
             resources = container.get("resources", {})
             if not resources.get("limits", {}).get("nvidia.com/gpu"):

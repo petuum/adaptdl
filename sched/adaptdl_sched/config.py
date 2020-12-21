@@ -53,6 +53,8 @@ def get_supervisor_port():
 def get_storage_subpath():
     return os.environ["ADAPTDL_STORAGE_SUBPATH"]
 
+def get_adaptdl_version():
+    return os.environ["ADAPTDL_VERSION"]
 
 def get_job_default_resources():
     val = os.getenv("ADAPTDL_JOB_DEFAULT_RESOURCES")
