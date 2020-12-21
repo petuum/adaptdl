@@ -191,7 +191,7 @@ class AdaScale(object):
                                           device=grad.device,
                                           dtype=torch.float64)
         # Update the local gradient square sum
-        self._local_sqr[idx] += grad.pow(2).sum(dtype=torch.float64)
+        self._local_sqr[idx] += grad.detach().pow(2).sum(dtype=torch.float64)
         if not self._callback_queued:
             Variable._execution_engine.queue_callback(self._queue_callback)
         self._callback_queued = True
@@ -236,11 +236,9 @@ class AdaScale(object):
                 if param.grad is None:
                     grads[-1].append(None)
                     continue
-                param.grad.div_(self._accumulation_steps)
+                param.grad.div_(self._accum_count)
                 grad = param.grad.detach().float()
-                if (self._mp_scaler is not None):
-                    grad = grad / mixed_precision_scale
-                grads[-1].append(grad)
+                grads[-1].append(grad / mixed_precision_scale)
 
         check = [g.sum() for group in grads for g in group]
         if any(c != c or c in (float('inf'), -float('inf')) for c in check):
