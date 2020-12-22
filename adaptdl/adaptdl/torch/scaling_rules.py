@@ -55,8 +55,7 @@ def _normsqr_groups(grads):
 class GradientNoiseScale(object):
     """This class tracks gradient related stats and takes care of gradient
     accumulation."""
-    def __init__(self, adp, optimizer, num_replicas=None,
-                 accum_scale=None, patch_optimizer=False, **kwargs):
+    def __init__(self, adp, optimizer, num_replicas=None, accum_scale=None):
         self._adp = adp
         self.optimizer = optimizer
         self._orig_optimizer_step = optimizer.step
@@ -298,7 +297,7 @@ class ScalingRuleBase(object):
 
         optim = torch.optim.SGD(model, lr=0.001)
         adascale = AdaScale()
-        model = DistributedDataParallel(model, optim, adascale)
+        model = AdaptiveDataParallel(model, optim, adascale)
 
         for epoch in ...:
             for batch in ...:

@@ -17,7 +17,7 @@ import functools
 import numpy as np
 import time
 import warnings
-from typing import Optional, Type, TypeVar, Union
+from typing import Optional
 
 import torch
 import torch.cuda
