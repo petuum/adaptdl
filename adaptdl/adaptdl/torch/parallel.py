@@ -33,8 +33,6 @@ from adaptdl.torch.scaling_rules import AdaScale, GradientNoiseScale,\
 from adaptdl.torch._metrics import profile_sync_time, update_grad_params,\
     update_progress
 
-SR = TypeVar("SR", bound=ScalingRuleBase)
-
 
 class AdaptiveDataParallel(DistributedDataParallel):
     """
@@ -83,23 +81,6 @@ class AdaptiveDataParallel(DistributedDataParallel):
         adaptdl.checkpoint.load_state(self._state)
 
         self._sync_start = None
-
-    def _get_scaling_rule_cls(self,
-                              scaling_rule: Union[str, Type[SR]]) -> Type[SR]:
-        """Get the class object of the scaling rule."""
-        err_invalid = f"Invalid scaling rule: {scaling_rule}."
-        err_unrecognized = f"Unrecognized scaling rule: {scaling_rule}."
-        try:
-            if isinstance(scaling_rule, str):
-                return self.available_scaling_rules[scaling_rule]
-            elif issubclass(scaling_rule, ScalingRuleBase):
-                return scaling_rule
-            else:
-                raise ValueError(err_unrecognized)
-        except TypeError:
-            raise ValueError(err_invalid)
-        except KeyError:
-            raise ValueError(err_unrecognized)
 
     def forward(self, *args, **kwargs):
         # Do not do gradient synchronization during gradient accumulation.
