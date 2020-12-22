@@ -17,15 +17,16 @@ import functools
 import math
 import warnings
 
-import typing
 import numpy as np
 import torch.distributed
 import torch.optim
 from torch.autograd import Variable
 from types import MethodType
 
+from adaptdl.torch.data import current_dataloader
 
-__all__ = ["ScalingRuleBase", "AdaScale", "LinearScale", "SqrtScale"]
+__all__ = ["ScalingRuleBase", "AdaScale", "LinearScale", "SqrtScale",
+           "LEGWScale"]
 
 
 def _average_groups(grads1, grads2):
@@ -51,36 +52,46 @@ def _normsqr_groups(grads):
     return np.array(ret)
 
 
-class _ScalingRuleBase(object):
-    """
-    Base class for scaling rules.
-
-    Arguments:
-        adp (adaptdl.torch.AdaptiveDataParallel): Model to apply to.
-        optimizer (torch.optim.Optimizer): Optimizer to apply to.
-        num_replicas (int): Number of replicas for distributed training. If
-            None, defaults to ``torch.distributed.get_world_size()``.
-        accum_scale (float): Scaling factor of the batch size, e.g. using a 10x
-            larger batch size (summed across all replicas) means a scale of
-            10. If None, defaults to ``num_replicas``.
-        patch_optimizer (bool): If True, monkey-patches the ``step`` method of
-            the optimizer with the scaling rule's ``step`` method.
-    """
+class GradientNoiseScale(object):
+    """This class tracks gradient related stats and takes care of gradient
+    accumulation."""
     def __init__(self, adp, optimizer, num_replicas=None,
-                 accum_scale=None, patch_optimizer=False):
+                 accum_scale=None, patch_optimizer=False, **kwargs):
         self._adp = adp
-        self._optimizer = optimizer
+        self.optimizer = optimizer
         self._orig_optimizer_step = optimizer.step
         self._orig_optimizer_zero_grad = optimizer.zero_grad
         self._should_zero_grad = True
         self._num_replicas = (num_replicas if num_replicas is not None
                               else torch.distributed.get_world_size())
         self._accum_scale = accum_scale or self._num_replicas
-
-        if patch_optimizer:
-            self.patch_optimizer()
+        self._prev_grads = None
 
         self._reset_accumulation()
+
+        self.optimizer.state.setdefault("scaling_rule", {
+            "progress": 0.0,
+            "prev_scale": 0.0,
+            # Averages of n and v
+            "sqr_avg": np.ones(len(optimizer.param_groups)),
+            "var_avg": np.zeros(len(optimizer.param_groups)),
+            # Whether estimates are biased (using differenced estimator).
+            "biased": False,
+        })
+
+        for idx, param_group in enumerate(self.optimizer.param_groups):
+            for param in param_group["params"]:
+                param.register_hook(
+                    functools.partial(self._backward_hook, idx, param))
+        self._callback_queued = False
+        self._smoothing = 0.999
+
+        self.raw_grad_sqr = np.ones(len(optimizer.param_groups))
+        self.raw_grad_var = np.zeros(len(optimizer.param_groups))
+
+    @property
+    def state(self):
+        return self.optimizer.state["scaling_rule"]
 
     def _reset_accumulation(self):
         self._orig_optimizer_zero_grad()
@@ -96,87 +107,6 @@ class _ScalingRuleBase(object):
             self._reset_accumulation()
             self._accum_scale = accum_scale
 
-    def _calculate_lr_factors(self, scale):
-        raise NotImplementedError
-
-    def calculate_lr_factor_estimation(self, scale):
-        raise NotImplementedError
-
-    def step(self, *args, **kwargs):
-        """
-        Run one optimizer step. Essentially just invokes
-        ``optimizer.step(*args, **kwargs)`` with a scaled learning rate.
-
-        Arguments:
-            args: Positional arguments passed to ``optimizer.step``.
-            kwargs: Keyword arguments passed to ``optimizer.step``.
-        """
-        raise NotImplementedError
-
-    def zero_grad(self, *args, **kwargs):
-        if self._should_zero_grad:
-            self._orig_optimizer_zero_grad(*args, **kwargs)
-        else:
-            warnings.warn("skipping zero_grad for accumulated gradient")
-
-    def patch_optimizer(self):
-        """
-        Monkey-patch the optimizer's step function with
-        :meth:`_ScalingRuleBase.step`.
-        """
-        # TODO: detect if the optimizer has already been patched.
-
-        @functools.wraps(self._optimizer.step)
-        def step_wrapper(optim, *args, **kwargs):
-            return self.step(*args, **kwargs)
-
-        @functools.wraps(self._optimizer.zero_grad)
-        def zero_wrapper(optim, *args, **kwargs):
-            return self.zero_grad(*args, **kwargs)
-        self._optimizer.step = MethodType(step_wrapper, self._optimizer)
-        self._optimizer.zero_grad = MethodType(zero_wrapper, self._optimizer)
-
-    def to_tensorboard(self, writer, global_step, tag_prefix):
-        """Output some useful metrics to TensorBoard."""
-        pass
-
-
-_Base = _ScalingRuleBase if typing.TYPE_CHECKING else object
-
-
-class _GradientNoiseScaleMixin(_Base):
-    """This mixin class makes _ScalingRuleBase able to track gradient related
-    stats."""
-    def __init__(self, adp, optimizer, num_replicas=None,
-                 accum_scale=None, patch_optimizer=False):
-        super().__init__(adp, optimizer, num_replicas,
-                         accum_scale, patch_optimizer)
-        self._prev_grads = None
-
-        self._optimizer.state.setdefault("scaling_rule", {
-            "progress": 0.0,
-            "prev_scale": 0.0,
-            # Averages of n and v
-            "sqr_avg": np.ones(len(optimizer.param_groups)),
-            "var_avg": np.zeros(len(optimizer.param_groups)),
-            # Whether estimates are biased (using differenced estimator).
-            "biased": False,
-        })
-
-        for idx, param_group in enumerate(self._optimizer.param_groups):
-            for param in param_group["params"]:
-                param.register_hook(
-                    functools.partial(self._backward_hook, idx, param))
-        self._callback_queued = False
-        self._smoothing = 0.999
-
-        self.raw_grad_sqr = np.ones(len(optimizer.param_groups))
-        self.raw_grad_var = np.zeros(len(optimizer.param_groups))
-
-    @property
-    def _state(self):
-        return self._optimizer.state["scaling_rule"]
-
     def sqr_avg(self):
         """
         Current estimate of the squared l2-norm of the true gradient (sigma
@@ -184,7 +114,7 @@ class _GradientNoiseScaleMixin(_Base):
 
         Returns (float): Estimate of squared l2-norm.
         """
-        return float(np.sum(np.maximum(self._state["sqr_avg"], 0.0)))
+        return float(np.sum(np.maximum(self.state["sqr_avg"], 0.0)))
 
     def var_avg(self):
         """
@@ -193,10 +123,10 @@ class _GradientNoiseScaleMixin(_Base):
 
         Returns (float): Estimate of trace of the covariance.
         """
-        return float(np.sum(np.maximum(self._state["var_avg"], 1e-6)))
+        return float(np.sum(np.maximum(self.state["var_avg"], 1e-6)))
 
     def get_progress(self):
-        return self._state["progress"]
+        return self.state["progress"]
 
     def gain(self, scale):
         """
@@ -212,23 +142,23 @@ class _GradientNoiseScaleMixin(_Base):
         return (var + norm) / (var / scale + norm)
 
     def _update_avg(self, param_name, value, factor):
-        biased = self._state.get(param_name + "_biased", 0.0)
-        unbias = self._state.get(param_name + "_unbias", 0.0)
+        biased = self.state.get(param_name + "_biased", 0.0)
+        unbias = self.state.get(param_name + "_unbias", 0.0)
         biased = factor * biased + (1.0 - factor) * value
         unbias = factor * unbias + (1.0 - factor)
-        self._state[param_name + "_biased"] = biased
-        self._state[param_name + "_unbias"] = unbias
-        self._state[param_name] = biased / unbias
+        self.state[param_name + "_biased"] = biased
+        self.state[param_name + "_unbias"] = unbias
+        self.state[param_name] = biased / unbias
 
     def _reset_avg(self, param_name):
-        self._state.pop(param_name + "_biased", None)
-        self._state.pop(param_name + "_unbias", None)
+        self.state.pop(param_name + "_biased", None)
+        self.state.pop(param_name + "_unbias", None)
 
     def _backward_hook(self, idx, param, grad):
         # This method should be invoked once for each parameter during the
         # backward pass, before gradients are synchronized between replicas.
         if self._local_sqr is None:
-            self._local_sqr = torch.zeros(len(self._optimizer.param_groups),
+            self._local_sqr = torch.zeros(len(self.optimizer.param_groups),
                                           device=grad.device,
                                           dtype=torch.float64)
         # Update the local gradient square sum
@@ -267,7 +197,7 @@ class _GradientNoiseScaleMixin(_Base):
             self._async_op.wait()
 
         grads = []
-        for group in self._optimizer.param_groups:
+        for group in self.optimizer.param_groups:
             grads.append([])
             for param in group["params"]:
                 if param.grad is None:
@@ -287,10 +217,10 @@ class _GradientNoiseScaleMixin(_Base):
             # Average local squared-norm samples.
             local_sqr = self._local_sqr.cpu().numpy() / count
             total_sqr = _normsqr_groups(grads)
-            if self._state["biased"]:
+            if self.state["biased"]:
                 self._reset_avg("sqr_avg")
                 self._reset_avg("var_avg")
-            self._state["biased"] = False
+            self.state["biased"] = False
             self._prev_grads = None
         else:
             # Single gradient datapoint, use difference estimation.
@@ -301,7 +231,7 @@ class _GradientNoiseScaleMixin(_Base):
                 total_sqr = _normsqr_groups(avg_grads)
                 count = 2
                 scale = 2 * self._accum_scale
-            self._state["biased"] = True
+            self.state["biased"] = True
             self._prev_grads = [[g.clone() if g is not None else None
                                  for g in group] for group in grads]
 
@@ -314,45 +244,61 @@ class _GradientNoiseScaleMixin(_Base):
             self._update_avg('sqr_avg', grad_sqr, theta)
             self._update_avg('var_avg', grad_var, theta)
 
+    def zero_grad(self, *args, **kwargs):
+        if self._should_zero_grad:
+            self._orig_optimizer_zero_grad(*args, **kwargs)
+        else:
+            warnings.warn("skipping zero_grad for accumulated gradient")
 
-class ScalingRuleBase(_GradientNoiseScaleMixin, _ScalingRuleBase):
-    """
-    Base class for scaling rules that has the ability to track gradient noise
-    scale calculations.
-    """
+    def patch_optimizer(self, step_fn):
+        """
+        Monkey-patch the optimizer's step function with
+        :meth:`ScalingRuleBase.step`.
+        Arguments:
+            step_fn (function): Scaling rule's step function.
+        """
+        @functools.wraps(self.optimizer.step)
+        def step_wrapper(optim, *args, **kwargs):
+            return step_fn(*args, **kwargs)
 
-    subclasses = []
+        @functools.wraps(self.optimizer.zero_grad)
+        def zero_wrapper(optim, *args, **kwargs):
+            return self.zero_grad(*args, **kwargs)
+        self.optimizer.step = MethodType(step_wrapper, self.optimizer)
+        self.optimizer.zero_grad = MethodType(zero_wrapper, self.optimizer)
 
-    def __init_subclass__(cls, **kwargs):
-        super().__init_subclass__(**kwargs)
-        cls.subclasses.append(cls)
+    def run_step(self, calculate_lr_factors_fn, *args, **kwargs):
+        """
+        Run one optimizer step. Essentially just invokes
+        ``optimizer.step(*args, **kwargs)`` with a scaled learning rate.
 
-    def step(self, *args, **kwargs):
-        if not self._adp.require_backward_grad_sync:
-            return
+        Arguments:
+            calculate_lr_factors_fn (function): Function used to calculate
+            lr factors/multipliers.
+        """
         scale = self._accum_scale * self._accum_count
-        initial_lr = [pg["lr"] for pg in self._optimizer.param_groups]
-        lr_factors = self._calculate_lr_factors(scale)
-        for lr_factor, pg in zip(lr_factors, self._optimizer.param_groups):
+        initial_lr = [pg["lr"] for pg in self.optimizer.param_groups]
+        lr_factors = calculate_lr_factors_fn(scale)
+        for lr_factor, pg in zip(lr_factors, self.optimizer.param_groups):
             pg["lr"] = lr_factor * pg["lr"]
         self._orig_optimizer_step(*args, **kwargs)
-        for lr, pg in zip(initial_lr, self._optimizer.param_groups):
+        for lr, pg in zip(initial_lr, self.optimizer.param_groups):
             pg["lr"] = lr
-        self._state["progress"] += self.gain(scale)
+        self.state["progress"] += self.gain(scale)
         self._reset_accumulation()
 
 
-class AdaScale(ScalingRuleBase):
+class ScalingRuleBase(object):
     """
-    Implements the AdaScale_ algorithm for scaling the learning rate for
-    distributed and large batch size training. Can be used in combination with
-    ``torch.nn.parallel.DistributedDataParallel`` and ``torch.optim.SGD``.
+    Base class for scaling rules that has the ability to track gradient noise
+    scale calculations. Its subclasses can be used in combination with
+    ``adaptdl.torch.parallel.AdaptiveDataParallel`` and ``torch.optim.SGD``.
 
     .. code-block:: python
 
         optim = torch.optim.SGD(model, lr=0.001)
-        model = DistributedDataParallel(model, optim, scaling_rule="AdaScale")
-        adascale = model.scaling_rule
+        adascale = AdaScale()
+        model = DistributedDataParallel(model, optim, adascale)
 
         for epoch in ...:
             for batch in ...:
@@ -360,37 +306,114 @@ class AdaScale(ScalingRuleBase):
                 loss = ...
                 loss.backward()
                 adascale.step()
+    """
+    def __init__(self):
+        # instance of AdaptiveDataParallel, needs to be set before any of the
+        # methods can be used
+        self.adp = None
+
+    def calculate_lr_factors(self, scale):
+        raise NotImplementedError
+
+    def step(self, *args, **kwargs):
+        """
+        Run one optimizer step. Essentially just invokes
+        ``optimizer.step(*args, **kwargs)`` with a scaled learning rate.
+
+        Arguments:
+            args: Positional arguments passed to ``optimizer.step``.
+            kwargs: Keyword arguments passed to ``optimizer.step``.
+        """
+        if not self.adp:
+            raise ValueError("AdaptiveDataParallel instance is not set!")
+        if not self.adp.require_backward_grad_sync:
+            return
+        self.adp.gns.run_step(self.calculate_lr_factors, *args, **kwargs)
+
+    def patch_optimizer(self):
+        """
+        Monkey-patch the optimizer's step function with
+        :meth:`ScalingRuleBase.step`.
+        """
+        # TODO: detect if the optimizer has already been patched.
+        self.adp.gns.patch_optimizer(self.step)
+
+
+class AdaScale(ScalingRuleBase):
+    """
+    Implements the AdaScale_ algorithm for scaling the learning rate for
+    distributed and large batch size training.
 
     .. _AdaScale: https://proceedings.icml.cc/static/paper_files/icml/2020/4682-Supplemental.pdf
     """  # noqa: E501
 
-    def _calculate_lr_factors(self, scale):
+    def calculate_lr_factors(self, scale):
         """Calculate factors to be applied to lr for each parameter group."""
-        lr_factors = []
-        for sqr, var, pg in zip(self._state["sqr_avg"], self._state["var_avg"],
-                                self._optimizer.param_groups):
-            sqr, var = max(float(sqr), 0.0), max(float(var), 1e-6)
-            lr_factors.append((var + sqr) / (var / scale + sqr))
-        return lr_factors
-
-    def calculate_lr_factor_estimation(self, scale):
-        """Calculate a single lr factor estimation."""
-        return self.gain(scale)
+        var = self.adp.gns.state["var_avg"]
+        sqr = self.adp.gns.state["sqr_avg"]
+        var = np.maximum(var, 1e-6)
+        sqr = np.maximum(sqr,  0.0)
+        return (var + sqr) / (var / scale + sqr)
 
 
 class LinearScale(ScalingRuleBase):
 
-    def _calculate_lr_factors(self, scale):
-        return [scale] * len(self._optimizer.param_groups)
-
-    def calculate_lr_factor_estimation(self, scale):
-        return scale
+    def calculate_lr_factors(self, scale):
+        return np.full(len(self.adp.gns.optimizer.param_groups), scale)
 
 
 class SqrtScale(ScalingRuleBase):
 
-    def _calculate_lr_factors(self, scale):
-        return [math.sqrt(scale)] * len(self._optimizer.param_groups)
+    def calculate_lr_factors(self, scale):
+        return np.full(len(self.adp.gns.optimizer.param_groups),
+                       math.sqrt(scale))
 
-    def calculate_lr_factor_estimation(self, scale):
-        return math.sqrt(scale)
+
+class LEGWScale(ScalingRuleBase):
+    """
+    Implements the LEGWScale algorithm for scaling the learning rate.
+
+    Essentially, with LEGWScale, lr_factor is calculated based on
+    training progress as follows:
+    - when current_step < base_warmup_epoch * scale * steps_per_epoch:
+      `lr_factor = sqrt(scale) * progress_ratio` where
+      `progress_ratio = current_step /
+                        (scale * base_warmup_epochs * steps_per_epoch)`
+    - when current_step >= base_warmup_epoch * scale * steps_per_epoch:
+      `lr_factor = sqrt(scale)`
+
+    In order to adapt LEGWScale to AdaptDL, `progress_ratio` is
+    calculated differently as:
+    `progress / (scale * base_warmup_epochs * steps_per_epoch)` where
+    `progress` is the effective steps trained based on AdaptDL's
+    estimation.
+
+    Argmuents:
+        base_warmup_epochs: Base warmup epochs
+        data_size: total number of samples in the dataset
+
+    .. _LEGWScale: https://arxiv.org/pdf/1901.08256.pdf
+    """
+
+    def __init__(self, base_warmup_epochs, data_size):
+        super().__init__()
+        self._base_warmup_epochs = base_warmup_epochs
+        self._data_size = data_size
+
+    def _legw_lr_factor(self, scale):
+        dataloader = current_dataloader()
+        # total training steps for warm up
+        total_steps = self._base_warmup_epochs * scale * \
+            self._data_size / dataloader.batch_size
+        max_lr_multiplier = math.sqrt(scale)
+        # effective training steps taken
+        progress = self.adp.gns.get_progress()
+        if progress < total_steps:
+            lr_factor = max_lr_multiplier * (progress / total_steps)
+        else:
+            lr_factor = max_lr_multiplier
+        return lr_factor
+
+    def calculate_lr_factors(self, scale):
+        lr_factor = self._legw_lr_factor(scale)
+        return np.full(len(self.adp.gns.optimizer.param_groups), lr_factor)

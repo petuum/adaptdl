@@ -39,7 +39,6 @@ spec:
         - --lr=0.1
         - --epochs=60
         - --autoscale-bsz
-        - --lr-scaling-rule=AdaScale
         env:
         - name: PYTHONUNBUFFERED
           value: "true"
