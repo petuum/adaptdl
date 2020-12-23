@@ -39,7 +39,6 @@ spec:
         - --lr=0.1
         - --epochs=60
         - --autoscale-bsz
-        - --mixed-precision
         env:
         - name: PYTHONUNBUFFERED
           value: "true"
