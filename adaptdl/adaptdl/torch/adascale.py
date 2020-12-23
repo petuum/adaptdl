@@ -247,11 +247,6 @@ class AdaScale(object):
         grads_normsqr = _normsqr_groups(grads)
         if not np.all(np.isfinite(grads_normsqr)):
             print("AdaScale detected invalid gradient! Skipping step.")
-            # Note: failing to zero after this step will accumulate
-            # the gradients, which will infinitely propogate the nan's/infs
-            # Also note: zeroing here will cause automatic mixed precision to
-            # never back off
-            self._accum_count = 0
             return
 
         count = self._num_replicas * self._accum_count
@@ -263,7 +258,7 @@ class AdaScale(object):
             # mixed precision scale as well
             local_sqr = (local_sqr / mixed_precision_scale ** 2)
             total_sqr = grads_normsqr
-
+            print(local_sqr, total_sqr)
             if self._state["biased"]:
                 self._reset_avg("sqr_avg")
                 self._reset_avg("var_avg")
@@ -300,7 +295,7 @@ class AdaScale(object):
             args: Positional arguments passed to ``optimizer.step``.
             kwargs: Keyword arguments passed to ``optimizer.step``.
         """
-        if not self._adp.require_backward_grad_sync or self._accum_count == 0:
+        if not self._adp.require_backward_grad_sync:
             return
         scale = self._accum_scale * self._accum_count
 
@@ -313,11 +308,10 @@ class AdaScale(object):
         for lr, pg in zip(initial_lr, self._optimizer.param_groups):
             pg["lr"] = lr
         self._state["progress"] += self.gain(scale)
-        self._reset_accumulation()
 
     def zero_grad(self, *args, **kwargs):
         if self._should_zero_grad:
-            self._orig_optimizer_zero_grad(*args, **kwargs)
+            self._reset_accumulation()
         else:
             warnings.warn("skipping zero_grad for accumulated gradient")
 
