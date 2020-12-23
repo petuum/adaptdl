@@ -16,6 +16,7 @@
 import numpy as np
 import pytest
 import torch
+import random
 
 from unittest.mock import Mock
 
@@ -86,7 +87,7 @@ def test_optimization_2():
     sgd = torch.optim.SGD([params], lr=LR)
     schedule = torch.optim.lr_scheduler.MultiStepLR(sgd, STEP_SCHEDULE)
     adp = Mock(require_backward_grad_sync=True)
-    adascale.AdaScale(adp, sgd, accum_scale=1.0, num_replicas=1,
+    adascale.AdaScale(adp, sgd, accum_scale=2.0, num_replicas=1,
                       patch_optimizer=True)
     for i in range(100000):
         sgd.zero_grad()
@@ -184,3 +185,33 @@ def test_gradient_accumulation_optimization_2():
             break
     else:
         pytest.fail(f"Did not converge: {params}")
+
+
+def test_nan():
+    def nan_objective(tensor):
+        if random.random() > 0.5:
+            target = float("Nan")
+        else:
+            target = 4.0
+        return (tensor - target)**2
+
+    params_t = torch.Tensor([1.0])
+    params = torch.autograd.Variable(params_t, requires_grad=True)
+    sgd = torch.optim.SGD([params], lr=0.1)
+    adp = Mock(require_backward_grad_sync=True)
+    ada = adascale.AdaScale(adp, sgd, accum_scale=1.0, num_replicas=1,
+                            patch_optimizer=True)
+    for i in range(100):
+        sgd.zero_grad()
+        loss = nan_objective(params)
+        loss.backward()
+        if np.all(np.isfinite(loss.detach().numpy())):
+            sgd.step()
+        if params.allclose(torch.tensor([4.0]), atol=ATOL):
+            break
+    else:
+        pytest.fail(f"Did not converge: {params}")
+    if not (np.all(np.isfinite(ada.sqr_avg())) and
+            np.all(np.isfinite(ada.var_avg()))):
+        pytest.fail(f"non-finite adascale parameters:"
+                    f"{ada.sqr_avg()}, {ada.var_avg()}")

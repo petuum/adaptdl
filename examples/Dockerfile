@@ -16,7 +16,7 @@
 FROM python:3.7-slim
 WORKDIR /root
 
-FROM pytorch/pytorch:1.5-cuda10.1-cudnn7-runtime
+FROM pytorch/pytorch:1.6.0-cuda10.1-cudnn7-runtime
 WORKDIR /root
 
 # Install apps
