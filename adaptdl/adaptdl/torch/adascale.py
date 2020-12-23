@@ -14,6 +14,7 @@
 
 
 import functools
+import logging
 import warnings
 
 import numpy as np
@@ -22,6 +23,9 @@ import torch.optim
 from torch.autograd import Variable
 from types import MethodType
 
+logging.basicConfig(level=logging.INFO)
+LOG = logging.getLogger(__name__)
+LOG.setLevel(logging.INFO)
 
 __all__ = ["AdaScale"]
 
@@ -246,7 +250,7 @@ class AdaScale(object):
         # there are nan/inf, so we also skip the update here
         grads_normsqr = _normsqr_groups(grads)
         if not np.all(np.isfinite(grads_normsqr)):
-            print("AdaScale detected invalid gradient! Skipping step.")
+            LOG.warning("AdaScale detected invalid gradient! Skipping step.")
             return
 
         count = self._num_replicas * self._accum_count
@@ -258,7 +262,6 @@ class AdaScale(object):
             # mixed precision scale as well
             local_sqr = (local_sqr / mixed_precision_scale ** 2)
             total_sqr = grads_normsqr
-            print(local_sqr, total_sqr)
             if self._state["biased"]:
                 self._reset_avg("sqr_avg")
                 self._reset_avg("var_avg")
@@ -280,8 +283,6 @@ class AdaScale(object):
         if count > 1:
             grad_sqr = (count * total_sqr - local_sqr) / (count - 1)
             grad_var = (local_sqr - total_sqr) * scale / (count - 1)
-            grad_sqr = np.maximum(grad_sqr, 0.0)
-            grad_var = np.maximum(grad_var, 1e-6)
             theta = self._smoothing ** scale
             self._update_avg('sqr_avg', grad_sqr, theta)
             self._update_avg('var_avg', grad_var, theta)
