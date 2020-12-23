@@ -86,7 +86,7 @@ def test_optimization_2():
     sgd = torch.optim.SGD([params], lr=LR)
     schedule = torch.optim.lr_scheduler.MultiStepLR(sgd, STEP_SCHEDULE)
     adp = Mock(require_backward_grad_sync=True)
-    adascale.AdaScale(adp, sgd, accum_scale=1.0, num_replicas=1,
+    adascale.AdaScale(adp, sgd, accum_scale=2.0, num_replicas=1,
                       patch_optimizer=True)
     for i in range(100000):
         sgd.zero_grad()

@@ -236,13 +236,18 @@ class AdaScale(object):
                 if param.grad is None:
                     grads[-1].append(None)
                     continue
-                param.grad.div_(self._accum_count)
                 grad = param.grad.detach().float()
-                grads[-1].append(grad / mixed_precision_scale)
+                grads[-1].append(
+                    grad / mixed_precision_scale / self._accum_count)
 
-        check = [g.sum() for group in grads for g in group]
-        if any(c != c or c in (float('inf'), -float('inf')) for c in check):
+        # Note: mixed precision can result in nan/inf gradients,
+        # which propogate into our norm and variance estimates.
+        # Mixed precision autoscaling skips the skip where
+        # there are nan/inf, so we also skip the update here
+        grads_normsqr = _normsqr_groups(grads)
+        if not np.all(np.isfinite(grads_normsqr)):
             print("AdaScale detected invalid gradient! Skipping step.")
+            self._reset_accumulation()
             return
 
         count = self._num_replicas * self._accum_count
@@ -253,8 +258,8 @@ class AdaScale(object):
             # Gradient is squared in local_sqr, so need to square the
             # mixed precision scale as well
             local_sqr = (local_sqr / mixed_precision_scale ** 2)
+            total_sqr = grads_normsqr
 
-            total_sqr = _normsqr_groups(grads)
             if self._state["biased"]:
                 self._reset_avg("sqr_avg")
                 self._reset_avg("var_avg")
@@ -264,7 +269,7 @@ class AdaScale(object):
             # Single gradient datapoint, use difference estimation.
             if self._prev_grads is not None:
                 local_sqr = (_normsqr_groups(self._prev_grads) +
-                             _normsqr_groups(grads)) / 2
+                             grads_normsqr) / 2
                 avg_grads = _average_groups(grads, self._prev_grads)
                 total_sqr = _normsqr_groups(avg_grads)
                 count = 2
@@ -274,19 +279,13 @@ class AdaScale(object):
                                  for g in group] for group in grads]
 
         if count > 1:
-            # Note: mixed precision can result in nan/inf gradients,
-            # which propogate into our norm and variance estimates.
-            # Mixed precision autoscaling skips the skip where
-            # there are nan/inf, so we also skip the update here
-            if (np.all(np.isfinite(total_sqr))
-                    and np.all(np.isfinite(local_sqr))):
-                grad_sqr = (count * total_sqr - local_sqr) / (count - 1)
-                grad_var = (local_sqr - total_sqr) * scale / (count - 1)
-                grad_sqr = np.maximum(grad_sqr, 0.0)
-                grad_var = np.maximum(grad_var, 1e-6)
-                theta = self._smoothing ** scale
-                self._update_avg('norm_avg', grad_sqr, theta)
-                self._update_avg('var_avg', grad_var, theta)
+            grad_sqr = (count * total_sqr - local_sqr) / (count - 1)
+            grad_var = (local_sqr - total_sqr) * scale / (count - 1)
+            grad_sqr = np.maximum(grad_sqr, 0.0)
+            grad_var = np.maximum(grad_var, 1e-6)
+            theta = self._smoothing ** scale
+            self._update_avg('norm_avg', grad_sqr, theta)
+            self._update_avg('var_avg', grad_var, theta)
 
     def step(self, *args, **kwargs):
         """
@@ -297,9 +296,10 @@ class AdaScale(object):
             args: Positional arguments passed to ``optimizer.step``.
             kwargs: Keyword arguments passed to ``optimizer.step``.
         """
-        if not self._adp.require_backward_grad_sync:
+        if not self._adp.require_backward_grad_sync or self._accum_count == 0:
             return
         scale = self._accum_scale * self._accum_count
+
         initial_lr = [pg["lr"] for pg in self._optimizer.param_groups]
         for sqr, var, pg in zip(self._state["sqr_avg"], self._state["var_avg"],
                                 self._optimizer.param_groups):
