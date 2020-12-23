@@ -247,7 +247,11 @@ class AdaScale(object):
         grads_normsqr = _normsqr_groups(grads)
         if not np.all(np.isfinite(grads_normsqr)):
             print("AdaScale detected invalid gradient! Skipping step.")
-            self._reset_accumulation()
+            # Note: failing to zero here will accumulate the gradients,
+            # which will infinitely propogate the nan's/infs
+            # Also note: zeroing here will cause automatic mixed precision to
+            # never back off
+            self._accum_count = 0
             return
 
         count = self._num_replicas * self._accum_count
@@ -284,7 +288,7 @@ class AdaScale(object):
             grad_sqr = np.maximum(grad_sqr, 0.0)
             grad_var = np.maximum(grad_var, 1e-6)
             theta = self._smoothing ** scale
-            self._update_avg('norm_avg', grad_sqr, theta)
+            self._update_avg('sqr_avg', grad_sqr, theta)
             self._update_avg('var_avg', grad_var, theta)
 
     def step(self, *args, **kwargs):
