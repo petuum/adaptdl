@@ -247,8 +247,8 @@ class AdaScale(object):
         grads_normsqr = _normsqr_groups(grads)
         if not np.all(np.isfinite(grads_normsqr)):
             print("AdaScale detected invalid gradient! Skipping step.")
-            # Note: failing to zero here will accumulate the gradients,
-            # which will infinitely propogate the nan's/infs
+            # Note: failing to zero after this step will accumulate
+            # the gradients, which will infinitely propogate the nan's/infs
             # Also note: zeroing here will cause automatic mixed precision to
             # never back off
             self._accum_count = 0
