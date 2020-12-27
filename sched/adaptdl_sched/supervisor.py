@@ -68,22 +68,6 @@ class Supervisor:
                                                   "version": version})
         return web.json_response(status=408)  # Timeout.
 
-    # async def _handle_version(self, request):
-    #     # Long-polling endpoint used for discovering adaptdl version.
-    #     namespace = request.match_info["namespace"]
-    #     name = request.match_info["name"]
-    #     group = request.match_info["group"]
-    #     timeout = int(request.query.get("timeout", "30"))
-    #     async with kubernetes.watch.Watch() as w:
-    #         stream = w.stream(self._core_api.list_namespaced_pod, namespace,
-    #                           label_selector="adaptdl/job={}".format(name),
-    #                           field_selector="status.podIP!=",
-    #                           timeout_seconds=timeout)
-    #         async for event in stream:
-    #             pod = event["object"]
-    #             version = pod.metadata.annotations["adaptdl/version"]
-    #             return web.json_response(version)
-    #     return web.json_response(status=408)  # Timeout.
 
     async def _handle_report(self, request):
         namespace = request.match_info['namespace']
@@ -104,8 +88,6 @@ class Supervisor:
             web.get('/healthz', self._handle_healthz),
             web.get('/discover/{namespace}/{name}/{group}',
                     self._handle_discover),
-            #web.get('/discover/{namespace}/{name}/{group}/version',
-            #        self._handle_version),
             web.put('/hints/{namespace}/{name}', self._handle_report),
         ])
         LOG.info("%s %s", self._host, self._port)
