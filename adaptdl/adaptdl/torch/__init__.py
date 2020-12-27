@@ -41,11 +41,12 @@ LOG.setLevel(logging.INFO)
 
 def version_check(version, lib):
     if re.match("[0-9].[0-9].[0-9]", version) and \
-        version != "0.0.0":
+            version != "0.0.0":
         return True
     else:
         LOG.info("adaptdl version of {} is a customer version".format(lib))
         return False
+
 
 def init_process_group(backend):
     url = adaptdl.env.supervisor_url()
@@ -61,7 +62,7 @@ def init_process_group(backend):
         sched_version = response.json()['version']
         trainer_version = pkg_resources.get_distribution("adaptdl").version
         if version_check(sched_version, lib="sched") and \
-            version_check(trainer_version, lib="trainer"):
+                version_check(trainer_version, lib="trainer"):
             if trainer_version != sched_version:
                 raise Exception('The adaptdl version between trainer \
                     and scheduler should be same')

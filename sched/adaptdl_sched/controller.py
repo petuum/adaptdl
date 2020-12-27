@@ -342,7 +342,8 @@ class AdaptDLController(object):
         pod["metadata"]["annotations"]["adaptdl/group"] = str(group)
         pod["metadata"]["annotations"]["adaptdl/rank"] = str(rank)
         pod["metadata"]["annotations"]["adaptdl/node"] = node.metadata.name
-        pod["metadata"]["annotations"]["adaptdl/version"] = config.get_adaptdl_version()
+        pod["metadata"]["annotations"]["adaptdl/version"] = \
+            config.get_adaptdl_version()
         pod["spec"].setdefault("nodeSelector", {})
         pod["spec"]["hostname"] = f"{job_metadata['name']}-{group}-{rank}"
         pod["spec"]["nodeSelector"]["kubernetes.io/hostname"] = \

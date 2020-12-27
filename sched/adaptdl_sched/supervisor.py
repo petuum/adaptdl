@@ -64,10 +64,9 @@ class Supervisor:
                         pod_ip_list = [None] * replicas
                     pod_ip_list[rank] = pod.status.pod_ip
                     if all(pod_ip is not None for pod_ip in pod_ip_list):
-                        return web.json_response({"pod_ip_list": pod_ip_list, 
+                        return web.json_response({"pod_ip_list": pod_ip_list,
                                                   "version": version})
         return web.json_response(status=408)  # Timeout.
-
 
     async def _handle_report(self, request):
         namespace = request.match_info['namespace']
