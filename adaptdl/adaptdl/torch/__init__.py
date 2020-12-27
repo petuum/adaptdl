@@ -61,8 +61,8 @@ def init_process_group(backend):
         sched_version = response.json()['version']
         trainer_version = pkg_resources.get_distribution("adaptdl").version
         if version_check(sched_version, lib="sched") and \
-            version_check(train_version, lib="trainer"):
-            if train_version != sched_version:
+            version_check(trainer_version, lib="trainer"):
+            if trainer_version != sched_version:
                 raise Exception('The adaptdl version between trainer \
                     and scheduler should be same')
     else:
