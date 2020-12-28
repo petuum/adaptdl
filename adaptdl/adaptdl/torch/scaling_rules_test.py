@@ -17,9 +17,10 @@ import numpy as np
 import pytest
 import torch
 
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
-from adaptdl.torch.scaling_rules import AdaScale, GradientNoiseScale
+from adaptdl.torch.scaling_rules import AdaScale, GradientNoiseScale,\
+    LinearScale, LEGWScale, SqrtScale
 
 
 def test_object():
@@ -39,6 +40,61 @@ def test_object():
     obj.state['var_avg'] = 3.0
     obj.state['norm_avg'] = 1.0
     assert(np.isclose(obj.gain(3.0), 2.0))
+
+
+def test_scaling_rules_1():
+    """test AdaScale lr factors"""
+    adp = Mock(require_backward_grad_sync=True)
+    gns = Mock(state={"var_avg": np.asarray([1, 0, 0, 2]),
+                      "sqr_avg": np.asarray([-1, 0, -1, 1])})
+    adp.gns = gns
+    adascale = AdaScale()
+    adascale.adp = adp
+    np.testing.assert_equal(adascale.calculate_lr_factors(2),
+                            [2., 2., 2., 1.5])
+
+
+def test_scaling_rules_2():
+    """test LinearScale lr factors"""
+    adp = Mock(require_backward_grad_sync=True)
+    opm = Mock(param_groups=[1, 0, 2, -1])
+    gns = Mock(optimizer=opm)
+    adp.gns = gns
+    linearscale = LinearScale()
+    linearscale.adp = adp
+    np.testing.assert_equal(linearscale.calculate_lr_factors(1),
+                            [1., 1., 1., 1.])
+
+
+def test_scaling_rules_3():
+    """test SqrtScale lr factors"""
+    adp = Mock(require_backward_grad_sync=True)
+    opm = Mock(param_groups=[1, 0, 2, -1])
+    gns = Mock(optimizer=opm)
+    adp.gns = gns
+    sqrtscale = SqrtScale()
+    sqrtscale.adp = adp
+    np.testing.assert_equal(sqrtscale.calculate_lr_factors(9),
+                            [3., 3., 3., 3.])
+
+
+def test_scaling_rules_4():
+    """test LEGWScale lr factors"""
+    data_loader = Mock(batch_size=100)
+    with patch("adaptdl.torch.scaling_rules.current_dataloader",
+               return_value=data_loader):
+        adp = Mock(require_backward_grad_sync=True)
+        opm = Mock(param_groups=[1, 0, 2, -1])
+        gns = Mock(optimizer=opm, get_progress=Mock(return_value=5))
+        adp.gns = gns
+        legwscale = LEGWScale(10, 1000)
+        legwscale.adp = adp
+        np.testing.assert_equal(legwscale.calculate_lr_factors(4),
+                                [0.025, 0.025, 0.025, 0.025])
+        gns = Mock(optimizer=opm, get_progress=Mock(return_value=400))
+        adp.gns = gns
+        np.testing.assert_equal(legwscale.calculate_lr_factors(4),
+                                [2., 2., 2., 2.])
 
 
 LR = 0.001
