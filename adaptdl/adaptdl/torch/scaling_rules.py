@@ -14,6 +14,7 @@
 
 
 import functools
+import logging
 import math
 import warnings
 
@@ -24,6 +25,10 @@ from torch.autograd import Variable
 from types import MethodType
 
 from adaptdl.torch.data import current_dataloader
+
+logging.basicConfig(level=logging.INFO)
+LOG = logging.getLogger(__name__)
+LOG.setLevel(logging.INFO)
 
 __all__ = ["ScalingRuleBase", "AdaScale", "LinearScale", "SqrtScale",
            "LEGWScale"]
@@ -55,12 +60,17 @@ def _normsqr_groups(grads):
 class GradientNoiseScale(object):
     """This class tracks gradient related stats and takes care of gradient
     accumulation."""
-    def __init__(self, adp, optimizer, num_replicas=None, accum_scale=None):
+    def __init__(self, adp, optimizer,
+                 mp_scaler=None,
+                 num_replicas=None,
+                 accum_scale=None):
         self._adp = adp
         self.optimizer = optimizer
         self._orig_optimizer_step = optimizer.step
         self._orig_optimizer_zero_grad = optimizer.zero_grad
         self._should_zero_grad = True
+        self._mp_scaler = mp_scaler
+        self._local_sqr = None
         self._num_replicas = (num_replicas if num_replicas is not None
                               else torch.distributed.get_world_size())
         self._accum_scale = accum_scale or self._num_replicas
@@ -84,9 +94,6 @@ class GradientNoiseScale(object):
                     functools.partial(self._backward_hook, idx, param))
         self._callback_queued = False
         self._smoothing = 0.999
-
-        self.raw_grad_sqr = np.ones(len(optimizer.param_groups))
-        self.raw_grad_var = np.zeros(len(optimizer.param_groups))
 
     @property
     def state(self):
@@ -161,7 +168,7 @@ class GradientNoiseScale(object):
                                           device=grad.device,
                                           dtype=torch.float64)
         # Update the local gradient square sum
-        self._local_sqr[idx] += grad.pow(2).sum(dtype=torch.float64)
+        self._local_sqr[idx] += grad.detach().pow(2).sum(dtype=torch.float64)
         if not self._callback_queued:
             Variable._execution_engine.queue_callback(self._queue_callback)
         self._callback_queued = True
@@ -196,18 +203,27 @@ class GradientNoiseScale(object):
             self._async_op.wait()
 
         grads = []
+        if self._mp_scaler is not None:
+            mixed_precision_scale = self._mp_scaler.get_scale()
+        else:
+            mixed_precision_scale = 1.0
         for group in self.optimizer.param_groups:
             grads.append([])
             for param in group["params"]:
                 if param.grad is None:
                     grads[-1].append(None)
                     continue
-                param.grad.div_(self._accum_count)
-                grads[-1].append(param.grad.detach())
+                grad = param.grad.detach().float()
+                grads[-1].append(
+                    grad / mixed_precision_scale / self._accum_count)
 
-        check = [g.sum() for group in grads for g in group]
-        if any(c != c or c in (float('inf'), -float('inf')) for c in check):
-            print("Scaling rule detected invalid gradient! Skipping step.")
+        # Note: mixed precision can result in nan/inf gradients,
+        # which propogate into our norm and variance estimates.
+        # Mixed precision autoscaling skips the skip where
+        # there are nan/inf, so we also skip the update here
+        grads_normsqr = _normsqr_groups(grads)
+        if not np.all(np.isfinite(grads_normsqr)):
+            LOG.warning("AdaScale detected invalid gradient! Skipping step.")
             return
 
         count = self._num_replicas * self._accum_count
@@ -215,7 +231,10 @@ class GradientNoiseScale(object):
         if count > 1:
             # Average local squared-norm samples.
             local_sqr = self._local_sqr.cpu().numpy() / count
-            total_sqr = _normsqr_groups(grads)
+            # Gradient is squared in local_sqr, so need to square the
+            # mixed precision scale as well
+            local_sqr = (local_sqr / mixed_precision_scale ** 2)
+            total_sqr = grads_normsqr
             if self.state["biased"]:
                 self._reset_avg("sqr_avg")
                 self._reset_avg("var_avg")
@@ -225,7 +244,7 @@ class GradientNoiseScale(object):
             # Single gradient datapoint, use difference estimation.
             if self._prev_grads is not None:
                 local_sqr = (_normsqr_groups(self._prev_grads) +
-                             _normsqr_groups(grads)) / 2
+                             grads_normsqr) / 2
                 avg_grads = _average_groups(grads, self._prev_grads)
                 total_sqr = _normsqr_groups(avg_grads)
                 count = 2
@@ -237,15 +256,13 @@ class GradientNoiseScale(object):
         if count > 1:
             grad_sqr = (count * total_sqr - local_sqr) / (count - 1)
             grad_var = (local_sqr - total_sqr) * scale / (count - 1)
-            self.raw_grad_sqr = grad_sqr
-            self.raw_grad_var = grad_var
             theta = self._smoothing ** scale
             self._update_avg('sqr_avg', grad_sqr, theta)
             self._update_avg('var_avg', grad_var, theta)
 
     def zero_grad(self, *args, **kwargs):
         if self._should_zero_grad:
-            self._orig_optimizer_zero_grad(*args, **kwargs)
+            self._reset_accumulation()
         else:
             warnings.warn("skipping zero_grad for accumulated gradient")
 

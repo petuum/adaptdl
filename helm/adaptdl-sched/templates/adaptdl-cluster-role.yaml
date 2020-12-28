@@ -12,7 +12,7 @@ rules:
   - create
   - get
 - apiGroups:
-  - adaptdl.petuum.com 
+  - adaptdl.petuum.com
   resources:
   - adaptdljobs
   - adaptdljobs/status

@@ -54,9 +54,7 @@ class AdaptiveDataParallel(DistributedDataParallel):
         name (string): Unique name for each instance of this class, needed only
             if multiple instances exist.
     """
-
-    def __init__(self, model, optimizer,
-                 lr_scheduler=None,
+    def __init__(self, model, optimizer, lr_scheduler=None, mp_scaler=None,
                  scaling_rule: Optional[ScalingRuleBase] = None,
                  name="adaptdl-dataparallel", **kwargs):
         super().__init__(model, **kwargs)
@@ -71,13 +69,13 @@ class AdaptiveDataParallel(DistributedDataParallel):
 
         # Setup for the scaling_rule, must be after registering backward hooks
         # because some of them need to register their own backward hooks.
-        self.gns = GradientNoiseScale(self, optimizer)
+        self.gns = GradientNoiseScale(self, optimizer, mp_scaler=mp_scaler)
         self.scaling_rule = scaling_rule or AdaScale()
         self.scaling_rule.adp = self
         self.scaling_rule.patch_optimizer()
 
-        self._state = _AdaptiveDataParallelState(model, optimizer,
-                                                 lr_scheduler, name)
+        self._state = _AdaptiveDataParallelState(
+            model, optimizer, lr_scheduler, mp_scaler, name)
         adaptdl.checkpoint.load_state(self._state)
 
         self._sync_start = None
@@ -183,12 +181,13 @@ class AdaptiveDataParallel(DistributedDataParallel):
 
 
 class _AdaptiveDataParallelState(adaptdl.checkpoint.State):
-    def __init__(self, model, optimizer, lr_scheduler,
+    def __init__(self, model, optimizer, lr_scheduler, mp_scaler,
                  name="adaptdl-dataparallel"):
         super().__init__(name)
         self.model = model
         self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
+        self.mp_scaler = mp_scaler
         # TODO: Gain/goodput should be tracked in the metrics module instead.
         self.gain = 1.0
         # lr_factor summary
@@ -196,13 +195,23 @@ class _AdaptiveDataParallelState(adaptdl.checkpoint.State):
 
     def save(self, fileobj):
         state_dicts = [self.model.state_dict(), self.optimizer.state_dict()]
+
         if self.lr_scheduler is not None:
             state_dicts.append(self.lr_scheduler.state_dict())
+        else:
+            state_dicts.append(None)
+
+        if self.mp_scaler is not None:
+            state_dicts.append(self.mp_scaler.state_dict())
+        else:
+            state_dicts.append(None)
         torch.save((state_dicts, self.gain, self.lr_factor), fileobj)
 
     def load(self, fileobj):
         state_dicts, self.gain, self.lr_factor = torch.load(fileobj)
         self.model.load_state_dict(state_dicts[0])
         self.optimizer.load_state_dict(state_dicts[1])
-        if len(state_dicts) > 2:
+        if state_dicts[2] is not None:
             self.lr_scheduler.load_state_dict(state_dicts[2])
+        if state_dicts[3] is not None:
+            self.mp_scaler.load_state_dict(state_dicts[3])
