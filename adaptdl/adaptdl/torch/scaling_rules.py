@@ -136,7 +136,7 @@ class GradientNoiseScale(object):
 
     def gain(self, scale):
         """
-        Current estimate of the AdaScale gain ratio.
+        Current estimate of the GradientNoiseScale gain ratio.
 
         Arguments:
             scale (float): The total scale to estimate the gain ratio for.
@@ -223,7 +223,8 @@ class GradientNoiseScale(object):
         # there are nan/inf, so we also skip the update here
         grads_normsqr = _normsqr_groups(grads)
         if not np.all(np.isfinite(grads_normsqr)):
-            LOG.warning("AdaScale detected invalid gradient! Skipping step.")
+            LOG.warning("GradientNoiseScale detected invalid gradient! "
+                        "Skipping step.")
             return
 
         count = self._num_replicas * self._accum_count
