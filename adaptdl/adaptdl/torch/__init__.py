@@ -44,7 +44,7 @@ def version_check(version, lib):
             version != "0.0.0":
         return True
     else:
-        LOG.info("adaptdl version of {} is a customer version".format(lib))
+        LOG.info("adaptdl version of {} is a user version".format(lib))
         return False
 
 
