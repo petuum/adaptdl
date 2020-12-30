@@ -302,7 +302,6 @@ class GradientNoiseScale(object):
         for lr, pg in zip(initial_lr, self.optimizer.param_groups):
             pg["lr"] = lr
         self.state["progress"] += self.gain(scale)
-        self._reset_accumulation()
 
 
 class ScalingRuleBase(object):
