@@ -10,7 +10,7 @@ spec:
       - name: main
         command:
         - python3
-        - /root/autodist/examples/benchmark/bert.py 
+        - /root/autodist/examples/benchmark/bert_with_adaptdl.py 
         - -input_files=/root/tf_examples.tfrecord 
         - --bert_config_file=/root/bert_config.json 
         - --num_train_epochs=1 
@@ -18,6 +18,9 @@ spec:
         - --learning_rate=5e-5 
         - --steps_per_loop=1 
         - --autodist_strategy=PS
+        env:
+        - name: ADAPTDL
+          value: "true"
         resources:
           limits:
             nvidia.com/gpu: 1

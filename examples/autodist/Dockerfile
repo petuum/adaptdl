@@ -19,12 +19,6 @@ WORKDIR /root
 FROM pytorch/pytorch:1.4-cuda10.1-cudnn7-runtime
 
 FROM tensorflow/tensorflow:2.2.0-gpu
-
-# Set default shell to /bin/bash
-# SHELL ["/bin/bash", "-cu"]
-
-# RUN rm -rf /etc/bash.bashrc
-
 # Install apps
 COPY adaptdl adaptdl
 COPY examples/requirements.txt .
@@ -36,9 +30,6 @@ RUN ADAPTDL_VERSION=${ADAPTDL_VERSION} pip install adaptdl/dist/*.whl
 RUN pip install -r requirements.txt
 
 RUN rm -rf adaptdl/dist
-COPY examples examples_adaptdl
-#COPY examples examples
-#RUN apt-get update && apt-get install -y --no-install-recommends apt-utils
 
 # autodist env
 SHELL ["/bin/bash", "-cu"]
@@ -59,16 +50,18 @@ RUN curl -O https://bootstrap.pypa.io/get-pip.py && \
 
 COPY bert_config.json bert_config.json
 COPY tf_examples.tfrecord tf_examples.tfrecord
+RUN git clone https://github.com/petuum/autodist.git
+#RUN cd autodist
+#WORKDIR autodist
+#RUN git checkout integration
 COPY autodist autodist
-RUN cd autodist
-RUN pip install tensorflow_hub
 RUN wget https://github.com/protocolbuffers/protobuf/releases/download/v3.11.0/protoc-3.11.0-linux-x86_64.zip
-COPY autodist/protoc-3.11.0-linux-x86_64.zip protoc-3.11.0-linux-x86_64.zip
 RUN unzip protoc-3.11.0-linux-x86_64.zip
-RUN PROTOC=autodist/bin/protoc python autodist/setup.py build
-WORKDIR autodist
-RUN rm ./examples/resource_spec.yml
+RUN PROTOC=$(pwd)/bin/protoc python setup.py build
 RUN pip install -e .[dev]
+RUN pip install tensorflow_hub
+WORKDIR autodist
+#RUN rm ./examples/resource_spec.yml
 
 # setup ssh
 # Install OpenSSH to communicate between containers
