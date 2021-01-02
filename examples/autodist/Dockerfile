@@ -51,20 +51,16 @@ RUN curl -O https://bootstrap.pypa.io/get-pip.py && \
 COPY bert_config.json bert_config.json
 COPY tf_examples.tfrecord tf_examples.tfrecord
 RUN git clone https://github.com/petuum/autodist.git
-#RUN cd autodist
-#WORKDIR autodist
-#RUN git checkout integration
-COPY autodist autodist
+WORKDIR autodist
+RUN git checkout integration
 RUN wget https://github.com/protocolbuffers/protobuf/releases/download/v3.11.0/protoc-3.11.0-linux-x86_64.zip
 RUN unzip protoc-3.11.0-linux-x86_64.zip
 RUN PROTOC=$(pwd)/bin/protoc python setup.py build
 RUN pip install -e .[dev]
 RUN pip install tensorflow_hub
 WORKDIR autodist
-#RUN rm ./examples/resource_spec.yml
 
 # setup ssh
-# Install OpenSSH to communicate between containers
 RUN apt-get install -y --no-install-recommends openssh-client openssh-server && \
     mkdir -p /var/run/sshd
 
