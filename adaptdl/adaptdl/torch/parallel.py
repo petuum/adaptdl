@@ -194,8 +194,6 @@ class _AdaptiveDataParallelState(adaptdl.checkpoint.State):
         self.mp_scaler = mp_scaler
         # TODO: Gain/goodput should be tracked in the metrics module instead.
         self.gain = 1.0
-        # lr_factor summary
-        self.lr_factor = 1.0
 
     def save(self, fileobj):
         state_dicts = [self.model.state_dict(), self.optimizer.state_dict()]
@@ -209,10 +207,10 @@ class _AdaptiveDataParallelState(adaptdl.checkpoint.State):
             state_dicts.append(self.mp_scaler.state_dict())
         else:
             state_dicts.append(None)
-        torch.save((state_dicts, self.gain, self.lr_factor), fileobj)
+        torch.save((state_dicts, self.gain), fileobj)
 
     def load(self, fileobj):
-        state_dicts, self.gain, self.lr_factor = torch.load(fileobj)
+        state_dicts, self.gain = torch.load(fileobj)
         self.model.load_state_dict(state_dicts[0])
         self.optimizer.load_state_dict(state_dicts[1])
         if state_dicts[2] is not None:
