@@ -71,9 +71,7 @@ class AdaptiveDataParallel(DistributedDataParallel):
         # because some of them need to register their own backward hooks.
         self.gns = GradientNoiseScale(self, optimizer, mp_scaler=mp_scaler)
         self.scaling_rule = scaling_rule or AdaScale()
-        self.scaling_rule.adp = self
-        self.optimizer = optimizer
-        self.scaling_rule.register_optimizer(optimizer, patch_optimizer=True)
+        self.scaling_rule.initialize(self, optimizer, patch_optimizer=True)
 
         self._state = _AdaptiveDataParallelState(
             model, optimizer, lr_scheduler, mp_scaler, name)
@@ -142,6 +140,8 @@ class AdaptiveDataParallel(DistributedDataParallel):
 
         scale = dataloader.current_batch_size / dataloader.batch_size
         self._state.gain = self.gns.gain(scale)
+        self._state.lr_factor = \
+            np.average(self.scaling_rule.scale_lr(scale))
         update_progress(self.gns.get_progress())
         if dataloader.max_batch_size and \
                 dataloader.max_batch_size > dataloader.batch_size:
@@ -177,11 +177,8 @@ class AdaptiveDataParallel(DistributedDataParallel):
                           self.gns.var_avg(), global_step)
         writer.add_scalar(tag_prefix + "Gain",
                           self._state.gain, global_step)
-        dataloader = current_dataloader()
-        scale = dataloader.current_batch_size / dataloader.batch_size
         writer.add_scalar(tag_prefix + "Learning_Rate_Factor",
-                          np.average(self.scaling_rule.scale_lr(scale)),
-                          global_step)
+                          self._state.lr_factor, global_step)
 
 
 class _AdaptiveDataParallelState(adaptdl.checkpoint.State):
@@ -194,6 +191,8 @@ class _AdaptiveDataParallelState(adaptdl.checkpoint.State):
         self.mp_scaler = mp_scaler
         # TODO: Gain/goodput should be tracked in the metrics module instead.
         self.gain = 1.0
+        # lr_factor summary
+        self.lr_factor = 1.0
 
     def save(self, fileobj):
         state_dicts = [self.model.state_dict(), self.optimizer.state_dict()]
@@ -207,10 +206,10 @@ class _AdaptiveDataParallelState(adaptdl.checkpoint.State):
             state_dicts.append(self.mp_scaler.state_dict())
         else:
             state_dicts.append(None)
-        torch.save((state_dicts, self.gain), fileobj)
+        torch.save((state_dicts, self.gain, self.lr_factor), fileobj)
 
     def load(self, fileobj):
-        state_dicts, self.gain = torch.load(fileobj)
+        state_dicts, self.gain, self.lr_factor = torch.load(fileobj)
         self.model.load_state_dict(state_dicts[0])
         self.optimizer.load_state_dict(state_dicts[1])
         if state_dicts[2] is not None:

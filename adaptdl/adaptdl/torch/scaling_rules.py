@@ -76,9 +76,9 @@ class ScalingRuleBase(object):
             return
         scale = self.adp.gns.accum_scale * self.adp.gns.accum_count
         initial_lr = [pg["lr"] for pg in self._optimizer.param_groups]
-        lr_factors = self.scale_lr(scale)
-        for lr_factor, pg in zip(lr_factors, self._optimizer.param_groups):
-            pg["lr"] = lr_factor * pg["lr"]
+        scaled_lr = np.multiply(self.scale_lr(scale), initial_lr)
+        for lr, pg in zip(scaled_lr, self._optimizer.param_groups):
+            pg["lr"] = lr
         self._orig_optimizer_step(*args, **kwargs)
         for lr, pg in zip(initial_lr, self._optimizer.param_groups):
             pg["lr"] = lr
@@ -100,7 +100,8 @@ class ScalingRuleBase(object):
         self._optimizer.step = MethodType(step_wrapper, self._optimizer)
         self._optimizer.zero_grad = MethodType(zero_wrapper, self._optimizer)
 
-    def register_optimizer(self, optimizer, patch_optimizer=False):
+    def initialize(self, adp, optimizer, patch_optimizer=False):
+        self.adp = adp
         self._optimizer = optimizer
         self._orig_optimizer_step = optimizer.step
         if patch_optimizer:
@@ -117,8 +118,8 @@ class AdaScale(ScalingRuleBase):
 
     def scale_lr(self, scale):
         """Calculate factors to be applied to lr for each parameter group."""
-        var = self.adp.gns._state["var_avg"]
-        sqr = self.adp.gns._state["sqr_avg"]
+        var = self.adp.gns.raw_var_avg
+        sqr = self.adp.gns.raw_sqr_avg
         var = np.maximum(var, 1e-6)
         sqr = np.maximum(sqr,  0.0)
         return (var + sqr) / (var / scale + sqr)
@@ -127,13 +128,13 @@ class AdaScale(ScalingRuleBase):
 class LinearScale(ScalingRuleBase):
 
     def scale_lr(self, scale):
-        return np.full(len(self._optimizer.param_groups), scale)
+        return scale
 
 
 class SqrtScale(ScalingRuleBase):
 
     def scale_lr(self, scale):
-        return np.full(len(self._optimizer.param_groups), math.sqrt(scale))
+        return math.sqrt(scale)
 
 
 class LEGWScale(ScalingRuleBase):
@@ -167,7 +168,7 @@ class LEGWScale(ScalingRuleBase):
         self._base_warmup_epochs = base_warmup_epochs
         self._data_size = data_size
 
-    def _legw_lr_factor(self, scale):
+    def scale_lr(self, scale):
         dataloader = current_dataloader()
         # total training steps for warm up
         total_steps = self._base_warmup_epochs * scale * \
@@ -180,7 +181,3 @@ class LEGWScale(ScalingRuleBase):
         else:
             lr_factor = max_lr_multiplier
         return lr_factor
-
-    def scale_lr(self, scale):
-        lr_factor = self._legw_lr_factor(scale)
-        return np.full(len(self._optimizer.param_groups), lr_factor)

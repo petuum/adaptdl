@@ -47,12 +47,17 @@ def test_object():
 def test_scaling_rules_1():
     """test AdaScale lr factors"""
     adp = Mock(require_backward_grad_sync=True)
-    gns = Mock(_state={"var_avg": np.asarray([1, 0, 0, 2]),
-                       "sqr_avg": np.asarray([-1, 0, -1, 1])})
+    opm = Mock(param_groups=[1, 0, 2, -1])
+    gns = Mock(raw_var_avg=np.asarray([1, 0, 0, 2]),
+               raw_sqr_avg=np.asarray([-1, 0, -1, 1]))
     adp.gns = gns
     adascale = AdaScale()
-    adascale.adp = adp
-    np.testing.assert_equal(adascale.scale_lr(2), [2., 2., 2., 1.5])
+    adascale.initialize(adp, opm)
+    input_scales = [0.5, 1, 2, 4, 10]
+    expected_ans = [[0.5, 0.5, 0.5, 0.6], [1., 1., 1., 1.], [2., 2., 2., 1.5],
+                    [4., 4., 4., 2.], [10., 10., 10., 2.5]]
+    for scale, ans in zip(input_scales, expected_ans):
+        np.testing.assert_equal(adascale.scale_lr(scale), ans)
 
 
 def test_scaling_rules_2():
@@ -62,10 +67,11 @@ def test_scaling_rules_2():
     gns = Mock(optimizer=opm)
     adp.gns = gns
     linearscale = LinearScale()
-    linearscale.adp = adp
-    linearscale.register_optimizer(opm)
-    np.testing.assert_equal(linearscale.scale_lr(1),
-                            [1., 1., 1., 1.])
+    linearscale.initialize(adp, opm)
+    input_scales = [0.5, 1, 2, 4, 10]
+    expected_ans = [0.5, 1., 2., 4., 10.]
+    for scale, ans in zip(input_scales, expected_ans):
+        np.testing.assert_equal(linearscale.scale_lr(scale), ans)
 
 
 def test_scaling_rules_3():
@@ -75,30 +81,41 @@ def test_scaling_rules_3():
     gns = Mock(optimizer=opm)
     adp.gns = gns
     sqrtscale = SqrtScale()
-    sqrtscale.adp = adp
-    sqrtscale.register_optimizer(opm)
-    np.testing.assert_equal(sqrtscale.scale_lr(9),
-                            [3., 3., 3., 3.])
+    sqrtscale.initialize(adp, opm)
+    input_scales = [1, 4, 9, 16, 25]
+    expected_ans = [1., 2., 3., 4., 5.]
+    for scale, ans in zip(input_scales, expected_ans):
+        np.testing.assert_equal(sqrtscale.scale_lr(scale), ans)
 
 
 def test_scaling_rules_4():
     """test LEGWScale lr factors"""
-    data_loader = Mock(batch_size=100)
     with patch("adaptdl.torch.scaling_rules.current_dataloader",
-               return_value=data_loader):
+               return_value=Mock(batch_size=100)):
         adp = Mock(require_backward_grad_sync=True)
         opm = Mock(param_groups=[1, 0, 2, -1])
         gns = Mock(optimizer=opm, get_progress=Mock(return_value=5))
         adp.gns = gns
         legwscale = LEGWScale(10, 1000)
-        legwscale.adp = adp
-        legwscale.register_optimizer(opm)
-        np.testing.assert_equal(legwscale.scale_lr(4),
-                                [0.025, 0.025, 0.025, 0.025])
+        legwscale.initialize(adp, opm)
+        input_scales = [1, 4, 9, 16, 25]
+        expected_ans = [1/20, 1/40, 1/60, 1/80, 1/100]
+        for scale, ans in zip(input_scales, expected_ans):
+            np.testing.assert_equal(legwscale.scale_lr(scale), ans)
+        with patch("adaptdl.torch.scaling_rules.current_dataloader",
+                   return_value=Mock(batch_size=50)):
+            gns = Mock(optimizer=opm, get_progress=Mock(return_value=400))
+            adp.gns = gns
+            input_scales = [1, 4, 9, 16, 25]
+            expected_ans = [1., 1., 2/3, 0.5, 0.4]
+            for scale, ans in zip(input_scales, expected_ans):
+                np.testing.assert_equal(legwscale.scale_lr(scale), ans)
         gns = Mock(optimizer=opm, get_progress=Mock(return_value=400))
         adp.gns = gns
-        np.testing.assert_equal(legwscale.scale_lr(4),
-                                [2., 2., 2., 2.])
+        input_scales = [1, 4, 9, 16, 25]
+        expected_ans = [1., 2., 4/3, 1., 0.8]
+        for scale, ans in zip(input_scales, expected_ans):
+            np.testing.assert_equal(legwscale.scale_lr(scale), ans)
 
 
 LR = 0.001
@@ -122,8 +139,7 @@ def test_optimization_1():
     gns = GradientNoiseScale(adp, sgd, accum_scale=1.0, num_replicas=1)
     adp.gns = gns
     adascale = AdaScale()
-    adascale.adp = adp
-    adascale.register_optimizer(sgd, patch_optimizer=True)
+    adascale.initialize(adp, sgd, patch_optimizer=True)
     for i in range(100000):
         sgd.zero_grad()
         loss = rosenbrock(params)
@@ -152,8 +168,7 @@ def test_optimization_2():
     gns = GradientNoiseScale(adp, sgd, accum_scale=2.0, num_replicas=1)
     adp.gns = gns
     adascale = AdaScale()
-    adascale.adp = adp
-    adascale.register_optimizer(sgd, patch_optimizer=True)
+    adascale.initialize(adp, sgd, patch_optimizer=True)
     for i in range(100000):
         sgd.zero_grad()
         loss = sum([rosenbrock_noisy(params) for i in range(2)]) / 2.0
@@ -182,8 +197,7 @@ def test_optimization_3():
     gns = GradientNoiseScale(adp, sgd, accum_scale=1.0, num_replicas=1)
     adp.gns = gns
     adascale = AdaScale()
-    adascale.adp = adp
-    adascale.register_optimizer(sgd, patch_optimizer=True)
+    adascale.initialize(adp, sgd, patch_optimizer=True)
     for i in range(100000):
         sgd.zero_grad()
         loss = rosenbrock(params_t[0]['params'][0], params_t[1]['params'][0])
@@ -213,8 +227,7 @@ def test_gradient_accumulation_optimization_1():
     gns = GradientNoiseScale(adp, sgd, accum_scale=1.0, num_replicas=1)
     adp.gns = gns
     adascale = AdaScale()
-    adascale.adp = adp
-    adascale.register_optimizer(sgd, patch_optimizer=True)
+    adascale.initialize(adp, sgd, patch_optimizer=True)
     for i in range(100000):
         adp.require_backward_grad_sync = i % 2 == 1
         sgd.zero_grad()
@@ -245,8 +258,7 @@ def test_gradient_accumulation_optimization_2():
     gns = GradientNoiseScale(adp, sgd, accum_scale=1.0, num_replicas=1)
     adp.gns = gns
     adascale = AdaScale()
-    adascale.adp = adp
-    adascale.register_optimizer(sgd, patch_optimizer=True)
+    adascale.initialize(adp, sgd, patch_optimizer=True)
     for i in range(1000000):
         adp.require_backward_grad_sync = i % 2 == 1
         sgd.zero_grad()
@@ -276,8 +288,7 @@ def test_nan():
     gns = GradientNoiseScale(adp, sgd, accum_scale=1.0, num_replicas=1)
     adp.gns = gns
     adascale = AdaScale()
-    adascale.adp = adp
-    adascale.register_optimizer(sgd, patch_optimizer=True)
+    adascale.initialize(adp, sgd, patch_optimizer=True)
     for i in range(100):
         sgd.zero_grad()
         loss = nan_objective(params)

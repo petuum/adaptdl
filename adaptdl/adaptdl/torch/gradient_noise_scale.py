@@ -6,6 +6,8 @@ import torch.optim
 
 from torch.autograd import Variable
 
+__all__ = ["GradientNoiseScale"]
+
 logging.basicConfig(level=logging.INFO)
 LOG = logging.getLogger(__name__)
 LOG.setLevel(logging.INFO)
@@ -94,6 +96,10 @@ class GradientNoiseScale(object):
             self._reset_accumulation()
             self._accum_scale = accum_scale
 
+    @property
+    def raw_sqr_avg(self):
+        return self._state["sqr_avg"]
+
     def sqr_avg(self):
         """
         Current estimate of the squared l2-norm of the true gradient (sigma
@@ -102,6 +108,10 @@ class GradientNoiseScale(object):
         Returns (float): Estimate of squared l2-norm.
         """
         return float(np.sum(np.maximum(self._state["sqr_avg"], 0.0)))
+
+    @property
+    def raw_var_avg(self):
+        return self._state["var_avg"]
 
     def var_avg(self):
         """
