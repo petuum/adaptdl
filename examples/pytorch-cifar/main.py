@@ -30,7 +30,6 @@ from models import *
 
 import adaptdl
 import adaptdl.torch as adl
-from adaptdl.torch.scaling_rules import AdaScale
 
 from torch.optim.lr_scheduler import MultiStepLR
 from torch.utils.tensorboard import SummaryWriter
@@ -96,8 +95,7 @@ if args.mixed_precision:
     scaler = torch.cuda.amp.GradScaler(enabled=True)
 else:
     scaler = None
-net = adl.AdaptiveDataParallel(net, optimizer, lr_scheduler, scaler,
-                               AdaScale())
+net = adl.AdaptiveDataParallel(net, optimizer, lr_scheduler, scaler)
 
 
 # Training

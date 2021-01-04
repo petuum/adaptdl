@@ -20,8 +20,9 @@ import random
 
 from unittest.mock import Mock, patch
 
-from adaptdl.torch.scaling_rules import AdaScale, GradientNoiseScale,\
-    LinearScale, LEGWScale, SqrtScale
+from adaptdl.torch.gradient_noise_scale import GradientNoiseScale
+from adaptdl.torch.scaling_rules import AdaScale, LinearScale,\
+     LEGWScale, SqrtScale
 
 
 def test_object():
@@ -38,21 +39,20 @@ def test_object():
     obj.set_accum_scale(3.0)
     assert(obj.accum_scale == 3.0)
     assert(np.isclose(obj.gain(2.0), 1.0))
-    obj.state['var_avg'] = 3.0
-    obj.state['norm_avg'] = 1.0
+    obj._state['var_avg'] = 3.0
+    obj._state['norm_avg'] = 1.0
     assert(np.isclose(obj.gain(3.0), 2.0))
 
 
 def test_scaling_rules_1():
     """test AdaScale lr factors"""
     adp = Mock(require_backward_grad_sync=True)
-    gns = Mock(state={"var_avg": np.asarray([1, 0, 0, 2]),
-                      "sqr_avg": np.asarray([-1, 0, -1, 1])})
+    gns = Mock(_state={"var_avg": np.asarray([1, 0, 0, 2]),
+                       "sqr_avg": np.asarray([-1, 0, -1, 1])})
     adp.gns = gns
     adascale = AdaScale()
     adascale.adp = adp
-    np.testing.assert_equal(adascale.calculate_lr_factors(2),
-                            [2., 2., 2., 1.5])
+    np.testing.assert_equal(adascale.scale_lr(2), [2., 2., 2., 1.5])
 
 
 def test_scaling_rules_2():
@@ -63,7 +63,8 @@ def test_scaling_rules_2():
     adp.gns = gns
     linearscale = LinearScale()
     linearscale.adp = adp
-    np.testing.assert_equal(linearscale.calculate_lr_factors(1),
+    linearscale.register_optimizer(opm)
+    np.testing.assert_equal(linearscale.scale_lr(1),
                             [1., 1., 1., 1.])
 
 
@@ -75,7 +76,8 @@ def test_scaling_rules_3():
     adp.gns = gns
     sqrtscale = SqrtScale()
     sqrtscale.adp = adp
-    np.testing.assert_equal(sqrtscale.calculate_lr_factors(9),
+    sqrtscale.register_optimizer(opm)
+    np.testing.assert_equal(sqrtscale.scale_lr(9),
                             [3., 3., 3., 3.])
 
 
@@ -90,11 +92,12 @@ def test_scaling_rules_4():
         adp.gns = gns
         legwscale = LEGWScale(10, 1000)
         legwscale.adp = adp
-        np.testing.assert_equal(legwscale.calculate_lr_factors(4),
+        legwscale.register_optimizer(opm)
+        np.testing.assert_equal(legwscale.scale_lr(4),
                                 [0.025, 0.025, 0.025, 0.025])
         gns = Mock(optimizer=opm, get_progress=Mock(return_value=400))
         adp.gns = gns
-        np.testing.assert_equal(legwscale.calculate_lr_factors(4),
+        np.testing.assert_equal(legwscale.scale_lr(4),
                                 [2., 2., 2., 2.])
 
 
@@ -120,7 +123,7 @@ def test_optimization_1():
     adp.gns = gns
     adascale = AdaScale()
     adascale.adp = adp
-    adascale.patch_optimizer()
+    adascale.register_optimizer(sgd, patch_optimizer=True)
     for i in range(100000):
         sgd.zero_grad()
         loss = rosenbrock(params)
@@ -150,7 +153,7 @@ def test_optimization_2():
     adp.gns = gns
     adascale = AdaScale()
     adascale.adp = adp
-    adascale.patch_optimizer()
+    adascale.register_optimizer(sgd, patch_optimizer=True)
     for i in range(100000):
         sgd.zero_grad()
         loss = sum([rosenbrock_noisy(params) for i in range(2)]) / 2.0
@@ -180,7 +183,7 @@ def test_optimization_3():
     adp.gns = gns
     adascale = AdaScale()
     adascale.adp = adp
-    adascale.patch_optimizer()
+    adascale.register_optimizer(sgd, patch_optimizer=True)
     for i in range(100000):
         sgd.zero_grad()
         loss = rosenbrock(params_t[0]['params'][0], params_t[1]['params'][0])
@@ -206,12 +209,12 @@ def test_gradient_accumulation_optimization_1():
     params = torch.autograd.Variable(params_t, requires_grad=True)
     sgd = torch.optim.SGD([params], lr=LR)
     schedule = torch.optim.lr_scheduler.MultiStepLR(sgd, STEP_SCHEDULE)
-    adp = Mock(require_backward_grad_sync=True)
+    adp = Mock(require_backward_grad_sync=False)
     gns = GradientNoiseScale(adp, sgd, accum_scale=1.0, num_replicas=1)
     adp.gns = gns
     adascale = AdaScale()
     adascale.adp = adp
-    adascale.patch_optimizer()
+    adascale.register_optimizer(sgd, patch_optimizer=True)
     for i in range(100000):
         adp.require_backward_grad_sync = i % 2 == 1
         sgd.zero_grad()
@@ -238,12 +241,12 @@ def test_gradient_accumulation_optimization_2():
     params = torch.autograd.Variable(params_t, requires_grad=True)
     sgd = torch.optim.SGD([params], lr=LR)
     schedule = torch.optim.lr_scheduler.MultiStepLR(sgd, STEP_SCHEDULE)
-    adp = Mock(require_backward_grad_sync=True)
+    adp = Mock(require_backward_grad_sync=False)
     gns = GradientNoiseScale(adp, sgd, accum_scale=1.0, num_replicas=1)
     adp.gns = gns
     adascale = AdaScale()
     adascale.adp = adp
-    adascale.patch_optimizer()
+    adascale.register_optimizer(sgd, patch_optimizer=True)
     for i in range(1000000):
         adp.require_backward_grad_sync = i % 2 == 1
         sgd.zero_grad()
@@ -274,7 +277,7 @@ def test_nan():
     adp.gns = gns
     adascale = AdaScale()
     adascale.adp = adp
-    adascale.patch_optimizer()
+    adascale.register_optimizer(sgd, patch_optimizer=True)
     for i in range(100):
         sgd.zero_grad()
         loss = nan_objective(params)

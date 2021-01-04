@@ -28,8 +28,8 @@ from torch.nn.parallel import DistributedDataParallel
 import adaptdl.checkpoint
 import adaptdl.env
 from adaptdl.torch.data import current_dataloader
-from adaptdl.torch.scaling_rules import AdaScale, GradientNoiseScale,\
-    ScalingRuleBase
+from adaptdl.torch.scaling_rules import AdaScale, ScalingRuleBase
+from adaptdl.torch.gradient_noise_scale import GradientNoiseScale
 from adaptdl.torch._metrics import profile_sync_time, update_grad_params,\
     update_progress
 
@@ -45,14 +45,14 @@ class AdaptiveDataParallel(DistributedDataParallel):
     Arguments:
         model (torch.nn.Module): Model to be distributed.
         optimizer (torch.optim.Optimizer): Optimizer used to update the given
-            model's parameters, will be patched using subclass of
-            :class:`adaptdl.torch.scaling_rules.ScalingRuleBase`.
+        model's parameters, will be patched using subclass of
+        :class:`adaptdl.torch.scaling_rules.ScalingRuleBase`.
         scaling_rule (ScalingRuleBase): Scaling rule used to
-            patch the given optimizer, default to AdaScale.
+        patch the given optimizer, default to AdaScale.
         lr_scheduler (torch.optim.lr_scheduler._LRScheduler): LR scheduler used
-            to anneal the learning rate for the given optimizer.
+        to anneal the learning rate for the given optimizer.
         name (string): Unique name for each instance of this class, needed only
-            if multiple instances exist.
+        if multiple instances exist.
     """
     def __init__(self, model, optimizer, lr_scheduler=None, mp_scaler=None,
                  scaling_rule: Optional[ScalingRuleBase] = None,
@@ -72,7 +72,8 @@ class AdaptiveDataParallel(DistributedDataParallel):
         self.gns = GradientNoiseScale(self, optimizer, mp_scaler=mp_scaler)
         self.scaling_rule = scaling_rule or AdaScale()
         self.scaling_rule.adp = self
-        self.scaling_rule.patch_optimizer()
+        self.optimizer = optimizer
+        self.scaling_rule.register_optimizer(optimizer, patch_optimizer=True)
 
         self._state = _AdaptiveDataParallelState(
             model, optimizer, lr_scheduler, mp_scaler, name)
@@ -141,8 +142,6 @@ class AdaptiveDataParallel(DistributedDataParallel):
 
         scale = dataloader.current_batch_size / dataloader.batch_size
         self._state.gain = self.gns.gain(scale)
-        self._state.lr_factor = \
-            np.average(self.scaling_rule.calculate_lr_factors(scale))
         update_progress(self.gns.get_progress())
         if dataloader.max_batch_size and \
                 dataloader.max_batch_size > dataloader.batch_size:
@@ -176,8 +175,13 @@ class AdaptiveDataParallel(DistributedDataParallel):
                           self.gns.sqr_avg(), global_step)
         writer.add_scalar(tag_prefix + "Gradient_Variance",
                           self.gns.var_avg(), global_step)
+        writer.add_scalar(tag_prefix + "Gain",
+                          self._state.gain, global_step)
+        dataloader = current_dataloader()
+        scale = dataloader.current_batch_size / dataloader.batch_size
         writer.add_scalar(tag_prefix + "Learning_Rate_Factor",
-                          self._state.lr_factor, global_step)
+                          np.average(self.scaling_rule.scale_lr(scale)),
+                          global_step)
 
 
 class _AdaptiveDataParallelState(adaptdl.checkpoint.State):
