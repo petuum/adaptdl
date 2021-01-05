@@ -13,7 +13,7 @@
 # limitations under the License.
 
 
-import sys
+import os, sys
 if "darwin" in sys.platform.lower():
     # To avoid multiple runs of the model code
     # https://pythonspeed.com/articles/python-multiprocessing/
@@ -58,7 +58,7 @@ def init_process_group(backend):
             if response.status_code != 408:  # Timeout.
                 break
         response.raise_for_status()
-        master_addr = response.json()
+        master_addr = response.json()[0]
         sched_version = os.environ.get("ADAPTDL_VERSION")
         trainer_version = pkg_resources.get_distribution("adaptdl").version
         if version_check(sched_version, lib="sched") and \
