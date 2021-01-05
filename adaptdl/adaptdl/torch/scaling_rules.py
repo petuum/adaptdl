@@ -56,8 +56,8 @@ class ScalingRuleBase(object):
         raise NotImplementedError
 
     def zero_grad(self, *args, **kwargs):
-        if self.adp.gns._should_zero_grad:
-            self.adp.gns._reset_accumulation(*args, **kwargs)
+        if self.adp.gns.should_zero_grad:
+            self.adp.gns.reset_accumulation(*args, **kwargs)
         else:
             warnings.warn("skipping zero_grad for accumulated gradient")
 

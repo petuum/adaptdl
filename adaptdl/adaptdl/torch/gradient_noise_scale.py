@@ -54,7 +54,7 @@ class GradientNoiseScale(object):
         self._accum_scale = accum_scale or self._num_replicas
         self._prev_grads = None
 
-        self._reset_accumulation()
+        self.reset_accumulation()
 
         self._optimizer.state.setdefault("gns", {
             "progress": 0.0,
@@ -77,11 +77,15 @@ class GradientNoiseScale(object):
     def _state(self):
         return self._optimizer.state["gns"]
 
-    def _reset_accumulation(self):
+    def reset_accumulation(self):
         """reset accumulation calculations and gradients."""
         self._orig_optimizer_zero_grad()
         self._local_sqr = None
         self._accum_count = 0
+
+    @property
+    def should_zero_grad(self):
+        return self._should_zero_grad
 
     @property
     def accum_scale(self):
@@ -93,12 +97,14 @@ class GradientNoiseScale(object):
 
     def set_accum_scale(self, accum_scale):
         if not np.isclose(self._accum_scale, accum_scale):
-            self._reset_accumulation()
+            self.reset_accumulation()
             self._accum_scale = accum_scale
 
     @property
     def raw_sqr_avg(self):
-        return self._state["sqr_avg"]
+        view = self._state["sqr_avg"].view()
+        view.flags.writeable = False
+        return view
 
     def sqr_avg(self):
         """
@@ -111,7 +117,9 @@ class GradientNoiseScale(object):
 
     @property
     def raw_var_avg(self):
-        return self._state["var_avg"]
+        view = self._state["var_avg"].view()
+        view.flags.writeable = False
+        return view
 
     def var_avg(self):
         """
