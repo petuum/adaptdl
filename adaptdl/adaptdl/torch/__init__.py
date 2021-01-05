@@ -13,7 +13,8 @@
 # limitations under the License.
 
 
-import os, sys
+import os
+import sys
 if "darwin" in sys.platform.lower():
     # To avoid multiple runs of the model code
     # https://pythonspeed.com/articles/python-multiprocessing/
