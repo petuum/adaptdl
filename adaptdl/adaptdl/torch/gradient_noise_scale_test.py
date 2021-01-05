@@ -6,8 +6,6 @@ import random
 from unittest.mock import Mock
 
 from adaptdl.torch.gradient_noise_scale import GradientNoiseScale
-from adaptdl.torch.scaling_rules import AdaScale, LinearScale,\
-     LEGWScale, SqrtScale
 
 
 def test_object():
