@@ -58,8 +58,8 @@ def init_process_group(backend):
             if response.status_code != 408:  # Timeout.
                 break
         response.raise_for_status()
-        master_addr = response.json()['pod_ip_list'][0]
-        sched_version = response.json()['version']
+        master_addr = response.json()
+        sched_version = os.environ.get("ADAPTDL_VERSION")
         trainer_version = pkg_resources.get_distribution("adaptdl").version
         if version_check(sched_version, lib="sched") and \
                 version_check(trainer_version, lib="trainer"):
