@@ -15,13 +15,20 @@
 
 import functools
 import logging
+import torch
+
+import adaptdl.checkpoint
+import adaptdl.env
+from adaptdl.torch._metrics import _report_sched_hints
 
 logging.basicConfig(level=logging.INFO)
 LOG = logging.getLogger(__name__)
 LOG.setLevel(logging.INFO)
 
+
 def cudaoom(e):
     return "CUDA out of memory" in str(e)
+
 
 def retry(dataloader):
     def deco(func):
@@ -33,16 +40,28 @@ def retry(dataloader):
                     break
                 except RuntimeError as e:
                     LOG.info(f"{e}")
-                    if dataloader._elastic.local_bsz_bounds and cudaoom(e):
+                    if (dataloader is not None and
+                        dataloader._elastic.local_bsz_bounds is not None and
+                        cudaoom(e)):
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                            LOG.info("**\n" + torch.cuda.memory_summary())
                         low, high = dataloader._elastic.local_bsz_bounds
                         max_batch_size = dataloader._elastic.max_batch_size
                         previous_local_bsz = dataloader._elastic.previous_local_bsz
                         if high > previous_local_bsz:
                             local_bsz_bounds = (low, previous_local_bsz)
                             dataloader.autoscale_batch_size(max_batch_size=max_batch_size,
-                                                           local_bsz_bounds=local_bsz_bounds)
-                            LOG.info(f"Local batch size bounds changed to {local_bsz_bounds}")
-                        else: raise e
-                    else: raise e
+                                                            local_bsz_bounds=local_bsz_bounds)
+                            LOG.info(
+                                f"Local batch size bounds changed to {local_bsz_bounds}")
+                            if adaptdl.env.replica_rank() == 0:
+                                _report_sched_hints()
+                            adaptdl.checkpoint.save_all_states()
+                            exit(143)
+                        else:
+                            raise e
+                    else:
+                        raise e
         return inner
     return deco
