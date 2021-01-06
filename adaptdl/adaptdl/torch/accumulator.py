@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import collections
+import collections.abc
 import contextlib
 import copy
 import pickle
@@ -23,7 +24,7 @@ from adaptdl.torch.epoch import current_epoch
 from adaptdl.torch.data import current_dataloader
 
 
-class Accumulator(collections.MutableMapping):
+class Accumulator(collections.abc.MutableMapping):
     """
     This class helps aggregate simple statistics across all replicas in the
     current job, and across any number of checkpoint-restarts. Can be used to
