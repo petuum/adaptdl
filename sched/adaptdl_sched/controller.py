@@ -135,11 +135,21 @@ class AdaptDLController(object):
             elif allocation and not pods:
                 # Start the next group of pods.
                 job["status"]["group"] = job["status"].get("group", -1) + 1
-                for rank in range(len(allocation)):
-                    await self._create_pod(
-                        job["metadata"],
-                        job["spec"]["template"], allocation,
-                        job["status"]["group"], rank)
+                try:
+                    new_pods = []
+                    for rank in range(len(allocation)):
+                        pod = await self._create_pod(
+                            job["metadata"],
+                            job["spec"]["template"], allocation,
+                            job["status"]["group"], rank)
+                        new_pods.append(pod)
+                except kubernetes.client.rest.ApiException as e:
+                    LOG.warning(f"Failed to create pod for {job_name}. "
+                                "Setting job status to failed")
+                    job["status"]["phase"] = "Failed"
+                    job["status"]["reason"] = "PodCreationError"
+                    job["status"]["message"] = str(e)
+                    await self._delete_pods(new_pods)
             elif len(pods) != replicas:
                 # Controller restarted before we can spawn all pods
                 job["status"]["phase"] = "Stopping"
@@ -403,7 +413,7 @@ class AdaptDLController(object):
                     "value": "none",
                 })
         pod = self._patch_pods_and_containers(pod)
-        await self._core_api.create_namespaced_pod(
+        return await self._core_api.create_namespaced_pod(
             job_metadata["namespace"], pod)
 
     def _patch_pods_and_containers(self, pod):
