@@ -20,47 +20,47 @@ import torch
 import adaptdl.checkpoint
 import adaptdl.env
 from adaptdl.torch._metrics import _report_sched_hints
+from adaptdl.torch.data import current_dataloader
 
 logging.basicConfig(level=logging.INFO)
 LOG = logging.getLogger(__name__)
 LOG.setLevel(logging.INFO)
 
 
-GPU_MEM_CUTOFF_PCT = 0.2
+GPU_MEM_CUTOFF_PCT = 0.1
 
 def cudaoom(e):
     return "CUDA out of memory" in str(e)
 
 
-def retry(dataloader):
-    def deco(func):
-        @functools.wraps(func)
-        def inner(*args, **kwargs):
-            for _ in range(2):  # we only try once
-                try:
-                    func(*args, **kwargs)
-                    break
-                except RuntimeError as e:
-                    LOG.info(f"{e}")
-                    if (dataloader is not None and
-                        dataloader._elastic.local_bsz_bounds is not None and
-                        cudaoom(e)):
-                        if torch.cuda.is_available():
-                            torch.cuda.empty_cache()
-                            LOG.info("**\n" + torch.cuda.memory_summary())
-                        current_local_bsz = dataloader._elastic.current_local_bsz
-                        low, high = dataloader._elastic.local_bsz_bounds
-                        LOG.info(f"current_local_bsz is {current_local_bsz} local_bsz_bounds ({low}, {high})")
-                        assert current_local_bsz <= high
-                        new_high = int((1. - GPU_MEM_CUTOFF_PCT) * current_local_bsz)
-                        dataloader._elastic.local_bsz_bounds = [low, new_high]
-                        LOG.info(
-                            f"Local batch size bounds changed to ({low}, {new_high})")
-                        if adaptdl.env.replica_rank() == 0:
-                            _report_sched_hints()
-                        adaptdl.checkpoint.save_all_states()
-                        exit(143)
-                    else:
-                        raise e
-        return inner
-    return deco
+def retry(func):
+    @functools.wraps(func)
+    def inner(*args, **kwargs):
+        for _ in range(2):  # we only try once
+            try:
+                func(*args, **kwargs)
+                break
+            except RuntimeError as e:
+                LOG.info(f"{e}")
+                dataloader = current_dataloader()
+                if (dataloader is not None and
+                    dataloader.local_bsz_bounds is not None and
+                    cudaoom(e)):
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                        LOG.info("\n" + torch.cuda.memory_summary())
+                    current_local_bsz = dataloader.current_local_bsz
+                    low, high = dataloader.local_bsz_bounds
+                    LOG.info(f"current_local_bsz is {current_local_bsz} local_bsz_bounds ({low}, {high})")
+                    assert current_local_bsz <= high
+                    new_high = int((1. - GPU_MEM_CUTOFF_PCT) * current_local_bsz)
+                    dataloader.local_bsz_bounds = [low, new_high]
+                    LOG.info(
+                        f"Local batch size bounds changed to ({low}, {new_high})")
+                    if adaptdl.env.replica_rank() == 0:
+                        _report_sched_hints()
+                    adaptdl.checkpoint.save_all_states()
+                    exit(143)
+                else:
+                    raise e
+    return inner
