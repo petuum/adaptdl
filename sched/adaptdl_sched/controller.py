@@ -114,8 +114,10 @@ class AdaptDLController(object):
         replicas = job["status"].get("replicas", 0)
         preemptible = job["spec"].get("preemptible", True)
         if (completion_status := self._detect_completion(pods, preemptible)):
-            # Job is already completed.
             job["status"].update(completion_status)
+        phase = job["status"]["phase"]
+        if phase in ("Succeeded", "Failed"):
+            # Job is already completed.
             job["status"].setdefault("completionTimestamp", current_ts)
             job["status"]["allocation"] = allocation = []
             await self._delete_pods(  # Keep failed pods for debug purposes.
@@ -284,14 +286,17 @@ class AdaptDLController(object):
                 # resources before this pod could bind to that node.
                 LOG.warning("UnexpectedAdmissionError for pod %s: %s",
                             pod.metadata.name, pod.status.message)
+                return {"phase": "Stopping"}
             elif str(pod.status.reason).startswith("Outof"):
                 # we might be temporarily out of pods on this node
                 LOG.warning(f"Pod {pod.metadata.name} is {pod.status.reason} "
                             f"on {pod.spec.node_name}")
+                return {"phase": "Stopping"}
             elif preemptible and (pod.metadata.deletion_timestamp is not None
                                   or any143(pod)):
                 # This pod was intentionally terminated.
                 LOG.warning(f"Pod {pod.metadata.name} terminated")
+                return {"phase": "Stopping"}
             else:
                 return {"phase": "Failed", "reason": "PodFailure",
                         "message": f"{pod.metadata.name} {pod.status.phase}"}
