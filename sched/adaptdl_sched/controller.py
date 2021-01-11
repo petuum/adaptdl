@@ -142,7 +142,7 @@ class AdaptDLController(object):
                             job["spec"]["template"], allocation,
                             job["status"]["group"], rank)
                 except kubernetes.client.rest.ApiException as e:
-                    LOG.info(f"Failed to create pod for {job_name}"
+                    LOG.info(f"Failed to create pod for {job_name}. "
                              "Setting job status to failed")
                     job["status"]["phase"] = "Failed"
                     job["status"]["reason"] = "PodCreationError"
