@@ -354,7 +354,7 @@ class AdaptiveDataLoaderHelper(object):
             AdaptiveDataLoaderHelper._current = self
             yield
         except GeneratorExit as e:
-            LOG.info(f"GeneratorExit")
+            # Generic Exception outside of the dataloader
             exception = True
         finally:
             if not exception:

@@ -31,6 +31,7 @@ from models import *
 
 import adaptdl
 import adaptdl.torch as adl
+from adaptdl.retry import retry
 
 from torch.optim.lr_scheduler import MultiStepLR
 from torch.utils.tensorboard import SummaryWriter
@@ -104,6 +105,7 @@ lr_scheduler = MultiStepLR(optimizer, [30, 45], 0.1)
 net = adl.AdaptiveDataParallel(net, optimizer, lr_scheduler)
 
 # Training
+@retry
 def train(epoch):
     print('\nEpoch: %d' % epoch)
     net.train()
