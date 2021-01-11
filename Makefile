@@ -15,7 +15,7 @@ NAMESPACE = $(or $(shell kubectl config view --minify -o 'jsonpath={..namespace}
 
 registry:
 	helm status adaptdl-registry || \
-	helm install adaptdl-registry center/stable/docker-registry \
+	helm install adaptdl-registry stable/docker-registry \
 		--set fullnameOverride=adaptdl-registry \
 		--set service.type=NodePort \
 		--set service.nodePort=$(REMOTE_PORT)
