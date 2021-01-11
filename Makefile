@@ -15,7 +15,7 @@ NAMESPACE = $(or $(shell kubectl config view --minify -o 'jsonpath={..namespace}
 
 registry:
 	helm status adaptdl-registry || \
-	helm install adaptdl-registry stable/docker-registry \
+	helm install adaptdl-registry center/stable/docker-registry \
 		--set fullnameOverride=adaptdl-registry \
 		--set service.type=NodePort \
 		--set service.nodePort=$(REMOTE_PORT)
@@ -39,7 +39,7 @@ deploy: push .values.yaml
 		--values .values.yaml
 
 delete:
-	helm delete $(RELEASE_NAME)
+	helm delete $(RELEASE_NAME) || \
 	helm delete adaptdl-registry
 
 config: .values.yaml
