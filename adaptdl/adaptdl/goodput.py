@@ -19,7 +19,6 @@ import collections
 import scipy.optimize
 import scipy.stats
 
-
 # Parameters for a performance model which predicts the per-step time of
 # distributed SGD using all-reduce. At a high level, models compute time and
 # network time separately, and combines them with some degree of overlap.
