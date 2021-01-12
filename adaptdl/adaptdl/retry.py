@@ -26,7 +26,9 @@ LOG = logging.getLogger(__name__)
 LOG.setLevel(logging.INFO)
 
 
-GPU_MEM_CUTOFF_PCT = 0.1
+# Percentage of current_local_bsz used to decide upper bound on
+# local_bsz_bounds after OOM
+LOCAL_BSZ_CUTOFF_PCT = 0.1
 
 
 def cudaoom(e):
@@ -47,7 +49,9 @@ def retry(func):
                 current_local_bsz = dataloader.current_local_bsz
                 low, high = dataloader.local_bsz_bounds
                 assert current_local_bsz <= high
-                new_high = int((1. - GPU_MEM_CUTOFF_PCT) * current_local_bsz)
+                new_high = int((1. - LOCAL_BSZ_CUTOFF_PCT) * current_local_bsz)
+                if new_high < low:
+                    raise e
                 dataloader.local_bsz_bounds = (low, new_high)
                 LOG.info(f"Local batch size bounds changed to "
                          f"{dataloader.local_bsz_bounds}")
