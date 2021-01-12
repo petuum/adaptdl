@@ -15,7 +15,6 @@
 
 import functools
 import logging
-import torch
 
 import adaptdl.checkpoint
 import adaptdl.env
@@ -28,6 +27,7 @@ LOG.setLevel(logging.INFO)
 
 
 GPU_MEM_CUTOFF_PCT = 0.1
+
 
 def cudaoom(e):
     return "CUDA out of memory" in str(e)
@@ -43,14 +43,14 @@ def retry(func):
             dataloader = current_dataloader()
             if (dataloader is not None and
                 dataloader.local_bsz_bounds is not None and
-                cudaoom(e)):
+                    cudaoom(e)):
                 current_local_bsz = dataloader.current_local_bsz
                 low, high = dataloader.local_bsz_bounds
                 assert current_local_bsz <= high
                 new_high = int((1. - GPU_MEM_CUTOFF_PCT) * current_local_bsz)
                 dataloader.local_bsz_bounds = (low, new_high)
-                LOG.info(
-                    f"Local batch size bounds changed to {dataloader.local_bsz_bounds}")
+                LOG.info(f"Local batch size bounds changed to "
+                         f"{dataloader.local_bsz_bounds}")
                 if adaptdl.env.replica_rank() == 0:
                     _report_sched_hints()
                 adaptdl.checkpoint.save_all_states()

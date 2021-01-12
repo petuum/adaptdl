@@ -271,7 +271,6 @@ class AdaptiveDataLoaderHelper(object):
         self._gradient_accumulation = gradient_accumulation
         self.train()
 
-
     def _sync_local_bsz(self):
         goodput_fn = get_goodput_fn()
         if self.max_batch_size is None or goodput_fn is None:
@@ -353,7 +352,7 @@ class AdaptiveDataLoaderHelper(object):
                                     iterations detected")
             AdaptiveDataLoaderHelper._current = self
             yield
-        except GeneratorExit as e:
+        except GeneratorExit:
             # Generic Exception outside of the dataloader
             exception = True
         finally:
@@ -581,7 +580,7 @@ class _AdaptiveDataLoaderState(adaptdl.checkpoint.State):
 
     def save(self, fileobj):
         pickle.dump((self.current_index, self.end_index,
-            self.last_position, self.local_bsz_bounds), fileobj)
+                    self.last_position, self.local_bsz_bounds), fileobj)
 
     def load(self, fileobj):
         self.current_index, self.end_index, self.last_position, \
