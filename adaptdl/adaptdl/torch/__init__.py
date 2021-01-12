@@ -64,9 +64,9 @@ def init_process_group(backend):
         trainer_version = pkg_resources.get_distribution("adaptdl").version
         if version_check(sched_version, lib="sched") and \
                 version_check(trainer_version, lib="trainer"):
-            trainer_version_maj = semver.VersionInfo.parse(trainer_version).major
-            sched_version_maj = semver.VersionInfo.parse(sched_version).major
-            if trainer_version_maj != sched_version_maj:
+            trainer_ver_maj = semver.VersionInfo.parse(trainer_version).major
+            sched_ver_maj = semver.VersionInfo.parse(sched_version).major
+            if trainer_ver_maj != sched_ver_maj:
                 raise Exception('The adaptdl version between trainer \
                     and scheduler should be compatible')
     else:
