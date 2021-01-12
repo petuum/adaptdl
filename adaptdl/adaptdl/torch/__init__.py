@@ -29,7 +29,7 @@ import pkg_resources
 
 import adaptdl.collective
 import adaptdl.env
-import re
+import semver
 from .epoch import current_epoch, finished_epochs, remaining_epochs_until
 from .data import current_dataloader, AdaptiveDataLoader, ElasticSampler
 from .parallel import AdaptiveDataParallel
@@ -41,7 +41,7 @@ LOG.setLevel(logging.INFO)
 
 
 def version_check(version, lib):
-    if re.match("[0-9].[0-9].[0-9]", version) and \
+    if semver.VersionInfo.isvalid(version) and \
             version != "0.0.0":
         return True
     else:
@@ -64,9 +64,11 @@ def init_process_group(backend):
         trainer_version = pkg_resources.get_distribution("adaptdl").version
         if version_check(sched_version, lib="sched") and \
                 version_check(trainer_version, lib="trainer"):
-            if trainer_version != sched_version:
+            trainer_version_maj = semver.VersionInfo.parse(trainer_version).major
+            sched_version_maj = semver.VersionInfo.parse(sched_version).major
+            if trainer_version_maj != sched_version_maj:
                 raise Exception('The adaptdl version between trainer \
-                    and scheduler should be same')
+                    and scheduler should be compatible')
     else:
         master_addr = adaptdl.env.master_addr()
 
