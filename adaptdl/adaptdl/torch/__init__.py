@@ -68,7 +68,7 @@ def init_process_group(backend):
             sched_ver_maj = semver.VersionInfo.parse(sched_version).major
             if trainer_ver_maj != sched_ver_maj:
                 raise Exception('The adaptdl version between trainer'
-                    ' and scheduler should be compatible')
+                        ' and scheduler should be compatible')
     else:
         master_addr = adaptdl.env.master_addr()
 
