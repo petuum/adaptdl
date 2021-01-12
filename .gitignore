@@ -109,3 +109,6 @@ venv.bak/
 # Vim
 .*.swp
 tags
+
+# VS Code
+.vscode/

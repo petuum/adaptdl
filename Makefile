@@ -39,7 +39,7 @@ deploy: push .values.yaml
 		--values .values.yaml
 
 delete:
-	helm delete $(RELEASE_NAME)
+	helm delete $(RELEASE_NAME) || \
 	helm delete adaptdl-registry
 
 config: .values.yaml
