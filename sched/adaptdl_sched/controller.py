@@ -392,7 +392,7 @@ class AdaptDLController(object):
                 "value": config.get_supervisor_url(),
             })
             container["env"].append({
-                "name": "ADAPTDL_VERSION",
+                "name": "ADAPTDL_SCHED_VERSION",
                 "value": config.get_adaptdl_version(),
             })
             resources = container.get("resources", {})

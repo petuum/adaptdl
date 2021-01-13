@@ -60,7 +60,7 @@ def init_process_group(backend):
                 break
         response.raise_for_status()
         master_addr = response.json()[0]
-        sched_version = os.environ.get("ADAPTDL_VERSION")
+        sched_version = os.environ.get("ADAPTDL_SCHED_VERSION")
         trainer_version = pkg_resources.get_distribution("adaptdl").version
         if version_check(sched_version, lib="sched") and \
                 version_check(trainer_version, lib="trainer"):

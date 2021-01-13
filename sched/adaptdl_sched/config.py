@@ -55,7 +55,7 @@ def get_storage_subpath():
 
 
 def get_adaptdl_version():
-    return os.environ["ADAPTDL_VERSION"]
+    return os.environ["ADAPTDL_SCHED_VERSION"]
 
 
 def get_job_default_resources():
