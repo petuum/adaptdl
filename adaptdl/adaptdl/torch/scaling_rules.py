@@ -125,6 +125,20 @@ class AdaScale(ScalingRuleBase):
         return (var + sqr) / (var / scale + sqr)
 
 
+class AdamScale(ScalingRuleBase):
+    """
+    Implements the variant of AdaScale_ that supports Adam, AdamW and RMSProp
+    """
+
+    def scale_lr(self, scale,  power=0.5):
+        """Calculate factors to be applied to lr for each parameter group."""
+        var = self.adp.gns.raw_var_avg
+        sqr = self.adp.gns.raw_sqr_avg
+        var = np.maximum(var, 1e-6)
+        sqr = np.maximum(sqr,  0.0)
+        return np.power((var + sqr) / (var / scale + sqr), power)
+
+
 class LinearScale(ScalingRuleBase):
 
     def scale_lr(self, scale):
