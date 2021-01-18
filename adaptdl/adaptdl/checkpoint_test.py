@@ -32,8 +32,7 @@ def test_duplicate():
 @elastic_multiprocessing
 def test_save_load():
     import pickle
-    from adaptdl.checkpoint import (State, save_all_states,
-                                    save_state, load_state)
+    from adaptdl.checkpoint import State, save_all_states, load_state
     from adaptdl.env import replica_rank, num_restarts
 
     class TestState(State):
@@ -56,33 +55,13 @@ def test_save_load():
     state_2 = TestState("state_2")
 
     if num_restarts() == 0:
-        # Save state with sync=True.
-        state_1.value = 1
-        save_state(state_1)
-        assert state_1.synced
-        return 2  # Restart with 2 replicas.
-    elif num_restarts() == 1:
-        load_state(state_1)
-        assert state_1.value == 1
-        # Save state with sync=False.
-        state_2.value = 2
-        save_state(state_2, sync=False)
-        assert not state_2.synced
-        return 2  # Restart with 2 replicas.
-    elif num_restarts() == 2:
-        load_state(state_1)
-        assert state_1.value == 1
-        load_state(state_2)
-        assert state_2.value == 2
-        return 2
-    elif num_restarts() == 3:
         # Save all state.
         state_1.value = 10
         state_2.value = 20
         save_all_states()
         assert state_1.synced and state_2.synced
         return 2  # Restart with 2 replicas.
-    elif num_restarts() == 4:
+    elif num_restarts() == 1:
         load_state(state_1)
         load_state(state_2)
         assert state_1.value == 10

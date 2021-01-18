@@ -107,3 +107,6 @@ library*. They can be used in two ways:
     (`Scheduler Installation <https://adaptdl.readthedocs.io/en/latest/installation/index.html>`_).
 2.  Adapting the batch size and learning rate for a single training job
     (`Standalone Training <https://adaptdl.readthedocs.io/en/latest/standalone-training.html>`_).
+
+.. image:: _static/img/Petuum.png
+  :align: center
