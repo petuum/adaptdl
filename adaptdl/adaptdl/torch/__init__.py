@@ -40,12 +40,11 @@ LOG = logging.getLogger(__name__)
 LOG.setLevel(logging.INFO)
 
 
-def version_check(version, lib):
+def version_check(version):
     if semver.VersionInfo.isvalid(version) and \
             version != "0.0.0":
         return True
     else:
-        LOG.info("adaptdl version of {} is a user version".format(lib))
         return False
 
 
@@ -60,15 +59,14 @@ def init_process_group(backend):
                 break
         response.raise_for_status()
         master_addr = response.json()[0]
-        sched_version = os.environ.get("ADAPTDL_SCHED_VERSION")
+        sched_version = adaptdl.env.adaptdl_sched_version()
         trainer_version = pkg_resources.get_distribution("adaptdl").version
-        if version_check(sched_version, lib="sched") and \
-                version_check(trainer_version, lib="trainer"):
+        if version_check(sched_version) and version_check(trainer_version):
             trainer_ver_maj = semver.VersionInfo.parse(trainer_version).major
             sched_ver_maj = semver.VersionInfo.parse(sched_version).major
             if trainer_ver_maj != sched_ver_maj:
-                raise Exception('The adaptdl version between trainer'
-                                ' and scheduler should be compatible')
+                raise Exception('adaptdl version {} is incompatible with scheduler'
+                                'version {}'.format(trainer_version, sched_version))
     else:
         master_addr = adaptdl.env.master_addr()
 

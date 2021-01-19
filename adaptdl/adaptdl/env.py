@@ -141,6 +141,17 @@ def num_restarts():
     return int(os.getenv("ADAPTDL_NUM_RESTARTS", "0"))
 
 
+def adaptdl_sched_version():
+    """
+    A string which gives the AdaptDL version of scheduler. Determined
+    by the environment variable ``ADAPTDL_SCHED_VERSION`` or ``None``
+
+    Returns:
+        str: AdaptDL version of scheduler, or ``None``.
+    """
+    return os.environ.get("ADAPTDL_SCHED_VERSION")
+
+
 def supervisor_url():
     """
     URL of the supervisor in an AdaptDL-scheduled cluster. The address of the
