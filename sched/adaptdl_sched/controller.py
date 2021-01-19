@@ -401,6 +401,10 @@ class AdaptDLController(object):
                 "name": "ADAPTDL_SUPERVISOR_URL",
                 "value": config.get_supervisor_url(),
             })
+            container["env"].append({
+                "name": "ADAPTDL_SCHED_VERSION",
+                "value": config.get_adaptdl_version(),
+            })
             resources = container.get("resources", {})
             if not resources.get("limits", {}).get("nvidia.com/gpu"):
                 # Apparently if a container doesn't ask for any nvidia.com/gpu,
