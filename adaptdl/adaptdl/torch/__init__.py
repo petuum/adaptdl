@@ -13,7 +13,6 @@
 # limitations under the License.
 
 
-import os
 import sys
 if "darwin" in sys.platform.lower():
     # To avoid multiple runs of the model code
@@ -65,8 +64,9 @@ def init_process_group(backend):
             trainer_ver_maj = semver.VersionInfo.parse(trainer_version).major
             sched_ver_maj = semver.VersionInfo.parse(sched_version).major
             if trainer_ver_maj != sched_ver_maj:
-                raise Exception('adaptdl version {} is incompatible with scheduler'
-                                'version {}'.format(trainer_version, sched_version))
+                raise Exception('adaptdl version {} is incompatible with' 
+                                'scheduler version {}'.format(trainer_version,
+                                sched_version))
     else:
         master_addr = adaptdl.env.master_addr()
 
