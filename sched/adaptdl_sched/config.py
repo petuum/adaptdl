@@ -54,6 +54,10 @@ def get_storage_subpath():
     return os.environ["ADAPTDL_STORAGE_SUBPATH"]
 
 
+def get_adaptdl_version():
+    return os.environ["ADAPTDL_SCHED_VERSION"]
+
+
 def get_job_default_resources():
     val = os.getenv("ADAPTDL_JOB_DEFAULT_RESOURCES")
     return json.loads(val) if val is not None else None
