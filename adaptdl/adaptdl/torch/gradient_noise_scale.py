@@ -32,7 +32,7 @@ def _normsqr_groups(grads, pinvs):
     ret = []
     for group, pinv_group in zip(grads, pinvs):
         normsqr = [(g / pinv).pow(2).sum(dtype=torch.float64)
-                    for g, pinv in zip(group, pinv_group) if g is not None]
+                   for g, pinv in zip(group, pinv_group) if g is not None]
         ret.append(sum(normsqr).item() if normsqr else 0.0)
     return np.array(ret)
 
@@ -305,6 +305,6 @@ class GradientNoiseScale(object):
         for idx, group in enumerate(self._optimizer.param_groups):
             pinvs = []
             for param in group["params"]:
-                pinv = self._calculate_adam_preconditioner(idx, param, is_adam)
+                pinv = self._calculate_preconditioner(idx, param, is_adam)
             out.append(pinvs)
         return out
