@@ -138,6 +138,27 @@ class AdamScale(ScalingRuleBase):
         sqr = np.maximum(sqr,  0.0)
         return np.power((var + sqr) / (var / scale + sqr), power)
 
+    def step(self, *args, **kwargs):
+        if not self.adp:
+            raise ValueError("AdaptiveDataParallel instance is not set!")
+        if not self.adp.require_backward_grad_sync:
+            return
+        scale = self.adp.gns.accum_scale * self.adp.gns.accum_count
+        if self.adp.gns._is_adam and \
+                np.isclose(scale, self.adp.gns._state["prev_scale"]):
+            self.adp.gns._reset_adam_state()
+            # reset Adam states when scale is changed
+            self.adp.gns._state["prev_scale"] = scale
+        initial_lr = [pg["lr"] for pg in self._optimizer.param_groups]
+        scaled_lr = np.multiply(self.scale_lr(scale), initial_lr)
+        for lr, pg in zip(scaled_lr, self._optimizer.param_groups):
+            pg["lr"] = lr
+        self._orig_optimizer_step(*args, **kwargs)
+        for lr, pg in zip(initial_lr, self._optimizer.param_groups):
+            pg["lr"] = lr
+        self.adp.gns.set_progress(self.adp.gns.get_progress()
+                                  + self.adp.gns.gain(scale))
+
 
 class LinearScale(ScalingRuleBase):
 

@@ -1,5 +1,6 @@
 import functools
 import logging
+import math
 import numpy as np
 import torch.distributed
 import torch.optim
@@ -27,11 +28,11 @@ def _average_groups(grads1, grads2):
     return ret
 
 
-def _normsqr_groups(grads):
+def _normsqr_groups(grads, pinvs):
     ret = []
-    for group in grads:
-        normsqr = [g.pow(2).sum(dtype=torch.float64)
-                   for g in group if g is not None]
+    for group, pinv_group in zip(grads, pinvs):
+        normsqr = [(g / pinv).pow(2).sum(dtype=torch.float64)
+                    for g, pinv in zip(group, pinv_group) if g is not None]
         ret.append(sum(normsqr).item() if normsqr else 0.0)
     return np.array(ret)
 
@@ -53,6 +54,9 @@ class GradientNoiseScale(object):
                               else torch.distributed.get_world_size())
         self._accum_scale = accum_scale or self._num_replicas
         self._prev_grads = None
+        self._is_adam = optimizer.__class__.__name__ in ['Adam', 'AdamW']
+        if self._is_adam:
+            self._adam_param_group = {'betas': [], 'eps': []}
 
         self.reset_accumulation()
 
@@ -67,6 +71,9 @@ class GradientNoiseScale(object):
         })
 
         for idx, param_group in enumerate(self._optimizer.param_groups):
+            if self._is_adam:
+                self._adam_param_group['beta'].append(param_group['betas'][1])
+                self._adam_param_group['eps'].append(param_group['eps'])
             for param in param_group["params"]:
                 param.register_hook(
                     functools.partial(self._backward_hook, idx, param))
@@ -169,8 +176,14 @@ class GradientNoiseScale(object):
             self._local_sqr = torch.zeros(len(self._optimizer.param_groups),
                                           device=grad.device,
                                           dtype=torch.float64)
+
+        # Get the preconditioning matrix for the optimizer
+        preconditioner = self._calculate_adam_preconditioner(idx, param,
+                                                             self._is_adam)
+
         # Update the local gradient square sum
-        self._local_sqr[idx] += grad.detach().pow(2).sum(dtype=torch.float64)
+        self._local_sqr[idx] += \
+            (grad.detach() / preconditioner).pow(2).sum(dtype=torch.float64)
         if not self._callback_queued:
             Variable._execution_engine.queue_callback(self._queue_callback)
         self._callback_queued = True
@@ -218,11 +231,13 @@ class GradientNoiseScale(object):
                 grad = param.grad.detach().float()
                 grads[-1].append(
                     grad / mixed_precision_scale / self._accum_count)
+        precondtioner = self._get_preconditioner(self._is_adam)
+
         # Note: mixed precision can result in nan/inf gradients,
         # which propogate into our norm and variance estimates.
         # Mixed precision autoscaling skips the skip where
         # there are nan/inf, so we also skip the update here
-        grads_normsqr = _normsqr_groups(grads)
+        grads_normsqr = _normsqr_groups(grads, precondtioner)
         if not np.all(np.isfinite(grads_normsqr)):
             LOG.warning("GradientNoiseScale detected invalid gradient! "
                         "Skipping step.")
@@ -244,10 +259,10 @@ class GradientNoiseScale(object):
         else:
             # Single gradient datapoint, use difference estimation.
             if self._prev_grads is not None:
-                local_sqr = (_normsqr_groups(self._prev_grads) +
+                local_sqr = (_normsqr_groups(self._prev_grads, precondtioner) +
                              grads_normsqr) / 2
                 avg_grads = _average_groups(grads, self._prev_grads)
-                total_sqr = _normsqr_groups(avg_grads)
+                total_sqr = _normsqr_groups(avg_grads, precondtioner)
                 count = 2
                 scale = 2 * self._accum_scale
             self._state["biased"] = True
@@ -259,3 +274,37 @@ class GradientNoiseScale(object):
             theta = self._smoothing ** scale
             self._update_avg('sqr_avg', grad_sqr, theta)
             self._update_avg('var_avg', grad_var, theta)
+
+    def _reset_adam_state(self, step=0):
+        for group in self._optimizer.param_groups:
+            beta1, beta2 = group["betas"]
+            for param in group["params"]:
+                state = self._optimizer.state[param]
+                if state.get("step", 0) > 0:
+                    state["exp_avg"].mul_(
+                        (1 - beta1 ** step) / (1 - beta1 ** state["step"]))
+                    state["exp_avg_sq"].mul_(
+                        (1 - beta2 ** step) / (1 - beta2 ** state["step"]))
+                    state["step"] = step
+
+    def _calculate_preconditioner(self, idx, param, is_adam=False):
+        if is_adam:
+            state = self._optimizer.state[param]
+        if not is_adam or (is_adam and state['step']) < 5:
+            return torch.ones_like(param, memory_format=torch.preserve_format)
+
+        exp_avg_sq = state["exp_avg_sq"].clone() # not sure if clone is needed
+        beta2 = self._adam_param_group['beta'][idx]
+        eps = self._adam_param_group['eps'][idx]
+        correction = 1 - beta2 ** state['step']
+        pinv = (exp_avg_sq.sqrt() / math.sqrt(correction)).add_(eps)
+        return pinv
+
+    def _get_preconditioner(self, is_adam=False):
+        out = []
+        for idx, group in enumerate(self._optimizer.param_groups):
+            pinvs = []
+            for param in group["params"]:
+                pinv = self._calculate_adam_preconditioner(idx, param, is_adam)
+            out.append(pinvs)
+        return out
