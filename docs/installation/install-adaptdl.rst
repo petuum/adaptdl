@@ -8,7 +8,7 @@ or to :doc:`provision an auto-scaling cluster on EKS<deploy-eks>`.
 
 .. note::
 
-   The following instructions assume ``kubectl`` and ``helm`` are installed
+   The following instructions assume ``kubectl`` (`installation instructions <https://kubernetes.io/docs/tasks/tools/install-kubectl/>`_) and ``helm`` (`installation instructions <https://helm.sh/docs/intro/install/>`_) are installed
    locally and configured with administrator access to an existing Kubernetes
    instance.
 
