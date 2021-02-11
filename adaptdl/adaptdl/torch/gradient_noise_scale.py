@@ -56,7 +56,7 @@ class GradientNoiseScale(object):
         self._prev_grads = None
         self._is_adam = optimizer.__class__.__name__ in ['Adam', 'AdamW']
         if self._is_adam:
-            self._adam_param_group = {'betas': [], 'eps': []}
+            self._adam_param_group = {'beta': [], 'eps': []}
 
         self.reset_accumulation()
 
@@ -178,8 +178,8 @@ class GradientNoiseScale(object):
                                           dtype=torch.float64)
 
         # Get the preconditioning matrix for the optimizer
-        preconditioner = self._calculate_adam_preconditioner(idx, param,
-                                                             self._is_adam)
+        preconditioner = self._calculate_preconditioner(idx, param,
+                                                        self._is_adam)
 
         # Update the local gradient square sum
         self._local_sqr[idx] += \
@@ -288,23 +288,26 @@ class GradientNoiseScale(object):
                     state["step"] = step
 
     def _calculate_preconditioner(self, idx, param, is_adam=False):
-        if is_adam:
-            state = self._optimizer.state[param]
-        if not is_adam or (is_adam and state['step']) < 5:
+        if not is_adam:
             return torch.ones_like(param, memory_format=torch.preserve_format)
 
-        exp_avg_sq = state["exp_avg_sq"].clone() # not sure if clone is needed
+        state = self._optimizer.state[param]
+        if state.get('step', 0) < 5:
+            return torch.ones_like(param, memory_format=torch.preserve_format)
+
+        exp_avg_sq = state["exp_avg_sq"].clone()  # not sure if clone is needed
         beta2 = self._adam_param_group['beta'][idx]
         eps = self._adam_param_group['eps'][idx]
         correction = 1 - beta2 ** state['step']
         pinv = (exp_avg_sq.sqrt() / math.sqrt(correction)).add_(eps)
         return pinv
 
-    def _get_preconditioner(self, is_adam=False):
+    def _get_preconditioner(self, is_adam):
         out = []
         for idx, group in enumerate(self._optimizer.param_groups):
             pinvs = []
             for param in group["params"]:
                 pinv = self._calculate_preconditioner(idx, param, is_adam)
+                pinvs.append(pinv)
             out.append(pinvs)
         return out

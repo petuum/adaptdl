@@ -145,7 +145,7 @@ class AdamScale(ScalingRuleBase):
             return
         scale = self.adp.gns.accum_scale * self.adp.gns.accum_count
         if self.adp.gns._is_adam and \
-                np.isclose(scale, self.adp.gns._state["prev_scale"]):
+                not np.isclose(scale, self.adp.gns._state["prev_scale"]):
             self.adp.gns._reset_adam_state()
             # reset Adam states when scale is changed
             self.adp.gns._state["prev_scale"] = scale
