@@ -41,8 +41,8 @@ the AdaptDL scheduler:
 .. code-block:: shell
 
    $ sudo microk8s enable helm
-   $ sudo microk8s helm init
-
+   $ sudo microk8s helm init --stable-repo-url=https://charts.helm.sh/stable
+   $ sudo helm repo add stable https://charts.helm.sh/stable
 
 Interacting with MicroK8s
 -------------------------
