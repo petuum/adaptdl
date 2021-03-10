@@ -22,7 +22,7 @@ Introduction
 .. include-start-after
 
 AdaptDL is a *resource-adaptive* deep learning (DL) training and scheduling
-framework, and is part of the `CASL opens source project
+framework, and is part of the `CASL open source project
 <https://www.casl-project.ai>`_. The goal of AdaptDL is to make distributed DL
 easy and efficient in dynamic-resource environments such as shared clusters and
 the cloud.
