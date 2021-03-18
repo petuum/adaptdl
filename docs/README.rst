@@ -32,8 +32,8 @@ from one another:
 
 * **AdaptDL-Sched:** A cluster scheduler on Kubernetes optimized for distributed
   deep learning training.
-* **AdaptDL-Train:** A library for adaptive batch sizes that can efficiently
-  scale distributed training to many nodes.
+* **AdaptDL:** A library for adaptive batch sizes that can efficiently scale
+  distributed training to many nodes.
 
 Some core features offered by AdaptDL are:
 
