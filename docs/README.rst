@@ -30,10 +30,10 @@ the cloud.
 AdaptDL consists of two components which can be used together with or separately
 from one another:
 
-* **AdaptDL-Sched:** A cluster manager built on Kubernetes which is optimized for
-  distributed deep learning training workloads.
-* **AdaptDL-Train:** A Python library for adaptive batch sizes that lets you scale
-  data-parallel training to many nodes or GPUs.
+* **AdaptDL-Sched:** A cluster scheduler on Kubernetes optimized for distributed
+  deep learning training.
+* **AdaptDL-Train:** A library for adaptive batch sizes that can efficiently
+  scale distributed training to many nodes.
 
 Some core features offered by AdaptDL are:
 
