@@ -27,6 +27,14 @@ framework, and is part of the `CASL open source project
 easy and efficient in dynamic-resource environments such as shared clusters and
 the cloud.
 
+AdaptDL consists of two components which can be used together with or separately
+from one another:
+
+* **AdaptDL-Sched:** A cluster manager built on Kubernetes which is optimized for
+  distributed deep learning training workloads.
+* **AdaptDL-Train:** A Python library for adaptive batch sizes that lets you scale
+  data-parallel training to many nodes or GPUs.
+
 Some core features offered by AdaptDL are:
 
 *  Elastically schedule distributed DL training jobs in shared clusters.
