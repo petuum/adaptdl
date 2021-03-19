@@ -1,0 +1,28 @@
+apiVersion: adaptdl.petuum.com/v1
+kind: AdaptDLJob
+metadata:
+  generateName: integration-
+spec:
+  minReplicas: 2
+  template:
+    spec:
+      containers:
+      - name: main
+        command:
+        - python3
+        - /root/autodist/examples/benchmark/bert_with_adaptdl.py 
+        - -input_files=/root/tf_examples.tfrecord 
+        - --bert_config_file=/root/bert_config.json 
+        - --num_train_epochs=1 
+        - --num_steps_per_epoch=1000
+        - --learning_rate=5e-5 
+        - --steps_per_loop=1 
+        - --autodist_strategy=PS
+        env:
+        - name: ADAPTDL
+          value: "true"
+        resources:
+          limits:
+            nvidia.com/gpu: 1
+
+
