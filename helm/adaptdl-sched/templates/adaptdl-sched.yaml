@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-adaptdl-sched
+  labels:
+    app: adaptdl-sched
+    release: {{ .Release.Name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: adaptdl-sched
+      release: {{ .Release.Name }}
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: adaptdl-sched
+        release: {{ .Release.Name }}
+    spec:
+      shareProcessNamespace: true
+      serviceAccountName: adaptdl
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: main
+        image: {{ .Values.image.repository }}{{ empty .Values.image.digest | ternary ":" "@" }}{{ coalesce .Values.image.digest .Values.image.tag .Chart.AppVersion }}
+        args: ["python", "-m", "adaptdl_sched"]
+        envFrom:
+        - configMapRef:
+            name: adaptdl-config
+        ports:
+        - name: metrics
+          containerPort: 9091
+          protocol: TCP
+        imagePullPolicy: Always
+      - name: allocator
+        image: {{ .Values.image.repository }}{{ empty .Values.image.digest | ternary ":" "@" }}{{ coalesce .Values.image.digest .Values.image.tag .Chart.AppVersion }}
+        args: ["python", "-m", "adaptdl_sched.allocator"]
+        envFrom:
+        - configMapRef:
+            name: adaptdl-config
+        imagePullPolicy: Always
+        resources:
+{{ toYaml .Values.sched.resources | indent 10 }}
+      - name: supervisor
+        image: {{ .Values.image.repository }}{{ empty .Values.image.digest | ternary ":" "@" }}{{ coalesce .Values.image.digest .Values.image.tag .Chart.AppVersion }}
+        args: ["python", "-m", "adaptdl_sched.supervisor"]
+        envFrom:
+        - configMapRef:
+            name: adaptdl-config
+        ports:
+        - name: supervisor
+          containerPort: {{ .Values.supervisor.service.targetPort }}
+          protocol: TCP
+        imagePullPolicy: Always
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{ toYaml . | indent 8 }}
+      {{- end -}}

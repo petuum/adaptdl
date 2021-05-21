@@ -1,0 +1,41 @@
+apiVersion: adaptdl.petuum.com/v1
+kind: AdaptDLJob
+metadata:
+  generateName: imagenet-
+spec:
+  template:
+    spec:
+      containers:
+      - name: main
+        command:
+        - python3
+        - /root/imagenet/main.py
+        - --arch=resnet50
+        - --batch-size=200
+        - --lr=0.08
+        - --epochs=90
+        - --autoscale-bsz
+        - /mnt/imagenet
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "true"
+        resources:
+          limits:
+            nvidia.com/gpu: 1
+            cpu: 10
+            memory: "40G"
+          requests:
+            nvidia.com/gpu: 1
+            cpu: 10
+            memory: "40G"
+        volumeMounts:
+        - name: data
+          mountPath: /mnt
+          readOnly: true
+      volumes:
+      - name: data
+        hostPath:
+          path: /mnt
+          type: Directory
+      imagePullSecrets:
+      - name: regcred

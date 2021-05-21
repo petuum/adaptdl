@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: datasets
+spec:
+  selector:
+    matchLabels:
+      name: datasets
+  template:
+    metadata:
+      labels:
+        name: datasets
+    spec:
+      initContainers:
+      - name: ncf
+        image: registry.petuum.com/dev/esper-datasets:latest
+        command: ["bash", "-c"]
+        args: ["aws s3 cp s3://symphony-datasets/ncf.tar.gz - | tar -I pigz -xf -"]
+        workingDir: /mnt
+        volumeMounts:
+        - name: cred
+          mountPath: /root/.aws
+        - name: data
+          mountPath: /mnt
+      - name: cifar10
+        image: registry.petuum.com/dev/esper-datasets:latest
+        command: ["bash", "-c"]
+        args: ["aws s3 cp s3://symphony-datasets/cifar-10-python.tar.gz - | tar -I pigz -xf -"]
+        workingDir: /mnt
+        volumeMounts:
+        - name: cred
+          mountPath: /root/.aws
+        - name: data
+          mountPath: /mnt
+      - name: squad
+        image: registry.petuum.com/dev/esper-datasets:latest
+        command: ["bash", "-c"]
+        args: ["aws s3 cp s3://symphony-datasets/squad.tar.gz - | tar -I pigz -xf -"]
+        workingDir: /mnt
+        volumeMounts:
+        - name: cred
+          mountPath: /root/.aws
+        - name: data
+          mountPath: /mnt
+      - name: yolov3
+        image: registry.petuum.com/dev/esper-datasets:latest
+        command: ["bash", "-c"]
+        args: ["aws s3 cp s3://symphony-datasets/VOC.tar.gz - | tar -I pigz -xf -"]
+        workingDir: /mnt
+        volumeMounts:
+        - name: cred
+          mountPath: /root/.aws
+        - name: data
+          mountPath: /mnt
+      - name: voxforge
+        image: registry.petuum.com/dev/esper-datasets:latest
+        command: ["bash", "-c"]
+        args: ["aws s3 cp s3://symphony-datasets/deepspeech2_data.tar.gz - | tar -I pigz -xf -"]
+        workingDir: /mnt
+        volumeMounts:
+        - name: cred
+          mountPath: /root/.aws
+        - name: data
+          mountPath: /mnt
+      - name: imagenet
+        image: registry.petuum.com/dev/esper-datasets:latest
+        command: ["bash", "-c"]
+        args: ["aws s3 cp s3://symphony-datasets/imagenet_raw/imagenet.tar.gz - | tar -I pigz -xf -"]
+        workingDir: /mnt
+        volumeMounts:
+        - name: cred
+          mountPath: /root/.aws
+        - name: data
+          mountPath: /mnt
+      containers:
+      - name: sleep
+        image: busybox
+        command: ["sleep", "1000000000"]
+      volumes:
+      - name: cred
+        hostPath:
+          path: /home/ubuntu/.aws
+          type: Directory
+      - name: data
+        hostPath:
+          path: /mnt
+          type: Directory
+      imagePullSecrets:
+      - name: regcred

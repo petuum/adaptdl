@@ -1,0 +1,29 @@
+# The following ClusterRoleBinding, ServiceAccount, and ClusterRole
+# enable the permissions for the adaptdl-scheduler to manage
+# adaptdl in other contexts. In particular, they allow for:
+#
+# creation, get of cronjobs, jobs (for garbage collection)
+#
+# everything for adaptdljobs and contexts
+#
+# list, patch for nodes
+#
+# get, list, watch, delete, create for pods, podtemplates,
+#                                      services, pvcs
+#       (the latter two for tensorboard/adaptdlpods and pvcs on a new namespace)
+#
+# create, get of deployments (for tensorboard)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adaptdl
+subjects:
+- kind: ServiceAccount
+  namespace: {{.Release.Namespace}}
+  name: adaptdl
+  apiGroup: ""
+roleRef:
+  kind: ClusterRole
+  name: adaptdl
+  apiGroup: rbac.authorization.k8s.io
+

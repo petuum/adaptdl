@@ -1,0 +1,5 @@
+numpy~=1.19.2
+pandas~=1.1.2
+pymoo~=0.4.2.1
+scipy~=1.5.2
+seaborn~=0.11.0

@@ -1,0 +1,4 @@
+kubernetes>=9.0.0
+python-dateutil>=2.7.3
+mitmproxy>=5.2
+portpicker>=1.3
