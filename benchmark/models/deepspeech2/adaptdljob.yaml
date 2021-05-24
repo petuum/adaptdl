@@ -3,7 +3,6 @@ kind: AdaptDLJob
 metadata:
   generateName: deepspeech2-
 spec:
-  preemptible: false
   template:
     spec:
       containers:

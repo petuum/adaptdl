@@ -118,7 +118,7 @@ def main_worker(args):
             train(train_loader, model, criterion, optimizer, epoch, args, writer)
 
             # evaluate on validation set
-            # acc1 = validate(val_loader, model, criterion, epoch, args, writer)
+            acc1 = validate(val_loader, model, criterion, epoch, args, writer)
 
 
 def train(train_loader, model, criterion, optimizer, epoch, args, writer):

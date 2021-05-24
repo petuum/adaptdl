@@ -9,8 +9,8 @@ spec:
     command: ["sleep", "1000000000"]
     volumeMounts:
     - name: pollux
-      mountPath: /pollux/checkpoint
-      subPath: pollux/checkpoint/
+      mountPath: /pollux
+      subPath: pollux
   volumes:
   - name: pollux
     persistentVolumeClaim:

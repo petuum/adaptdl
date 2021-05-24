@@ -93,13 +93,13 @@ if __name__ == "__main__":
         job = copy.deepcopy(templates[row.application])
         job["metadata"].pop("generateName")
         job["metadata"]["name"] = row.name
-        job["spec"].update({
-            "application": row.application,
-            "targetNumReplicas": row.num_replicas,
-            "targetBatchSize": row.batch_size,
-        })
-        if row.num_replicas:
-            job["spec"]["minReplicas"] = job["spec"]["maxReplicas"] = row.num_replicas
+#        job["spec"].update({
+#            "application": row.application,
+#            "targetNumReplicas": row.num_replicas,
+#            "targetBatchSize": row.batch_size,
+#        })
+#        if row.num_replicas:
+#            job["spec"]["minReplicas"] = job["spec"]["maxReplicas"] = row.num_replicas
         volumes = job["spec"]["template"]["spec"].setdefault("volumes", [])
         volumes.append({
             "name": "pollux",
@@ -119,9 +119,9 @@ if __name__ == "__main__":
         env = job["spec"]["template"]["spec"]["containers"][0].setdefault("env", [])
         env.append({"name": "ADAPTDL_CHECKPOINT_PATH", "value": "/pollux/checkpoint"})
         env.append({"name": "ADAPTDL_TENSORBOARD_LOGDIR", "value": "/pollux/tensorboard"})
-        env.append({"name": "APPLICATION", "value": row.application})
-        env.append({"name": "TARGET_NUM_REPLICAS", "value": str(row.num_replicas)})
-        env.append({"name": "TARGET_BATCH_SIZE", "value": str(row.batch_size)})
-        env.append({"name": "TRACE_EFFICIENCY", "value": "true"})
+        #env.append({"name": "APPLICATION", "value": row.application})
+        #env.append({"name": "TARGET_NUM_REPLICAS", "value": str(row.num_replicas)})
+        #env.append({"name": "TARGET_BATCH_SIZE", "value": str(row.batch_size)})
+        #env.append({"name": "TRACE_EFFICIENCY", "value": "true"})
         print(yaml.dump(job))
         objs_api.create_namespaced_custom_object(*obj_args, job)
