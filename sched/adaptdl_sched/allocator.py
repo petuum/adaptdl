@@ -22,7 +22,10 @@ from datetime import datetime, timezone
 
 from adaptdl.goodput import GoodputFunction, PerfParams, GradParams
 from adaptdl.sched_hints import PERF_PARAMS
+from adaptdl_sched.policy.applications import APPLICATIONS
+from adaptdl_sched.policy.optimus import OptimusPolicy
 from adaptdl_sched.policy.pollux import PolluxPolicy
+from adaptdl_sched.policy.tiresias import TiresiasPolicy
 from adaptdl_sched.policy.speedup import SpeedupFunction
 from adaptdl_sched.policy.utils import JobInfo, NodeInfo
 from adaptdl_sched.resources import (get_node_unrequested, get_pod_requests,
@@ -35,12 +38,21 @@ LOG = logging.getLogger(__name__)
 LOG.setLevel(logging.INFO)
 
 
+POLICY = "pollux"
+assert POLICY in ["optimus", "pollux", "tiresias"]
+
+
 class AdaptDLAllocator(object):
     def __init__(self, expander):
         self._core_api = kubernetes.client.CoreV1Api()
         self._objs_api = kubernetes.client.CustomObjectsApi()
         self._cluster_expander = expander
-        self._policy = PolluxPolicy()
+        if POLICY == "pollux":
+            self._policy = PolluxPolicy()
+        elif POLICY == "optimus":
+            self._policy = OptimusPolicy()
+        elif POLICY == "tiresias":
+            self._policy = TiresiasPolicy(time.time)
 
     async def run(self):
         while True:
@@ -168,8 +180,18 @@ class AdaptDLAllocator(object):
             job_info = JobInfo(resources, speedup_fn, creation_ts,
                                min_replicas, max_replicas, preemptible)
             job_info.attained_service = attained_service
+            job_info.epoch = job.get("status", {}).get("train", {}).get("epoch", 0)
+            job_info.application = APPLICATIONS[job["spec"]["application"]]
+            job_info.target_num_replicas = int(job["spec"]["targetNumReplicas"])
+            job_info.target_batch_size = int(job["spec"]["targetBatchSize"])
             job_info.num_restarts = job.get("status", {}).get("group") or 0
             job_info.age = (current_ts - creation_ts).total_seconds()
+            if POLICY == "optimus":
+                job_info.max_replicas = int(job_info.target_batch_size / job_info.application.min_local_bsz)
+                if job["spec"].get("maxReplicas"):
+                    job_info.max_replicas = min(job_info.max_replicas, job["spec"]["maxReplicas"])
+            elif POLICY == "tiresias":
+                job_info.max_replicas = job_info.target_num_replicas
             job_infos[(namespace, name)] = job_info
         return job_infos, allocations
 

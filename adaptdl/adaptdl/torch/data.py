@@ -282,9 +282,7 @@ class AdaptiveDataLoaderHelper(object):
             self._state.current_local_bsz = math.ceil(
                 self.batch_size / adaptdl.env.num_replicas())
             self._state.accumulation_steps = 0
-        elif not self._state.current_local_bsz or \
-                (self._state.current_local_bsz * adaptdl.env.num_replicas()
-                 * (self._state.accumulation_steps + 1) < self.batch_size):
+        elif not self._state.current_local_bsz:
             # if init, use the batch size suggested
             _, atomic_bsz, accum_steps = goodput_fn.optimize(
                 adaptdl.env.num_nodes(), adaptdl.env.num_replicas(),
@@ -337,7 +335,7 @@ class AdaptiveDataLoaderHelper(object):
         yield
         # Don't profile the first batch since it may be slower.
         if self.training and self.current_index > self.current_batch_size and record:
-            profile_step_commit(not self.is_sync_step())
+            profile_step_commit(current_epoch(), self.current_batch_size, not self.is_sync_step())
         self._accum_count = 0 if self.is_sync_step() else self._accum_count + 1
 
     @contextmanager
@@ -610,10 +608,8 @@ class _AdaptiveDataLoaderState(adaptdl.checkpoint.State):
 
     def save(self, fileobj):
         pickle.dump((self.current_index, self.end_index,
-                     self.last_position, self.current_local_bsz,
-                     self.accumulation_steps), fileobj)
+                     self.last_position), fileobj)
 
     def load(self, fileobj):
-        self.current_index, self.end_index, self.last_position, \
-           self.current_local_bsz, self.accumulation_steps = \
+        self.current_index, self.end_index, self.last_position = \
            pickle.load(fileobj)

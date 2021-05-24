@@ -118,7 +118,7 @@ def main_worker(args):
             train(train_loader, model, criterion, optimizer, epoch, args, writer)
 
             # evaluate on validation set
-            acc1 = validate(val_loader, model, criterion, epoch, args, writer)
+            # acc1 = validate(val_loader, model, criterion, epoch, args, writer)
 
 
 def train(train_loader, model, criterion, optimizer, epoch, args, writer):
@@ -159,7 +159,8 @@ def train(train_loader, model, criterion, optimizer, epoch, args, writer):
         stats["total5"] += total5
 
         # compute gradient and do SGD step
-        with amp.scale_loss(loss, optimizer) as scaled_loss:
+        delay_unscale = not train_loader._elastic.is_sync_step()
+        with amp.scale_loss(loss, optimizer, delay_unscale=delay_unscale) as scaled_loss:
             model.adascale.loss_scale = _amp_state.loss_scalers[0].loss_scale()
             scaled_loss.backward()
         model.adascale.step()
@@ -299,7 +300,7 @@ def accuracy(output, target, topk=(1,)):
 
         res = []
         for k in topk:
-            correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
+            correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
             res.append((correct_k * 100.0 / batch_size, correct_k.item(), batch_size))
         return res
 

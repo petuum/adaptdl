@@ -148,16 +148,16 @@ with SummaryWriter(os.getenv("ADAPTDL_TENSORBOARD_LOGDIR", "/tmp")) as writer:
             report_train_metrics(epoch, stats["loss_avg"])
             print("Train:", stats)
 
-        model.eval()
-        HR, NDCG = evaluate.metrics(model, test_loader, args.top_k)
+        #model.eval()
+        #HR, NDCG = evaluate.metrics(model, test_loader, args.top_k)
 
-        writer.add_scalar("HR/Valid", HR, epoch)
-        writer.add_scalar("NDCG/Valid", NDCG, epoch)
-        report_valid_metrics(epoch, 0., hr=HR, ndcg=NDCG)
+        #writer.add_scalar("HR/Valid", HR, epoch)
+        #writer.add_scalar("NDCG/Valid", NDCG, epoch)
+        #report_valid_metrics(epoch, 0., hr=HR, ndcg=NDCG)
 
         elapsed_time = time.time() - start_time
         print("\nThe time elapse of epoch {:03d}".format(epoch) + " is: " + 
               time.strftime("%H: %M: %S", time.gmtime(elapsed_time)))
-        print("HR: {:.3f}\tNDCG: {:.3f}".format(np.mean(HR), np.mean(NDCG)))
+        #print("HR: {:.3f}\tNDCG: {:.3f}".format(np.mean(HR), np.mean(NDCG)))
 
         scheduler.step()

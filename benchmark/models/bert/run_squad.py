@@ -33,6 +33,8 @@ from tqdm import tqdm, trange
 import adaptdl
 import adaptdl.torch
 import adaptdl.env
+import adaptdl.collective
+from adaptdl._signal import get_exit_flag
 from adaptdl.torch._metrics import get_progress, report_train_metrics, report_valid_metrics
 
 from transformers import (
@@ -95,7 +97,7 @@ def train(args, train_dataset, model, tokenizer):
 
     model = adaptdl.torch.AdaptiveDataParallel(model, optimizer)
     train_dataloader = adaptdl.torch.AdaptiveDataLoader(train_dataset, batch_size=args.train_batch_size, drop_last=True)
-    train_dataloader.autoscale_batch_size(512, local_bsz_bounds=(4, 12), gradient_accumulation=True)
+    train_dataloader.autoscale_batch_size(384, local_bsz_bounds=(4, 12), gradient_accumulation=True)
 
     # Train!
     logger.info("***** Running training *****")
@@ -111,6 +113,9 @@ def train(args, train_dataset, model, tokenizer):
     model.zero_grad()
     # Added here for reproductibility
     set_seed(args)
+
+    if adaptdl.collective.allreduce(get_exit_flag()):
+        exit(143)
 
     for epoch in adaptdl.torch.remaining_epochs_until(args.num_train_epochs):
         accum = adaptdl.torch.Accumulator()
@@ -174,10 +179,10 @@ def train(args, train_dataset, model, tokenizer):
             report_train_metrics(epoch, accum["loss_avg"])
             print("Train:", accum)
 
-        results = evaluate(args, model, tokenizer)
-        for key, value in results.items():
-            tb_writer.add_scalar("eval_{}".format(key), value, epoch)
-        report_valid_metrics(epoch, 0.0, f1=results["f1"])
+        #results = evaluate(args, model, tokenizer)
+        #for key, value in results.items():
+        #    tb_writer.add_scalar("eval_{}".format(key), value, epoch)
+        #report_valid_metrics(epoch, 0.0, f1=results["f1"])
 
     tb_writer.close()
 

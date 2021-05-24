@@ -47,7 +47,7 @@ transform_test = transforms.Compose([
 
 trainset = torchvision.datasets.CIFAR10(root="/mnt", train=True, download=True, transform=transform_train)
 trainloader = adaptdl.torch.AdaptiveDataLoader(trainset, batch_size=args.bs, shuffle=True, num_workers=2, drop_last=True)
-trainloader.autoscale_batch_size(8192, local_bsz_bounds=(32, 1024),
+trainloader.autoscale_batch_size(4096, local_bsz_bounds=(32, 1024),
                                  gradient_accumulation=True)
 
 validset = torchvision.datasets.CIFAR10(root="/mnt", train=False, download=False, transform=transform_test)
@@ -136,5 +136,5 @@ def valid(epoch):
 with SummaryWriter(os.getenv("ADAPTDL_TENSORBOARD_LOGDIR", "/tmp")) as writer:
     for epoch in adaptdl.torch.remaining_epochs_until(args.epochs):
         train(epoch)
-        valid(epoch)
+        #valid(epoch)
         lr_scheduler.step()

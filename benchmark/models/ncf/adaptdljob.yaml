@@ -3,6 +3,7 @@ kind: AdaptDLJob
 metadata:
   generateName: ncf-
 spec:
+  maxReplicas: 1
   template:
     spec:
       containers:
@@ -14,6 +15,8 @@ spec:
         env:
         - name: PYTHONUNBUFFERED
           value: "true"
+        - name: TARGET_BATCH_SIZE
+          value: "32768"
         resources:
           limits:
             nvidia.com/gpu: 1

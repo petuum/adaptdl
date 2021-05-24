@@ -5,6 +5,7 @@ metadata:
 spec:
   template:
     spec:
+      terminationGracePeriodSeconds: 60
       containers:
       - name: main
         command:
@@ -13,7 +14,6 @@ spec:
         - --model_type=bert
         - --model_name_or_path=bert-base-uncased
         - --do_train
-        - --do_eval
         - --do_lower_case
         - --train_file=/mnt/squad/train-v1.1.json
         - --predict_file=/mnt/squad/dev-v1.1.json

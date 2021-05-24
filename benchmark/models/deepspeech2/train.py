@@ -135,7 +135,7 @@ if __name__ == '__main__':
 
     train_loader = AudioDataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, drop_last=True,
                                    num_workers=args.num_workers)
-    train_loader.autoscale_batch_size(320, local_bsz_bounds=(10, 80), gradient_accumulation=True)
+    train_loader.autoscale_batch_size(640, local_bsz_bounds=(10, 80), gradient_accumulation=True)
     test_loader = AudioDataLoader(test_dataset, batch_size=args.batch_size,
                                   num_workers=args.num_workers)
 
@@ -194,15 +194,15 @@ if __name__ == '__main__':
                 print('Training Summary Epoch: [{0}]\t'
                       'Average Loss {loss:.3f}\t'.format(epoch + 1, loss=stats_train["train_loss_avg"]))
 
-            with torch.no_grad():
-                wer, cer, = evaluate(test_loader=test_loader,
-                                     device=device,
-                                     model=model,
-                                     decoder=decoder,
-                                     target_decoder=decoder)
-                print('Validation Summary Epoch: [{0}]\t'
-                      'Average WER {wer:.3f}\t'
-                      'Average CER {cer:.3f}\t'.format(epoch + 1, wer=wer, cer=cer))
+            #with torch.no_grad():
+            #    wer, cer, = evaluate(test_loader=test_loader,
+            #                         device=device,
+            #                         model=model,
+            #                         decoder=decoder,
+            #                         target_decoder=decoder)
+            #    print('Validation Summary Epoch: [{0}]\t'
+            #          'Average WER {wer:.3f}\t'
+            #          'Average CER {cer:.3f}\t'.format(epoch + 1, wer=wer, cer=cer))
 
             # anneal lr
             for g in optimizer.param_groups:

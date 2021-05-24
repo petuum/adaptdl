@@ -40,7 +40,7 @@ class Trainer(object):
                                                                  num_workers=cfg.TRAIN["NUMBER_WORKERS"],
                                                                  drop_last=True,
                                                                  shuffle=True)
-        self.train_dataloader.autoscale_batch_size(256, local_bsz_bounds=(4, 8),
+        self.train_dataloader.autoscale_batch_size(512, local_bsz_bounds=(4, 8),
                                                    gradient_accumulation=True)
         self.valid_dataset = data.VocDataset(anno_file_type="test")
         self.valid_dataloader = adaptdl.torch.AdaptiveDataLoader(self.valid_dataset,
@@ -162,21 +162,21 @@ class Trainer(object):
                     report_train_metrics(epoch, accum["loss_avg"])
                     print("Train:", accum)
 
-            self.valid(epoch)
+            #self.valid(epoch)
 
             if epoch >= cfg.TRAIN["WARMUP_EPOCHS"]:
                 self.scheduler.step()
 
-        with torch.no_grad(), SummaryWriter(os.getenv("ADAPTDL_TENSORBOARD_LOGDIR", "/tmp")) as writer:
-            print('*'*20+"Evaluate"+'*'*20)
-            APs = Evaluator(self.yolov3).APs_voc()
-            mAP = 0
-            for i in APs:
-                print("{} --> mAP : {}".format(i, APs[i]))
-                mAP += APs[i]
-            mAP = mAP / self.train_dataset.num_classes
-            print('mAP:%g'%(mAP))
-            writer.add_scalar("Eval/mAP", float(mAP))
+        #with torch.no_grad(), SummaryWriter(os.getenv("ADAPTDL_TENSORBOARD_LOGDIR", "/tmp")) as writer:
+        #    print('*'*20+"Evaluate"+'*'*20)
+        #    APs = Evaluator(self.yolov3).APs_voc()
+        #    mAP = 0
+        #    for i in APs:
+        #        print("{} --> mAP : {}".format(i, APs[i]))
+        #        mAP += APs[i]
+        #    mAP = mAP / self.train_dataset.num_classes
+        #    print('mAP:%g'%(mAP))
+        #    writer.add_scalar("Eval/mAP", float(mAP))
 
 
 if __name__ == "__main__":
