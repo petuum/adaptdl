@@ -40,7 +40,6 @@ spec:
         volumeMounts:
         - name: data
           mountPath: /mnt
-          readOnly: true
       volumes:
       - name: data
         hostPath:

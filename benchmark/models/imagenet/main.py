@@ -118,7 +118,7 @@ def main_worker(args):
             train(train_loader, model, criterion, optimizer, epoch, args, writer)
 
             # evaluate on validation set
-            # acc1 = validate(val_loader, model, criterion, epoch, args, writer)
+            acc1 = validate(val_loader, model, criterion, epoch, args, writer)
 
 
 def train(train_loader, model, criterion, optimizer, epoch, args, writer):
@@ -224,8 +224,8 @@ def validate(val_loader, model, criterion, epoch, args, writer):
             batch_time.update(time.time() - end)
             end = time.time()
 
-            if i % args.print_freq == 0:
-                progress.display(val_loader.current_index)
+            #if i % args.print_freq == 0:
+            #    progress.display(val_loader.current_index)
 
         # TODO: this should also be done with the ProgressMeter
         print(' * Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}'

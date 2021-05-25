@@ -4,7 +4,7 @@ provider "aws" {
 
 variable "availability_zone" {
   type = string
-  default = "us-west-2a"
+  default = "us-west-2b"
 }
 
 variable "docker_username" {
@@ -59,6 +59,7 @@ resource "aws_instance" "master" {
       join(" ", ["kubectl create secret generic regcred",
                  "--from-file=.dockerconfigjson=/home/ubuntu/.docker/config.json",
                  "--type=kubernetes.io/dockerconfigjson"]),
+      "helm repo add stable https://charts.helm.sh/stable --force-update",
       "mkdir ~/pollux",
     ]
   }
@@ -79,7 +80,7 @@ resource "aws_instance" "master" {
 
 resource "aws_instance" "workers" {
   depends_on = [aws_instance.master] 
-  count = "3"
+  count = "16"
   ami = "ami-089e3eddcb00a64ee"
   instance_type = "g4dn.12xlarge"
   availability_zone = var.availability_zone
@@ -102,10 +103,6 @@ resource "aws_instance" "workers" {
     host = self.private_ip
     private_key = file("~/.ssh/esper.pem")
     agent = true
-  }
-
-  provisioner "remote-exec" {
-    inline = []
   }
 
   provisioner "remote-exec" {

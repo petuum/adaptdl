@@ -136,5 +136,5 @@ def valid(epoch):
 with SummaryWriter(os.getenv("ADAPTDL_TENSORBOARD_LOGDIR", "/tmp")) as writer:
     for epoch in adaptdl.torch.remaining_epochs_until(args.epochs):
         train(epoch)
-        #valid(epoch)
+        valid(epoch)
         lr_scheduler.step()

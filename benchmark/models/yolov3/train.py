@@ -162,7 +162,7 @@ class Trainer(object):
                     report_train_metrics(epoch, accum["loss_avg"])
                     print("Train:", accum)
 
-            #self.valid(epoch)
+            self.valid(epoch)
 
             if epoch >= cfg.TRAIN["WARMUP_EPOCHS"]:
                 self.scheduler.step()

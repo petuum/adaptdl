@@ -179,10 +179,10 @@ def train(args, train_dataset, model, tokenizer):
             report_train_metrics(epoch, accum["loss_avg"])
             print("Train:", accum)
 
-        #results = evaluate(args, model, tokenizer)
-        #for key, value in results.items():
-        #    tb_writer.add_scalar("eval_{}".format(key), value, epoch)
-        #report_valid_metrics(epoch, 0.0, f1=results["f1"])
+        results = evaluate(args, model, tokenizer)
+        for key, value in results.items():
+            tb_writer.add_scalar("eval_{}".format(key), value, epoch)
+        report_valid_metrics(epoch, 0.0, f1=results["f1"])
 
     tb_writer.close()
 
@@ -216,6 +216,7 @@ def evaluate(args, model, tokenizer, prefix=""):
                 "input_ids": batch[0],
                 "attention_mask": batch[1],
                 "token_type_ids": batch[2],
+                "return_dict": False,
             }
 
             if args.model_type in ["xlm", "roberta", "distilbert", "camembert", "bart", "longformer"]:
