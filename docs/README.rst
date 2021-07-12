@@ -54,7 +54,7 @@ resource utilization, by using a genetic algorithm to periodically optimize
 resource allocations for all jobs. Through elastic re-scaling, co-adapting
 batch sizes and learning rates, and avoiding network interference, AdaptDL
 significantly accelerates shared-cluster training when compared with alternative
-schedulers. For details, please see our `OSDI'21 paper
+schedulers. For details, please see our `OSDI'21 research paper
 <https://www.usenix.org/conference/osdi21/presentation/qiao>`_.
 
 .. image:: _static/img/scheduling-performance.png
