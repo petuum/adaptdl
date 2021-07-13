@@ -11,18 +11,28 @@ on:
 
 jobs:
   build_docs:
-
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v1
-    - name: build api
-      uses: ammaraskar/sphinx-action@master
+    - uses: actions/checkout@v2
+    - name: Set up Python 3.8
+      uses: actions/setup-python@v2
       with:
-        docs-folder: "docs/"
-        pre-build-command: "pip install sphinx-rtd-theme && make api"
-        build-command: "make html"
-    - uses: actions/upload-artifact@v1
+        python-version: 3.8
+    - name: Build and install train package
+      run: |
+        pip install -e ./adaptdl
+    - name: Build and install api dependencies
+      run: |
+        pip install torch torchtext
+    - name: Install sphinx
+      run: |
+        pip install sphinx sphinx-rtd-theme
+    - name: Build docs 
+      run: |
+        cd docs && make html
+    - name: Upload docs
+      uses: actions/upload-artifact@v1
       with:
         name: DocumentationHTML
         path: docs/_build/html/
