@@ -17,7 +17,8 @@ Introduction
 ------------
 
 `Documentation <https://adaptdl.readthedocs.org>`_ |
-`Examples <https://github.com/petuum/adaptdl/tree/master/examples>`_
+`Examples <https://github.com/petuum/adaptdl/tree/master/examples>`_ |
+`CASL Project <https://www.casl-project.ai>`_
 
 .. include-start-after
 
