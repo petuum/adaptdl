@@ -10,7 +10,7 @@ def print_exc(function):
     def wrapper(*args, **kwargs):
         try:
             return function(*args, **kwargs)
-        except:
+        except Exception:
             traceback.print_exc()
             raise
     return wrapper
