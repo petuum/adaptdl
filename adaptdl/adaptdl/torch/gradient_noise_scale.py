@@ -6,6 +6,8 @@ import torch.optim
 
 from torch.autograd import Variable
 
+import adaptdl.utils
+
 __all__ = ["GradientNoiseScale"]
 
 logging.basicConfig(level=logging.INFO)
@@ -162,6 +164,7 @@ class GradientNoiseScale(object):
         self._state.pop(param_name + "_biased", None)
         self._state.pop(param_name + "_unbias", None)
 
+    @adaptdl.utils.print_exc
     def _backward_hook(self, idx, param, grad):
         # This method should be invoked once for each parameter during the
         # backward pass, before gradients are synchronized between replicas.
@@ -175,6 +178,7 @@ class GradientNoiseScale(object):
             Variable._execution_engine.queue_callback(self._queue_callback)
         self._callback_queued = True
 
+    @adaptdl.utils.print_exc
     def _queue_callback(self):
         # This method should be invoked after the entire backward pass. We want
         # to make sure self._final_callback is invoked once, only after all
@@ -198,12 +202,12 @@ class GradientNoiseScale(object):
             # Keep on accumulating gradients, should not zero grad.
             self._should_zero_grad = False
 
+    @adaptdl.utils.print_exc
     def _final_callback(self):
         # This method should be invoked once the gradients have been
         # synchronized between all replicas and accumulation steps.
         if self._num_replicas > 1:
             self._async_op.wait()
-
         grads = []
         if self._mp_scaler is not None:
             mixed_precision_scale = self._mp_scaler.get_scale()
