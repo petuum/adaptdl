@@ -224,13 +224,13 @@ class GradientNoiseScale(object):
                 grad = param.grad.detach().float()
                 grads[-1].append(
                     grad / mixed_precision_scale / self._accum_count)
-        precondtioner = self._get_preconditioner()
+        preconditioner = self._get_preconditioner()
 
         # Note: mixed precision can result in nan/inf gradients,
         # which propogate into our norm and variance estimates.
         # Mixed precision autoscaling skips the skip where
         # there are nan/inf, so we also skip the update here
-        grads_normsqr = _normsqr_groups(grads, precondtioner)
+        grads_normsqr = _normsqr_groups(grads, preconditioner)
         if not np.all(np.isfinite(grads_normsqr)):
             LOG.warning("GradientNoiseScale detected invalid gradient! "
                         "Skipping step.")
@@ -252,10 +252,10 @@ class GradientNoiseScale(object):
         else:
             # Single gradient datapoint, use difference estimation.
             if self._prev_grads is not None:
-                local_sqr = (_normsqr_groups(self._prev_grads, precondtioner) +
+                local_sqr = (_normsqr_groups(self._prev_grads, preconditioner) +
                              grads_normsqr) / 2
                 avg_grads = _average_groups(grads, self._prev_grads)
-                total_sqr = _normsqr_groups(avg_grads, precondtioner)
+                total_sqr = _normsqr_groups(avg_grads, preconditioner)
                 count = 2
                 scale = 2 * self._accum_scale
             self._state["biased"] = True
