@@ -125,6 +125,15 @@ class AdaScale(ScalingRuleBase):
         return (var + sqr) / (var / scale + sqr)
 
 
+class AdamScale(AdaScale):
+    """
+    Implements the variant of AdaScale_ that supports Adam, AdamW and RMSProp
+    """
+
+    def scale_lr(self, scale,  power=0.5):
+        return np.power(super().scale_lr(scale=scale), power)
+
+
 class LinearScale(ScalingRuleBase):
 
     def scale_lr(self, scale):
