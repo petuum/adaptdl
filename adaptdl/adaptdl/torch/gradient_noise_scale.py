@@ -256,8 +256,8 @@ class GradientNoiseScale(object):
         else:
             # Single gradient datapoint, use difference estimation.
             if self._prev_grads is not None:
-                local_sqr = (_normsqr_groups(self._prev_grads, preconditioner) +
-                             grads_normsqr) / 2
+                local_sqr = (_normsqr_groups(self._prev_grads, preconditioner)
+                             + grads_normsqr) / 2
                 avg_grads = _average_groups(grads, self._prev_grads)
                 total_sqr = _normsqr_groups(avg_grads, preconditioner)
                 count = 2
