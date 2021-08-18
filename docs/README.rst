@@ -17,13 +17,24 @@ Introduction
 ------------
 
 `Documentation <https://adaptdl.readthedocs.org>`_ |
-`Examples <https://github.com/petuum/adaptdl/tree/master/examples>`_
+`Examples <https://github.com/petuum/adaptdl/tree/master/examples>`_ |
+`CASL Project <https://www.casl-project.ai>`_
 
 .. include-start-after
 
 AdaptDL is a *resource-adaptive* deep learning (DL) training and scheduling
-framework. The goal of AdaptDL is to make distributed DL easy and efficient in
-dynamic-resource environments such as shared clusters and the cloud.
+framework, and is part of the `CASL open source project
+<https://www.casl-project.ai>`_. The goal of AdaptDL is to make distributed DL
+easy and efficient in dynamic-resource environments such as shared clusters and
+the cloud.
+
+AdaptDL consists of two components which can be used together with or separately
+from one another:
+
+* **adaptdl-sched:** A cluster scheduler on Kubernetes optimized for distributed
+  deep learning training.
+* **adaptdl:** A library for adaptive batch sizes that can efficiently scale
+  distributed training to many nodes.
 
 Some core features offered by AdaptDL are:
 
@@ -44,8 +55,8 @@ resource utilization, by using a genetic algorithm to periodically optimize
 resource allocations for all jobs. Through elastic re-scaling, co-adapting
 batch sizes and learning rates, and avoiding network interference, AdaptDL
 significantly accelerates shared-cluster training when compared with alternative
-schedulers. For details, please see our `technical paper
-<https://arxiv.org/pdf/2008.12260.pdf>`_.
+schedulers. For details, please see our `OSDI'21 research paper
+<https://www.usenix.org/conference/osdi21/presentation/qiao>`_.
 
 .. image:: _static/img/scheduling-performance.png
   :align: center
