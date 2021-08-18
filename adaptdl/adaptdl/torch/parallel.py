@@ -28,10 +28,11 @@ from torch.nn.parallel import DistributedDataParallel
 import adaptdl.checkpoint
 import adaptdl.env
 from adaptdl.torch.data import current_dataloader
-from adaptdl.torch.scaling_rules import AdaScale, ScalingRuleBase
-from adaptdl.torch.gradient_noise_scale import GradientNoiseScale
+from adaptdl.torch.scaling_rules import AdaScale, AdamScale, ScalingRuleBase
+from adaptdl.torch.gradient_noise_scale import GradientNoiseScale,\
+                                               AdamGradientNoiseScale
 from adaptdl.torch._metrics import profile_sync_time, update_grad_params,\
-    update_progress
+                                   update_progress
 
 
 class AdaptiveDataParallel(DistributedDataParallel):
@@ -69,8 +70,12 @@ class AdaptiveDataParallel(DistributedDataParallel):
 
         # Setup for the scaling_rule, must be after registering backward hooks
         # because some of them need to register their own backward hooks.
-        self.gns = GradientNoiseScale(self, optimizer, mp_scaler=mp_scaler)
         self.scaling_rule = scaling_rule or AdaScale()
+        if isinstance(scaling_rule, AdamScale):
+            self.gns = AdamGradientNoiseScale(self, optimizer,
+                                              mp_scaler=mp_scaler)
+        else:
+            self.gns = GradientNoiseScale(self, optimizer, mp_scaler=mp_scaler)
         self.scaling_rule.initialize(self, optimizer, patch_optimizer=True)
 
         self._state = _AdaptiveDataParallelState(

@@ -125,39 +125,13 @@ class AdaScale(ScalingRuleBase):
         return (var + sqr) / (var / scale + sqr)
 
 
-class AdamScale(ScalingRuleBase):
+class AdamScale(AdaScale):
     """
     Implements the variant of AdaScale_ that supports Adam, AdamW and RMSProp
     """
 
     def scale_lr(self, scale,  power=0.5):
-        """Calculate factors to be applied to lr for each parameter group."""
-        var = self.adp.gns.raw_var_avg
-        sqr = self.adp.gns.raw_sqr_avg
-        var = np.maximum(var, 1e-6)
-        sqr = np.maximum(sqr,  0.0)
-        return np.power((var + sqr) / (var / scale + sqr), power)
-
-    def step(self, *args, **kwargs):
-        if not self.adp:
-            raise ValueError("AdaptiveDataParallel instance is not set!")
-        if not self.adp.require_backward_grad_sync:
-            return
-        scale = self.adp.gns.accum_scale * self.adp.gns.accum_count
-        if self.adp.gns._is_adam and \
-                not np.isclose(scale, self.adp.gns._state["prev_scale"]):
-            self.adp.gns._reset_adam_state()
-            # reset Adam states when scale is changed
-            self.adp.gns._state["prev_scale"] = scale
-        initial_lr = [pg["lr"] for pg in self._optimizer.param_groups]
-        scaled_lr = np.multiply(self.scale_lr(scale), initial_lr)
-        for lr, pg in zip(scaled_lr, self._optimizer.param_groups):
-            pg["lr"] = lr
-        self._orig_optimizer_step(*args, **kwargs)
-        for lr, pg in zip(initial_lr, self._optimizer.param_groups):
-            pg["lr"] = lr
-        self.adp.gns.set_progress(self.adp.gns.get_progress()
-                                  + self.adp.gns.gain(scale))
+        return np.power(super().scale_lr(scale=scale), power)
 
 
 class LinearScale(ScalingRuleBase):

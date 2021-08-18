@@ -54,9 +54,6 @@ class GradientNoiseScale(object):
                               else torch.distributed.get_world_size())
         self._accum_scale = accum_scale or self._num_replicas
         self._prev_grads = None
-        self._is_adam = optimizer.__class__.__name__ in ['Adam', 'AdamW']
-        if self._is_adam:
-            self._adam_param_group = {'beta': [], 'eps': []}
 
         self.reset_accumulation()
 
@@ -71,9 +68,6 @@ class GradientNoiseScale(object):
         })
 
         for idx, param_group in enumerate(self._optimizer.param_groups):
-            if self._is_adam:
-                self._adam_param_group['beta'].append(param_group['betas'][1])
-                self._adam_param_group['eps'].append(param_group['eps'])
             for param in param_group["params"]:
                 param.register_hook(
                     functools.partial(self._backward_hook, idx, param))
@@ -178,8 +172,7 @@ class GradientNoiseScale(object):
                                           dtype=torch.float64)
 
         # Get the preconditioning matrix for the optimizer
-        preconditioner = self._calculate_preconditioner(idx, param,
-                                                        self._is_adam)
+        preconditioner = self._calculate_preconditioner(idx, param)
 
         # Update the local gradient square sum
         self._local_sqr[idx] += \
@@ -231,7 +224,7 @@ class GradientNoiseScale(object):
                 grad = param.grad.detach().float()
                 grads[-1].append(
                     grad / mixed_precision_scale / self._accum_count)
-        precondtioner = self._get_preconditioner(self._is_adam)
+        precondtioner = self._get_preconditioner()
 
         # Note: mixed precision can result in nan/inf gradients,
         # which propogate into our norm and variance estimates.
@@ -275,6 +268,43 @@ class GradientNoiseScale(object):
             self._update_avg('sqr_avg', grad_sqr, theta)
             self._update_avg('var_avg', grad_var, theta)
 
+    def _get_preconditioner(self):
+        out = []
+        for idx, group in enumerate(self._optimizer.param_groups):
+            pinvs = []
+            for param in group["params"]:
+                pinv = self._calculate_preconditioner(idx, param)
+                pinvs.append(pinv)
+            out.append(pinvs)
+        return out
+
+    def _calculate_preconditioner(self, idx, param):
+        return torch.ones_like(param, memory_format=torch.preserve_format)
+
+
+class AdamGradientNoiseScale(GradientNoiseScale):
+    def __init__(self, adp, optimizer,
+                 mp_scaler=None,
+                 num_replicas=None,
+                 accum_scale=None):
+        self._adam_param_group = {'beta': [], 'eps': []}
+        super().__init__(adp, optimizer, mp_scaler, num_replicas, accum_scale)
+        for idx, param_group in enumerate(self._optimizer.param_groups):
+            self._adam_param_group['beta'].append(param_group['betas'][1])
+            self._adam_param_group['eps'].append(param_group['eps'])
+
+    def _calculate_preconditioner(self, idx, param):
+        state = self._optimizer.state[param]
+        if state.get('step', 0) < 5:
+            return torch.ones_like(param, memory_format=torch.preserve_format)
+
+        exp_avg_sq = state["exp_avg_sq"].clone()  # not sure if clone is needed
+        beta2 = self._adam_param_group['beta'][idx]
+        eps = self._adam_param_group['eps'][idx]
+        correction = 1 - beta2 ** state['step']
+        pinv = (exp_avg_sq.sqrt() / math.sqrt(correction)).add_(eps)
+        return pinv
+
     def _reset_adam_state(self, step=0):
         for group in self._optimizer.param_groups:
             beta1, beta2 = group["betas"]
@@ -287,27 +317,10 @@ class GradientNoiseScale(object):
                         (1 - beta2 ** step) / (1 - beta2 ** state["step"]))
                     state["step"] = step
 
-    def _calculate_preconditioner(self, idx, param, is_adam=False):
-        if not is_adam:
-            return torch.ones_like(param, memory_format=torch.preserve_format)
-
-        state = self._optimizer.state[param]
-        if state.get('step', 0) < 5:
-            return torch.ones_like(param, memory_format=torch.preserve_format)
-
-        exp_avg_sq = state["exp_avg_sq"].clone()  # not sure if clone is needed
-        beta2 = self._adam_param_group['beta'][idx]
-        eps = self._adam_param_group['eps'][idx]
-        correction = 1 - beta2 ** state['step']
-        pinv = (exp_avg_sq.sqrt() / math.sqrt(correction)).add_(eps)
-        return pinv
-
-    def _get_preconditioner(self, is_adam):
-        out = []
-        for idx, group in enumerate(self._optimizer.param_groups):
-            pinvs = []
-            for param in group["params"]:
-                pinv = self._calculate_preconditioner(idx, param, is_adam)
-                pinvs.append(pinv)
-            out.append(pinvs)
-        return out
+    def _final_callback(self):
+        scale = self._accum_scale * self._accum_count
+        if not np.isclose(scale, self._state["prev_scale"]):
+            self._reset_adam_state()
+            # reset Adam states when scale is changed
+            self._state["prev_scale"] = scale
+        return super()._final_callback()
