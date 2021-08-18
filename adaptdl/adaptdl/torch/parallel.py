@@ -27,6 +27,7 @@ from torch.nn.parallel import DistributedDataParallel
 
 import adaptdl.checkpoint
 import adaptdl.env
+import adaptdl.utils
 from adaptdl.torch.data import current_dataloader
 from adaptdl.torch.scaling_rules import AdaScale, AdamScale, ScalingRuleBase
 from adaptdl.torch.gradient_noise_scale import GradientNoiseScale,\
@@ -94,6 +95,7 @@ class AdaptiveDataParallel(DistributedDataParallel):
             self.gns.set_accum_scale(accum_scale)
         return super().forward(*args, **kwargs)
 
+    @adaptdl.utils.print_exc
     def _backward_hook(self, param, grad):
         # This method should be invoked once for each parameter during the
         # backward pass, before gradients are synchronized between replicas.
@@ -105,6 +107,7 @@ class AdaptiveDataParallel(DistributedDataParallel):
         self._final_callback_queued = False
         Variable._execution_engine.queue_callback(self._queue_callback)
 
+    @adaptdl.utils.print_exc
     def _queue_callback(self):
         # This method should be invoked after the entire backward pass. We want
         # to make sure self._final_callback is invoked once, only after all
@@ -118,6 +121,7 @@ class AdaptiveDataParallel(DistributedDataParallel):
         self._final_callback_queued = True
         Variable._execution_engine.queue_callback(self._final_callback)
 
+    @adaptdl.utils.print_exc
     def _final_callback(self):
         # This method should be invoked once for each backward pass, after
         # gradients have been synchronized between each replica.
