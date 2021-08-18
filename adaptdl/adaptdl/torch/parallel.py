@@ -71,7 +71,12 @@ class AdaptiveDataParallel(DistributedDataParallel):
 
         # Setup for the scaling_rule, must be after registering backward hooks
         # because some of them need to register their own backward hooks.
-        self.scaling_rule = scaling_rule or AdaScale()
+        if not scaling_rule and (isinstance(optimizer, torch.optim.Adam) or
+                                 isinstance(optimizer, torch.optim.AdamW)):
+            self.scaling_rule = AdamScale()
+        else:
+            self.scaling_rule = scaling_rule or AdaScale()
+
         if isinstance(scaling_rule, AdamScale):
             self.gns = AdamGradientNoiseScale(self, optimizer,
                                               mp_scaler=mp_scaler)
