@@ -126,6 +126,9 @@ def _fit_perf_params():
     state.perf_params = fit_perf_params(num_nodes, num_replicas, atomic_bsz,
                                         accum_step_time, optim_step_time)
 
+def _get_sched_hints():
+    _fit_perf_params()
+    return _metrics_state()
 
 def _report_sched_hints():
     assert adaptdl.env.replica_rank() == 0

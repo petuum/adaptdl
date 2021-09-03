@@ -24,7 +24,7 @@ import os
 import shutil
 import logging
 
-from adaptdl.env import checkpoint_path, replica_rank, num_restarts
+from adaptdl.env import checkpoint_path, replica_rank, num_restarts, from_ray
 
 logging.basicConfig(level=logging.INFO)
 LOG = logging.getLogger(__name__)
@@ -94,11 +94,11 @@ class State(object):
         pass
 
 
-def _get_tmp_ckpt_dir():
-    if checkpoint_path() is None:
+def _get_tmp_ckpt_dir(checkpoint_path):
+    if checkpoint_path is None:
         return None
 
-    tmp_dir = os.path.join(checkpoint_path(), "_checkpoint")
+    tmp_dir = os.path.join(checkpoint_path, "_checkpoint")
     os.makedirs(tmp_dir, exist_ok=True)
     return tmp_dir
 
@@ -109,24 +109,29 @@ def save_all_states():
     This function can be used to trigger a global checkpoint and save every
     `State` in the current job.
     """
+    if from_ray():
+        from ray.tune.trainable import TrainableUtil
+        checkpoint_dir = TrainableUtil.make_checkpoint_dir("/tmp", index=None, override=True)
+    else:
+        checkpoint_dir = checkpoint_path()
     for state in _STATES_TO_NAMES:
-        save_state(state)
+        save_state(state, checkpoint_dir)
 
     # Prevent corrupting original state files in case the process got killed
     # during state file writing.
-    if replica_rank() == 0 and checkpoint_path() is not None:
-        tmp_ckpt_dir = _get_tmp_ckpt_dir()
-        ckpt_dir = os.path.join(checkpoint_path(),
+    if replica_rank() == 0 and checkpoint_dir is not None:
+        tmp_ckpt_dir = _get_tmp_ckpt_dir(checkpoint_dir)
+        ckpt_dir = os.path.join(checkpoint_dir,
                                 f"{CKPT_DIR_PREFIX}{num_restarts()}")
-        os.rename(tmp_ckpt_dir, ckpt_dir)  # atomic
-
-        for dir_name in os.listdir(checkpoint_path()):
-            dir_path = os.path.join(checkpoint_path(), dir_name)
+        os.rename(tmp_ckpt_dir, ckpt_dir)  # atomic, rename(src, dst)
+        for dir_name in os.listdir(checkpoint_dir):
+            dir_path = os.path.join(checkpoint_dir, dir_name)
             if dir_name.startswith(CKPT_DIR_PREFIX) and dir_path != ckpt_dir:
                 shutil.rmtree(dir_path)
+        return checkpoint_dir
 
 
-def save_state(state, sync=True):
+def save_state(state, checkpoint_dir, sync=True):
     """
     Saves a `State` object to persistent storage. First invokes `State.sync` on
     all replicas if `sync` is `True` (default), and then invokes `State.save`
@@ -141,9 +146,9 @@ def save_state(state, sync=True):
     if sync:
         state.sync()
 
-    if replica_rank() == 0 and checkpoint_path() is not None:
+    if replica_rank() == 0 and checkpoint_dir is not None:
         name = _STATES_TO_NAMES[state]
-        state_file = os.path.join(_get_tmp_ckpt_dir(), name)
+        state_file = os.path.join(_get_tmp_ckpt_dir(checkpoint_dir), name)
 
         with open(state_file, "wb") as f:
             state.save(f)
@@ -162,12 +167,17 @@ def load_state(state):
         `True` if state was previously saved and `State.load` was invoked,
         `False` otherwise.
     """
-    if checkpoint_path() is None:
+    if from_ray():
+        from ray.tune import session
+        checkpoint_dir = session.get_session().get_checkpoint()
+    else:
+        checkpoint_dir = checkpoint_path()
+    if checkpoint_dir is None:
         return False
 
-    ckpt_dirs = os.listdir(checkpoint_path())
+    ckpt_dirs = os.listdir(checkpoint_dir)
     if not ckpt_dirs:
-        LOG.info(f"No checkpoint found in {checkpoint_path()}.")
+        LOG.info(f"No checkpoint found in {checkpoint_dir}.")
         return False
 
     latest_restart_id = 0
@@ -180,7 +190,7 @@ def load_state(state):
         LOG.warning("Cannot find checkpoint from the last restart. "
                     f"Loading checkpoint from restart {latest_restart_id}.")
 
-    ckpt_dir = os.path.join(checkpoint_path(),
+    ckpt_dir = os.path.join(checkpoint_dir,
                             f"{CKPT_DIR_PREFIX}{latest_restart_id}")
     name = _STATES_TO_NAMES[state]
     state_file = os.path.join(ckpt_dir, name)

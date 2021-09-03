@@ -18,7 +18,7 @@ environment variables, or their defaults if unset.
 """
 
 import os
-
+import sys
 
 def checkpoint_path():
     """
@@ -162,3 +162,10 @@ def supervisor_url():
         str: URL of the supervisor, or ``None``.
     """
     return os.getenv("ADAPTDL_SUPERVISOR_URL")
+
+
+def from_ray():
+    """ Returns True if the code is being called from Ray"""
+    # TODO: find a fool-proof way
+    return "ray" in sys.modules
+

@@ -34,7 +34,10 @@ from .reducer import Reducer, default_reduce_fn
 _REDUCER = None
 
 
-def initialize(master_addr=None, master_port=None):
+def initialize(master_addr=None, 
+               master_port=None,
+               replica_rank=adaptdl.env.replica_rank(), 
+               num_replicas=adaptdl.env.num_replicas()):
     """
     Initialize this module, must be invoked before calling any other functions.
     This function will block until it has been invoked from all replicas.
@@ -53,8 +56,8 @@ def initialize(master_addr=None, master_port=None):
         master_addr = adaptdl.env.master_addr()
     if master_port is None:
         master_port = adaptdl.env.master_port()
-    _REDUCER = Reducer(adaptdl.env.replica_rank(),
-                       adaptdl.env.num_replicas(),
+    _REDUCER = Reducer(replica_rank,
+                       num_replicas,
                        master_addr, master_port)
 
 
