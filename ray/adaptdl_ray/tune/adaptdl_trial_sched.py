@@ -31,7 +31,6 @@ class AdaptDLScheduler(TrialScheduler):
     """AdaptDL TrialScheduler."""
 
     def __init__(self):
-        self._counter = 0
         self._allocator = AdaptDLAllocator()
 
     def on_trial_add(self, trial_runner: "trial_runner.TrialRunner",
@@ -49,25 +48,21 @@ class AdaptDLScheduler(TrialScheduler):
 
         trials = [trial for trial in trial_runner.get_trials() \
                     if trial.status in (Trial.RUNNING, Trial.PENDING)]
-        self._counter += 1
-        # Some arbitrary condition
-        if self._counter % 20 == 0:
-            # This may trigger excessive Experiment checkpointing
-            # we set it here at high value to avoid that
-            trial_runner._checkpoint_manager._checkpoint_period = 100
+        if (trial.reallocation_count == 0) or (trial.reallocation_count % 10 == 0):
             allocs, desired = self._allocator.allocate(trials)
+            trial.reallocation_count += 1
         else:
             allocs = {trial.trial_id: trial.allocation for trial in trials}
 
-        if allocs.get(trial.trial_id, []) == [] and trial.status == Trial.RUNNING:
+        if allocs.get(trial.trial_id) == [] and trial.status == Trial.RUNNING:
             # Pause only if the trial is running
             trial.pause(trial_runner)
             # Pause this trial
             return TrialScheduler.PAUSE
-        elif allocs.get(trial.trial_id, []) != trial.allocation:
+        elif allocs.get(trial.trial_id) != trial.allocation:
             trial = AdaptDLTrial.create_from(trial, 
                                              trial_runner, 
-                                             allocs.get(trial.trial_id, []),
+                                             allocs.get(trial.trial_id),
                                              copy_state=True)
             # Stop the old trial that's being replaced
             return TrialScheduler.STOP
@@ -97,4 +92,3 @@ class AdaptDLScheduler(TrialScheduler):
 
     def debug_string(self) -> str:
         return "Using AdaptDL scheduling algorithm."
-

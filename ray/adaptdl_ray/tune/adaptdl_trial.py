@@ -17,11 +17,17 @@ from typing import Dict, List, Optional, Union
 from datetime import datetime, timedelta
 from collections import Counter
 import logging
+import copy
 
 import ray
 from ray.tune.trial import Trial 
 from ray.tune.function_runner import FuncCheckpointUtil
 from ray.tune.trainable import TrainableUtil
+from ray.tune.resources import Resources, \
+    json_to_resources, resources_to_json
+from ray._private.utils import binary_to_hex, hex_to_binary
+import ray.cloudpickle as cloudpickle
+from ray.tune.trial import Location
 
 from adaptdl_ray.adaptdl import AdaptDLJobMixin
 from adaptdl_ray.tune.adaptdl_trainable import AdaptDLTrainableCreator
@@ -36,6 +42,29 @@ class AdaptDLTrial(AdaptDLJobMixin, Trial):
     def __init__(self, *args, **kwargs):
         super().__init__(job_id=kwargs["trial_id"], *args, **kwargs)
         self.rescale_count = 0
+        self.reallocation_count = 0
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        # Remove problematic members
+        for k in ["_has_resources"]:
+            del state[k]
+
+        state["resources"] = resources_to_json(self.resources)
+
+        for key in self._nonjson_fields:
+            state[key] = binary_to_hex(cloudpickle.dumps(state.get(key)))
+
+        state["runner"] = None
+        state["location"] = Location()
+        # Avoid waiting for events that will never occur on resume.
+        state["restoring_from"] = None
+        state["saving_to"] = None
+
+        state["_state_json"] = None
+        state["_state_valid"] = False
+
+        return copy.deepcopy(state)
 
     def _requeue(self, old_trial: Trial, trial_runner: "trial_runner.TrialRunner"):
         # Remove the old trial from trial_runner
@@ -49,7 +78,7 @@ class AdaptDLTrial(AdaptDLJobMixin, Trial):
         return ray.get(self.runner.get_sched_hints.remote()) if self.runner else None
 
     def _allocation_in_use(self):
-        return self._trial_in_use_fn(self)
+        return self._has_resources(self)
 
     @classmethod
     def _clone_from(cls, trial: Trial, allocation, restore_path=None) -> "AdaptDLTrial":
@@ -90,7 +119,7 @@ class AdaptDLTrial(AdaptDLJobMixin, Trial):
         # Spawn a new trial
         new_trial = cls._clone_from(trial, new_allocation, restore_path=checkpoint_path)
         # Keep it for later use by the trials
-        new_trial._trial_in_use_fn = trial_runner.trial_executor._pg_manager.trial_in_use
+        new_trial._has_resources = trial_runner.has_resources_for_trial 
         new_trial.rescale_count += 1
         # Replace with old trial
         new_trial._requeue(trial, trial_runner)

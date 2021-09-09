@@ -40,7 +40,7 @@ class AdaptDLAllocator:
     @staticmethod
     def _reserve(resources):
         """ Reserve some resources for others """
-        resources["CPU"] -= 1
+        resources["CPU"] -= 1.0
         return resources
 
     def allocate(self, jobs: List[AdaptDLJobMixin]):
@@ -53,4 +53,5 @@ class AdaptDLAllocator:
         allocations, desired_nodes = \
                 self._policy.optimize(job_infos, self._nodes, prev_allocs, self._node_template)
        
+        assert all(v == [] for k, v in allocations.items()) == False
         return allocations, desired_nodes
