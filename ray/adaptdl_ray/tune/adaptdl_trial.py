@@ -42,7 +42,10 @@ class AdaptDLTrial(AdaptDLJobMixin, Trial):
     def __init__(self, *args, **kwargs):
         super().__init__(job_id=kwargs["trial_id"], *args, **kwargs)
         self.rescale_count = 0
-        self.reallocation_count = 0
+
+    @property
+    def _num_replicas(self):
+        return self.get_trainable_cls()._num_workers
 
     def __getstate__(self):
         state = self.__dict__.copy()

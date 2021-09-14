@@ -68,3 +68,56 @@ def AdaptDLTrainableCreator(func: Callable,
     
     register_trainable(AdaptDLTrainable.__name__, AdaptDLTrainable)
     return AdaptDLTrainable
+
+
+def _train_simple(config: Dict, checkpoint_dir: Optional[str] = None):
+    import torch
+    import torch.nn as nn
+    import torch.optim as optim
+    import adaptdl.torch as adl
+    from ray import tune
+
+    class MyDataset:
+        def __init__(self, xs, ys):
+            self.xs = xs
+            self.ys = ys
+        def __getitem__(self, i):
+            return self.xs[i], self.ys[i]
+        def __len__(self):
+            return len(self.xs)
+        
+    # N is batch size; D_in is input dimension;
+    # H is hidden dimension; D_out is output dimension.
+    N, D_in, H, D_out = 64, 5, 5, 5
+    dataset = MyDataset(torch.randn(N, D_in), torch.randn(N, D_out))
+
+    H = config.get("H", 16)
+    N = config.get("N", 16)
+
+    # Create random Tensors to hold inputs and outputs
+    dataloader = adl.AdaptiveDataLoader(dataset, batch_size=N)
+    dataloader.autoscale_batch_size(4096, local_bsz_bounds=(16, 1024))
+
+    loss_fn = nn.MSELoss()
+
+    # Use the nn package to define our model and loss function.
+    model = torch.nn.Sequential(
+        torch.nn.Linear(D_in, H),
+        torch.nn.ReLU(),
+        torch.nn.Linear(H, D_out),
+    )
+    optimizer = optim.SGD(model.parameters(), lr=0.1)
+
+    model = adl.AdaptiveDataParallel(model, optimizer)
+
+    loss = torch.Tensor([0.0])
+    for epoch in adl.remaining_epochs_until(config.get("epochs", 10)):
+        for (x, y) in dataloader:
+            optimizer.zero_grad()
+            output = model(x)
+            loss = loss_fn(output, y)
+            loss.backward()
+            optimizer.step()
+
+        tune.report(mean_loss=loss.item())
+

@@ -30,8 +30,14 @@ logger.setLevel(logging.DEBUG)
 class AdaptDLScheduler(TrialScheduler):
     """AdaptDL TrialScheduler."""
 
-    def __init__(self):
-        self._allocator = AdaptDLAllocator()
+    _ALLOCATOR_INVOKE_FREQ = 10
+
+    @staticmethod
+    def _try_realloc(iteration):
+        return iteration % AdaptDLScheduler._ALLOCATOR_INVOKE_FREQ == 0
+
+    def __init__(self, allocator=None):
+        self._allocator = allocator if allocator is not None else AdaptDLAllocator()
 
     def on_trial_add(self, trial_runner: "trial_runner.TrialRunner",
                      trial: Trial):
@@ -45,12 +51,10 @@ class AdaptDLScheduler(TrialScheduler):
 
     def on_trial_result(self, trial_runner: "trial_runner.TrialRunner",
                         trial: Trial, result: Dict) -> str:
-
         trials = [trial for trial in trial_runner.get_trials() \
                     if trial.status in (Trial.RUNNING, Trial.PENDING)]
-        if (trial.reallocation_count == 0) or (trial.reallocation_count % 10 == 0):
+        if AdaptDLScheduler._try_realloc(result.get('training_iteration', 1)):
             allocs, desired = self._allocator.allocate(trials)
-            trial.reallocation_count += 1
         else:
             allocs = {trial.trial_id: trial.allocation for trial in trials}
 
