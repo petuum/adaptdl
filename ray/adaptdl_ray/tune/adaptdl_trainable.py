@@ -24,17 +24,20 @@ from ray.tune.integration.torch import _TorchTrainable
 from ray.util.sgd.torch.constants import NCCL_TIMEOUT_S
 
 import adaptdl_ray.tune.adaptdl_patch as P 
+from adaptdl_ray.adaptdl import config
 
 
 def AdaptDLTrainableCreator(func: Callable,
                             num_workers: int = 1,
                             group: int = 0,
                             num_cpus_per_worker: int = 1,
-                            num_gpus_per_worker: int = 0,
                             num_workers_per_host: Optional[int] = None,
                             backend: str = "gloo",
                             timeout_s: int = NCCL_TIMEOUT_S,
                             use_gpu=None):
+    if config.default_device() == "GPU":
+        backend = "nccl"
+
     class AdaptDLTrainable(_TorchTrainable):
         """ Similar to DistributedTrainable but for AdaptDLTrials."""
         def setup(self, config: Dict):
@@ -60,6 +63,11 @@ def AdaptDLTrainableCreator(func: Callable,
 
     AdaptDLTrainable._function = func
     AdaptDLTrainable._num_workers = num_workers
+    # Set number of GPUs if using them, this is later used when spawning the actor
+    if config.default_device() == "GPU":
+        AdaptDLTrainable._num_gpus_per_worker = 1
+    else:
+        AdaptDLTrainable._num_gpus_per_worker = 0
 
     # Trainables are named after number of replicas they spawn. This is
     # essential to associate the right Trainable with the right Trial and PG.

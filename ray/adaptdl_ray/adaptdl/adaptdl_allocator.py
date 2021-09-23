@@ -19,31 +19,26 @@ from adaptdl.goodput import GoodputFunction, PerfParams, GradParams
 from adaptdl_sched.policy.pollux import PolluxPolicy
 from adaptdl_sched.policy.utils import JobInfo, NodeInfo
 from adaptdl_ray.adaptdl.adaptdl_job_mixin import AdaptDLJobMixin
-
+from adaptdl_ray.adaptdl import config
 import ray
 
 
 class AdaptDLAllocator:
-    def __init__(self):
-        nodes = ray.nodes()
+    def __init__(self, nodes=None):
+        nodes = nodes if nodes is not None else config.nodes()
         num_nodes = len(nodes)
-        self._nodes = {node['NodeManagerAddress']: NodeInfo(AdaptDLAllocator._reserve(node['Resources']), 
-                       preemptible=False) for i, node in enumerate(nodes) if node['alive']}
+        self._nodes = {node['NodeManagerAddress']: NodeInfo(node['Resources'], 
+                       preemptible=False) for i, node in enumerate(nodes)}
         # Add a node template.
-        self._node_template = NodeInfo(list(self._nodes.values())[0].resources, preemptible=False)
+        self._node_template = NodeInfo(list(self._nodes.values())[0].resources, 
+                                       preemptible=False)
         self._policy = PolluxPolicy()
 
     def default_allocation(self, num_devices=1):
         """ Use one device from the first node as default."""
         return [f"{list(self._nodes)[0]}"] * num_devices
 
-    @staticmethod
-    def _reserve(resources):
-        """ Reserve some resources for others """
-        resources["CPU"] -= 1.0
-        return resources
-
-    def allocate(self, jobs: List[AdaptDLJobMixin]):
+    def allocate(self, jobs: List[AdaptDLJobMixin], nodes=None):
         assert len(jobs) > 0
         # gather JobInfos
         job_infos = {job.job_id: job.job_info for job in jobs}
@@ -51,7 +46,10 @@ class AdaptDLAllocator:
         prev_allocs = {job.job_id: job.allocation for job in jobs}
 
         allocations, desired_nodes = \
-                self._policy.optimize(job_infos, self._nodes, prev_allocs, self._node_template)
+                self._policy.optimize(job_infos, 
+                                      self._nodes, 
+                                      prev_allocs, 
+                                      self._node_template)
        
         assert all(v == [] for k, v in allocations.items()) == False
         return allocations, desired_nodes

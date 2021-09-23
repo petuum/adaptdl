@@ -48,6 +48,7 @@ N, D_in, _, D_out = 64, 5, 5, 5
 dataset = MyDataset(torch.randn(N, D_in), torch.randn(N, D_out))
 
 def _train_simple(config: Dict, checkpoint_dir: Optional[str] = None):
+    device = "cuda:0" if torch.cuda.is_available() else "cpu"
     H = config.get("H", 16)
     N = config.get("N", 16)
 
@@ -65,11 +66,13 @@ def _train_simple(config: Dict, checkpoint_dir: Optional[str] = None):
     )
     optimizer = optim.SGD(model.parameters(), lr=0.1)
 
+    model = model.to(device)
     model = adl.AdaptiveDataParallel(model, optimizer)
 
     loss = torch.Tensor([0.0])
     for epoch in adl.remaining_epochs_until(config.get("epochs", 10)):
         for (x, y) in dataloader:
+            x, y = x.to(device), y.to(device)
             optimizer.zero_grad()
             output = model(x)
             loss = loss_fn(output, y)
@@ -79,16 +82,16 @@ def _train_simple(config: Dict, checkpoint_dir: Optional[str] = None):
         tune.report(mean_loss=loss.item())
 
 
-ray.init(address="auto")
+ray.init(address="auto", _tracing_startup_hook=None)
 
 trainable_cls = DistributedTrainableCreator(_train_simple)
 
 config_0 = {"epochs": 60}
-config_1 = {"epochs": 20, "H": tune.choice([8, 12]), "N": tune.grid_search(list(range(32, 64, 8)))}
+config_1 = {"epochs": 60, "H": tune.choice([8, 12]), "N": tune.grid_search(list(range(32, 64, 8)))}
 
 analysis = tune.run(
     trainable_cls,
-    num_samples=2, # total trials will be num_samples x points on the grid
+    num_samples=1, # total trials will be num_samples x points on the grid
     scheduler=AdaptDLScheduler(),
     config=config_1,
     metric="mean_loss",

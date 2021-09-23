@@ -31,7 +31,8 @@ class IncrAllocator(AdaptDLAllocator):
     __test__ = False
     def __init__(self):
         super().__init__()
-        self._avail_cpus = int(list(self._nodes.values())[0].resources["CPU"])
+        # Reserve one CPU for the Trainable
+        self._avail_cpus = int(list(self._nodes.values())[0].resources["CPU"] - 1)
         self._cur_cpus = 1
     
     def default_allocation(self, num_devices=1):
@@ -49,7 +50,8 @@ class DecrAllocator(AdaptDLAllocator):
     __test__ = False
     def __init__(self):
         super().__init__()
-        self._avail_cpus = int(list(self._nodes.values())[0].resources["CPU"])
+        # Reserve one CPU for the Trainable
+        self._avail_cpus = int(list(self._nodes.values())[0].resources["CPU"] - 1)
         self._cur_cpus = self._avail_cpus 
     
     def default_allocation(self, num_devices=None):
@@ -63,8 +65,31 @@ class DecrAllocator(AdaptDLAllocator):
             self._cur_cpus = max(self._cur_cpus - 1, 1)
         return {jobs[0].job_id: self.default_allocation(self._cur_cpus)}, 0
 
+
+class PausingAllocator(AdaptDLAllocator):
+    __test__ = False
+    def __init__(self):
+        super().__init__()
+        # Reserve one CPU for the Trainable
+        self._avail_cpus = int(list(self._nodes.values())[0].resources["CPU"] - 1)
+        self._cur_cpus = 1
+        self._toggle = True
+
+    def default_allocation(self, num_devices=1):
+        """ Use one device from the first node as default."""
+        return [f"{list(self._nodes)[0]}"] * num_devices
+
+    def allocate(self, jobs):
+        if self._toggle:
+            self._toggle = False
+            return {jobs[0].job_id: self.default_allocation(self._cur_cpus)}, 0
+        else:
+            self._toggle = True
+            return {jobs[0].job_id: []}, 0
+
+
 EPOCHS = 60
-NUM_CPUS_CLUSTER = 4
+NUM_CPUS_CLUSTER = 5
 
 class MyTest(unittest.TestCase):
     def setUp(self):
@@ -98,6 +123,19 @@ class MyTest(unittest.TestCase):
             mode="min")
         assert len(analysis.results_df) == 1
         assert analysis._checkpoints[0]["last_result"]["training_iteration"] >= EPOCHS
+    
+    def testSchedulerPausing(self):
+        trainable_cls = DistributedTrainableCreator(_train_simple)
+        analysis = tune.run(
+            trainable_cls,
+            name="Pausing",
+            num_samples=1,
+            scheduler=AdaptDLScheduler(PausingAllocator()),
+            config={"epochs": EPOCHS},
+            metric="mean_loss",
+            mode="min")
+        assert len(analysis.results_df) == 1
+
 
 if __name__ == "__main__":
     import pytest, sys

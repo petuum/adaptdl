@@ -19,4 +19,5 @@ from .adaptdl_allocator import AdaptDLAllocator
 __all__ = [
     "AdaptDLAllocator",
     "AdaptDLJobMixin",
+    "default_device"
 ]

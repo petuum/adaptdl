@@ -23,14 +23,10 @@ from ray import tune
 from adaptdl.goodput import GoodputFunction, PerfParams, GradParams
 from adaptdl_sched.policy.speedup import SpeedupFunction
 from adaptdl_sched.policy.utils import JobInfo, NodeInfo
-from typing import Dict, List, Optional, Union
+from adaptdl_ray.adaptdl import config
 
 
 class AdaptDLJobMixin:
-    # Job-level replica bounds
-    _MIN_REPLICAS = 0
-    _MAX_REPLICAS = 10
-
     def __init__(self, *args, **kwargs):
         # Be wary of putting large data members here. Tune Experiment checkpointing
         # may try to serialize this.
@@ -52,7 +48,6 @@ class AdaptDLJobMixin:
 
     @property
     def job_info(self):
-        job_resources = {"CPU": 1.0}
         metrics = self._fetch_metrics()
         if metrics is not None:
             perf_params = metrics.perf_params
@@ -63,8 +58,8 @@ class AdaptDLJobMixin:
         else:
             speedup_fn = lambda n, r: r  # noqa: E731
 
-        return JobInfo(job_resources, speedup_fn, self.creation_timestamp,
-                       AdaptDLJobMixin._MIN_REPLICAS, AdaptDLJobMixin._MAX_REPLICAS)
+        return JobInfo(config.job_resources(), speedup_fn, self.creation_timestamp,
+                       config._JOB_MIN_REPLICAS, config._JOB_MAX_REPLICAS)
 
     @property
     def allocation(self):
@@ -78,27 +73,34 @@ class AdaptDLJobMixin:
     @staticmethod
     def pgf_to_allocation(pgf) -> List[str]:
         bundles = pgf._bundles[1:]
-        allocs, node_keys, devices_keys = [], [], []
+        allocs, node_keys, num_devices = [], [], []
         for bundle in bundles:
             node_keys += [k.split(":")[1] for k, v in bundle.items() if k.startswith("node")]
-            devices_keys += [int(v) for k, v in bundle.items() if k == "CPU"]
+            num_devices += [int(v) for k, v in bundle.items() if k == config.default_device()]
 
-        for node, devices in zip(node_keys, devices_keys):
-            allocs += [node] * devices
+        for node, count in zip(node_keys, num_devices):
+            allocs += [node] * count
         return allocs
 
-    @staticmethod
     def allocation_to_pgf(alloc: List[str]):
+        def _construct_bundle(node, device_count):
+            resources = {config.default_device(): device_count, 
+                         f"node:{node}": 0.01}
+            if config.default_device() == "GPU":
+                # As per Ray, We need equal amount of CPUs if there are GPUs in
+                # this bundle
+                resources["CPU"] = device_count
+            return resources
+
         assert len(alloc) > 0
-        resources = [{"CPU": 0.1}]
+        resources = [{"CPU": 0.01}]
         alloc = Counter(alloc)
         for node, res in alloc.items():
-            resources.append({"CPU": res, f"node:{node}": 0.01})
+            resources.append(_construct_bundle(node, res))
         return tune.PlacementGroupFactory(resources)
     
     @staticmethod
     def _pgf_to_num_replicas(pgf) -> int:
-        # Extract number of CPUs from all PGs
-        return sum(int(bundle.get("CPU", 0)) for bundle in pgf._bundles[1:])
-
+        return sum(int(bundle.get(config.default_device(), 0)) 
+                       for bundle in pgf._bundles[1:])
 

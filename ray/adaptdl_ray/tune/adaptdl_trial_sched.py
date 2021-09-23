@@ -21,6 +21,7 @@ from ray.tune.trial import Trial
 
 from adaptdl_ray.tune.adaptdl_trial import AdaptDLTrial
 from adaptdl_ray.adaptdl import AdaptDLAllocator
+from adaptdl_ray.adaptdl import config
 
 import logging
 logger = logging.getLogger(__name__)
@@ -30,14 +31,17 @@ logger.setLevel(logging.DEBUG)
 class AdaptDLScheduler(TrialScheduler):
     """AdaptDL TrialScheduler."""
 
-    _ALLOCATOR_INVOKE_FREQ = 10
+    _ALLOCATOR_INVOKE_FREQ = 30
 
     @staticmethod
     def _try_realloc(iteration):
         return iteration % AdaptDLScheduler._ALLOCATOR_INVOKE_FREQ == 0
 
     def __init__(self, allocator=None):
-        self._allocator = allocator if allocator is not None else AdaptDLAllocator()
+        nodes = config.nodes()
+        # Reserve 1 CPU from the first node for the Trainable
+        nodes[0]["Resources"]["CPU"] -= 1
+        self._allocator = allocator if allocator is not None else AdaptDLAllocator(nodes)
 
     def on_trial_add(self, trial_runner: "trial_runner.TrialRunner",
                      trial: Trial):
@@ -61,7 +65,6 @@ class AdaptDLScheduler(TrialScheduler):
         if allocs.get(trial.trial_id) == [] and trial.status == Trial.RUNNING:
             # Pause only if the trial is running
             trial.pause(trial_runner)
-            # Pause this trial
             return TrialScheduler.PAUSE
         elif allocs.get(trial.trial_id) != trial.allocation:
             trial = AdaptDLTrial.create_from(trial, 
@@ -91,7 +94,11 @@ class AdaptDLScheduler(TrialScheduler):
                     and trial_runner.has_resources_for_trial(trial)):
                 # Note: this puts the trial back to RUNNING. Need the new trial
                 # to have the old chekcpoint
-                return trial
+                # TODO: invoke the allocator here?
+                return AdaptDLTrial.create_from(trial, 
+                                                trial_runner, 
+                                                self._allocator.default_allocation(),
+                                                copy_state=True)
         return None
 
     def debug_string(self) -> str:

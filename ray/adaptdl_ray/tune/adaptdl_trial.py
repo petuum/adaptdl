@@ -111,14 +111,18 @@ class AdaptDLTrial(AdaptDLJobMixin, Trial):
         checkpoint_path = None
         logger.debug(f"Creating {trial} with {len(new_allocation)} replicas")
         if copy_state:
-            # Fetch the state from the other trial
-            assert trial.runner is not None
-            checkpoint_obj = ray.get(trial.runner.save_all_states.remote(
-                                     trial.runner.get_state.remote()))
-            # Dump it to disk
-            temp_checkpoint_dir = (FuncCheckpointUtil.mk_temp_checkpoint_dir(trial.logdir))
-            checkpoint_path = TrainableUtil.create_from_pickle(checkpoint_obj, temp_checkpoint_dir)
-            
+            if trial.runner is not None:
+                # Fetch the state from the other trial
+                assert trial.runner is not None
+                checkpoint_obj = ray.get(trial.runner.save_all_states.remote(
+                                         trial.runner.get_state.remote()))
+                # Dump it to disk
+                temp_checkpoint_dir = (FuncCheckpointUtil.mk_temp_checkpoint_dir(trial.logdir))
+                checkpoint_path = TrainableUtil.create_from_pickle(checkpoint_obj, temp_checkpoint_dir)
+            else:
+                # trial was PAUSED
+                checkpoint_path = trial.restore_path
+
         # Spawn a new trial
         new_trial = cls._clone_from(trial, new_allocation, restore_path=checkpoint_path)
         # Keep it for later use by the trials
@@ -135,8 +139,7 @@ class AdaptDLTrial(AdaptDLJobMixin, Trial):
         assert self.runner is not None
         checkpoint_obj = ray.get(self.runner.save_all_states.remote(
                                  self.runner.get_state.remote()))
-
-        # Serialize it to disk
+        # Serialize to disk
         temp_checkpoint_dir = (FuncCheckpointUtil.mk_temp_checkpoint_dir(self.logdir))
         checkpoint_path = TrainableUtil.create_from_pickle(checkpoint_obj, temp_checkpoint_dir)
 
