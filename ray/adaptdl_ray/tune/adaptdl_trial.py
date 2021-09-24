@@ -113,7 +113,6 @@ class AdaptDLTrial(AdaptDLJobMixin, Trial):
         if copy_state:
             if trial.runner is not None:
                 # Fetch the state from the other trial
-                assert trial.runner is not None
                 checkpoint_obj = ray.get(trial.runner.save_all_states.remote(
                                          trial.runner.get_state.remote()))
                 # Dump it to disk

@@ -39,6 +39,9 @@ class AdaptDLAllocator:
         return [f"{list(self._nodes)[0]}"] * num_devices
 
     def allocate(self, jobs: List[AdaptDLJobMixin], nodes=None):
+        if nodes is None:
+            nodes = self._nodes
+
         assert len(jobs) > 0
         # gather JobInfos
         job_infos = {job.job_id: job.job_info for job in jobs}
@@ -47,7 +50,7 @@ class AdaptDLAllocator:
 
         allocations, desired_nodes = \
                 self._policy.optimize(job_infos, 
-                                      self._nodes, 
+                                      nodes,
                                       prev_allocs, 
                                       self._node_template)
        

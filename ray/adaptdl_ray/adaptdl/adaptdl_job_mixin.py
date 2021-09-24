@@ -53,7 +53,7 @@ class AdaptDLJobMixin:
             perf_params = metrics.perf_params
             grad_params = metrics.grad_params
             goodput_fn = GoodputFunction(perf_params, grad_params, 128)
-            speedup_fn = SpeedupFunction(goodput_fn, max_batch_size=1280,
+            speedup_fn = SpeedupFunction(goodput_fn, max_batch_size=1280, # TODO
                                          atomic_bsz_range=(64, 256))
         else:
             speedup_fn = lambda n, r: r  # noqa: E731
