@@ -24,6 +24,7 @@ from adaptdl.goodput import GoodputFunction, PerfParams, GradParams
 from adaptdl_sched.policy.speedup import SpeedupFunction
 from adaptdl_sched.policy.utils import JobInfo, NodeInfo
 from adaptdl_ray.adaptdl import config
+from adaptdl_ray.adaptdl.utils import pgf_to_allocation
 
 
 class AdaptDLJobMixin:
@@ -66,41 +67,7 @@ class AdaptDLJobMixin:
         # Allocation is in use if the job is using it
         assert self.placement_group_factory is not None
         if self._allocation_in_use():
-            return AdaptDLJobMixin.pgf_to_allocation(self.placement_group_factory)
+            return pgf_to_allocation(self.placement_group_factory)
         else:
             return []
-
-    @staticmethod
-    def pgf_to_allocation(pgf) -> List[str]:
-        bundles = pgf._bundles[1:]
-        allocs, node_keys, num_devices = [], [], []
-        for bundle in bundles:
-            node_keys += [k.split(":")[1] for k, v in bundle.items() if k.startswith("node")]
-            num_devices += [int(v) for k, v in bundle.items() if k == config.default_device()]
-
-        for node, count in zip(node_keys, num_devices):
-            allocs += [node] * count
-        return allocs
-
-    def allocation_to_pgf(alloc: List[str]):
-        def _construct_bundle(node, device_count):
-            resources = {config.default_device(): device_count, 
-                         f"node:{node}": 0.01}
-            if config.default_device() == "GPU":
-                # As per Ray, We need equal amount of CPUs if there are GPUs in
-                # this bundle
-                resources["CPU"] = device_count
-            return resources
-
-        assert len(alloc) > 0
-        resources = [{"CPU": 0.01}]
-        alloc = Counter(alloc)
-        for node, res in alloc.items():
-            resources.append(_construct_bundle(node, res))
-        return tune.PlacementGroupFactory(resources)
-    
-    @staticmethod
-    def _pgf_to_num_replicas(pgf) -> int:
-        return sum(int(bundle.get(config.default_device(), 0)) 
-                       for bundle in pgf._bundles[1:])
 

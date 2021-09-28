@@ -31,7 +31,7 @@ from ray.tune.trial import Location
 
 from adaptdl_ray.adaptdl import AdaptDLJobMixin
 from adaptdl_ray.tune.adaptdl_trainable import AdaptDLTrainableCreator
-
+from adaptdl_ray.adaptdl.utils import pgf_to_num_replicas, allocation_to_pgf
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -86,8 +86,8 @@ class AdaptDLTrial(AdaptDLJobMixin, Trial):
     @classmethod
     def _clone_from(cls, trial: Trial, allocation, restore_path=None) -> "AdaptDLTrial":
         trainable_cls = trial.get_trainable_cls()
-        pgf = cls.allocation_to_pgf(allocation)
-        num_workers = cls._pgf_to_num_replicas(pgf)
+        pgf = allocation_to_pgf(allocation)
+        num_workers = pgf_to_num_replicas(pgf)
         assert num_workers > 0
         rescale_count = trial.rescale_count + 1 if isinstance(trial, AdaptDLTrial) else 1
 

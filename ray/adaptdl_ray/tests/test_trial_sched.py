@@ -32,14 +32,14 @@ class IncrAllocator(AdaptDLAllocator):
     def __init__(self):
         super().__init__()
         # Reserve one CPU for the Trainable
-        self._avail_cpus = int(list(self._nodes.values())[0].resources["CPU"] - 1)
+        self._avail_cpus = int(list(self._node_infos.values())[0].resources["CPU"] - 1)
         self._cur_cpus = 1
     
     def default_allocation(self, num_devices=1):
         """ Use one device from the first node as default."""
-        return [f"{list(self._nodes)[0]}"] * num_devices
+        return [f"{list(self._node_infos)[0]}"] * num_devices
 
-    def allocate(self, jobs):
+    def allocate(self, jobs, nodes=None):
         if jobs[0]._num_replicas == self._cur_cpus:
             self._cur_cpus = min(self._cur_cpus + 1, self._avail_cpus)
         return {jobs[0].job_id: self.default_allocation(self._cur_cpus)}, 0
@@ -51,16 +51,16 @@ class DecrAllocator(AdaptDLAllocator):
     def __init__(self):
         super().__init__()
         # Reserve one CPU for the Trainable
-        self._avail_cpus = int(list(self._nodes.values())[0].resources["CPU"] - 1)
+        self._avail_cpus = int(list(self._node_infos.values())[0].resources["CPU"] - 1)
         self._cur_cpus = self._avail_cpus 
     
     def default_allocation(self, num_devices=None):
         """ Use one device from the first node as default."""
         if num_devices is None:
             num_devices = self._avail_cpus
-        return [f"{list(self._nodes)[0]}"] * num_devices
+        return [f"{list(self._node_infos)[0]}"] * num_devices
 
-    def allocate(self, jobs):
+    def allocate(self, jobs, nodes=None):
         if jobs[0]._num_replicas == self._cur_cpus:
             self._cur_cpus = max(self._cur_cpus - 1, 1)
         return {jobs[0].job_id: self.default_allocation(self._cur_cpus)}, 0
@@ -71,15 +71,15 @@ class PausingAllocator(AdaptDLAllocator):
     def __init__(self):
         super().__init__()
         # Reserve one CPU for the Trainable
-        self._avail_cpus = int(list(self._nodes.values())[0].resources["CPU"] - 1)
+        self._avail_cpus = int(list(self._node_infos.values())[0].resources["CPU"] - 1)
         self._cur_cpus = 1
         self._toggle = True
 
     def default_allocation(self, num_devices=1):
         """ Use one device from the first node as default."""
-        return [f"{list(self._nodes)[0]}"] * num_devices
+        return [f"{list(self._node_infos)[0]}"] * num_devices
 
-    def allocate(self, jobs):
+    def allocate(self, jobs, nodes=None):
         if self._toggle:
             self._toggle = False
             return {jobs[0].job_id: self.default_allocation(self._cur_cpus)}, 0

@@ -14,33 +14,33 @@
 
 
 from typing import Dict, List, Optional, Union
-from collections import Counter
 from adaptdl.goodput import GoodputFunction, PerfParams, GradParams
 from adaptdl_sched.policy.pollux import PolluxPolicy
 from adaptdl_sched.policy.utils import JobInfo, NodeInfo
 from adaptdl_ray.adaptdl.adaptdl_job_mixin import AdaptDLJobMixin
 from adaptdl_ray.adaptdl import config
-import ray
 
 
 class AdaptDLAllocator:
-    def __init__(self, nodes=None):
+    def __init__(self, nodes: List = None):
         nodes = nodes if nodes is not None else config.nodes()
-        num_nodes = len(nodes)
-        self._nodes = {node['NodeManagerAddress']: NodeInfo(node['Resources'], 
-                       preemptible=False) for i, node in enumerate(nodes)}
+        self._node_infos = {node['NodeManagerAddress']: NodeInfo(node['Resources'], 
+                            preemptible=False) for node in nodes}
         # Add a node template.
-        self._node_template = NodeInfo(list(self._nodes.values())[0].resources, 
+        self._node_template = NodeInfo(list(self._node_infos.values())[0].resources, 
                                        preemptible=False)
         self._policy = PolluxPolicy()
 
     def default_allocation(self, num_devices=1):
         """ Use one device from the first node as default."""
-        return [f"{list(self._nodes)[0]}"] * num_devices
+        return [f"{list(self._node_infos)[0]}"] * num_devices
 
-    def allocate(self, jobs: List[AdaptDLJobMixin], nodes=None):
-        if nodes is None:
-            nodes = self._nodes
+    def allocate(self, jobs: List[AdaptDLJobMixin], nodes: List = None):
+        if nodes is not None:
+            node_infos = {node['NodeManagerAddress']: NodeInfo(node['Resources'], 
+                              preemptible=False) for node in nodes}
+        else:
+            node_infos = self._node_infos
 
         assert len(jobs) > 0
         # gather JobInfos
@@ -50,7 +50,7 @@ class AdaptDLAllocator:
 
         allocations, desired_nodes = \
                 self._policy.optimize(job_infos, 
-                                      nodes,
+                                      node_infos,
                                       prev_allocs, 
                                       self._node_template)
        

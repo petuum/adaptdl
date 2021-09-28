@@ -22,6 +22,7 @@ from ray.tune.trial import Trial
 from adaptdl_ray.tune.adaptdl_trial import AdaptDLTrial
 from adaptdl_ray.adaptdl import AdaptDLAllocator
 from adaptdl_ray.adaptdl import config
+from adaptdl_ray.adaptdl.utils import pgs_to_resources
 
 import logging
 logger = logging.getLogger(__name__)
@@ -31,17 +32,17 @@ logger.setLevel(logging.DEBUG)
 class AdaptDLScheduler(TrialScheduler):
     """AdaptDL TrialScheduler."""
 
-    _ALLOCATOR_INVOKE_FREQ = 30
+    _ALLOCATOR_INVOKE_FREQ = 40
 
     @staticmethod
     def _try_realloc(iteration):
         return iteration % AdaptDLScheduler._ALLOCATOR_INVOKE_FREQ == 0
 
     def __init__(self, allocator=None):
-        nodes = config.nodes()
-        # Reserve 1 CPU from the first node for the Trainable
-        nodes[0]["Resources"]["CPU"] -= 1
-        self._allocator = allocator if allocator is not None else AdaptDLAllocator(nodes)
+        # Reserve 1 CPU from the first node for the Trainables
+        consumed_resources = {config.nodes()[0]["NodeManagerAddress"]: {"CPU": -1.0}}
+        self._allocator = allocator if allocator is not None \
+                else AdaptDLAllocator(config.nodes(consumed_resources))
 
     def on_trial_add(self, trial_runner: "trial_runner.TrialRunner",
                      trial: Trial):
@@ -58,7 +59,11 @@ class AdaptDLScheduler(TrialScheduler):
         trials = [trial for trial in trial_runner.get_trials() \
                     if trial.status in (Trial.RUNNING, Trial.PENDING)]
         if AdaptDLScheduler._try_realloc(result.get('training_iteration', 1)):
-            allocs, desired = self._allocator.allocate(trials)
+            in_use_pgs = [pg.to_dict() for pg in 
+                          trial_runner.trial_executor._pg_manager._in_use_pgs]
+            consumed_resources = pgs_to_resources(in_use_pgs)
+            nodes = config.nodes(consumed_resources)
+            allocs, desired = self._allocator.allocate(trials, nodes)
         else:
             allocs = {trial.trial_id: trial.allocation for trial in trials}
 
