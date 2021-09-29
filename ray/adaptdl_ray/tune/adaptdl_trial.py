@@ -42,6 +42,7 @@ class AdaptDLTrial(AdaptDLJobMixin, Trial):
     def __init__(self, *args, **kwargs):
         super().__init__(job_id=kwargs["trial_id"], *args, **kwargs)
         self.rescale_count = 0
+        self._cached_metrics = None
 
     @property
     def _num_replicas(self):
@@ -50,7 +51,7 @@ class AdaptDLTrial(AdaptDLJobMixin, Trial):
     def __getstate__(self):
         state = self.__dict__.copy()
         # Remove problematic members
-        for k in ["_has_resources"]:
+        for k in ("_has_resources", "_cached_metrics"):
             del state[k]
 
         state["resources"] = resources_to_json(self.resources)
@@ -78,7 +79,13 @@ class AdaptDLTrial(AdaptDLJobMixin, Trial):
         trial_runner._live_trials.add(self)
 
     def _fetch_metrics(self):
-        return ray.get(self.runner.get_sched_hints.remote()) if self.runner else None
+        if self.runner is not None:
+            self._cached_metrics = ray.get(self.runner.get_sched_hints.remote())
+            return self._cached_metrics
+        elif self._cached_metrics is not None:
+            return self._cached_metrics
+        else:
+            return None
 
     def _allocation_in_use(self):
         return self._has_resources(self)

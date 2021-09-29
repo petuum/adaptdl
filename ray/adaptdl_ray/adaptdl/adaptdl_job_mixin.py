@@ -40,7 +40,9 @@ class AdaptDLJobMixin:
         return self._job_id
 
     def _fetch_metrics(self):
-        """ Returns metrics of this AdaptDLJob."""
+        """ Returns perf metrics of this AdaptDLJob. This could return a cached
+        copy in case the job is currently not running."""
+
         raise NotImplementedError
 
     def _allocation_in_use(self) -> bool:
@@ -53,9 +55,13 @@ class AdaptDLJobMixin:
         if metrics is not None:
             perf_params = metrics.perf_params
             grad_params = metrics.grad_params
-            goodput_fn = GoodputFunction(perf_params, grad_params, 128)
-            speedup_fn = SpeedupFunction(goodput_fn, max_batch_size=1280, # TODO
-                                         atomic_bsz_range=(64, 256))
+            goodput_fn = GoodputFunction(perf_params,
+                                         grad_params,
+                                         metrics.init_batch_size)
+            speedup_fn = SpeedupFunction(goodput_fn,
+                                         metrics.max_batch_size,
+                                         metrics.local_bsz_bounds,
+                                         metrics.gradient_accumulation)
         else:
             speedup_fn = lambda n, r: r  # noqa: E731
 
