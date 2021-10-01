@@ -32,7 +32,7 @@ logger.setLevel(logging.DEBUG)
 class AdaptDLScheduler(TrialScheduler):
     """AdaptDL TrialScheduler."""
 
-    _ALLOCATOR_INVOKE_FREQ = 40
+    _ALLOCATOR_INVOKE_FREQ = 50
 
     @staticmethod
     def _try_realloc(iteration):
@@ -70,6 +70,7 @@ class AdaptDLScheduler(TrialScheduler):
         if allocs.get(trial.trial_id) == [] and trial.status == Trial.RUNNING:
             # Pause only if the trial is running
             trial.pause(trial_runner)
+            trial_runner.trial_executor._pg_manager.reconcile_placement_groups(trials)
             return TrialScheduler.PAUSE
         elif allocs.get(trial.trial_id) != trial.allocation:
             trial = AdaptDLTrial.create_from(trial, 
@@ -82,7 +83,7 @@ class AdaptDLScheduler(TrialScheduler):
 
     def on_trial_complete(self, trial_runner: "trial_runner.TrialRunner",
                           trial: Trial, result: Dict):
-        pass
+        trial_runner.trial_executor._pg_manager.reconcile_placement_groups([trial])
 
     def on_trial_remove(self, trial_runner: "trial_runner.TrialRunner",
                         trial: Trial):
