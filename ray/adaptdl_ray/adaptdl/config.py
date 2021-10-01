@@ -28,7 +28,7 @@ _JOB_MAX_REPLICAS = 10
 def _avail_nodes() -> Dict:
     """ We return all live nodes with their allocatable resources."""
 
-    alive_nodes = {node["NodeID"] : node for node in ray.nodes() if node["alive"]}
+    alive_nodes = {node["NodeID"] : node for node in sorted(ray.nodes(), key=lambda x:x['NodeID']) if node["alive"]}
     for node_id, resources in ray.state.state._available_resources_per_node().items():
         pruned_resources = defaultdict(float, {k : v for k, v in resources.items() if "group" not in k})
         alive_nodes[node_id]["Resources"] = pruned_resources
@@ -64,7 +64,7 @@ def nodes(consumed_resources: Dict = None) -> List[Dict]:
         node_id_map = {node["NodeID"]: node["NodeManagerAddress"] for node in 
                        ray.nodes() if node["alive"]}
         for node_id, node in avail_nodes.items():
-            resources = consumed_resources[node_id_map[node_id]]
+            resources = consumed_resources.get(node_id_map[node_id], {})
             for resource, amount in resources.items():
                 node["Resources"][resource] += amount
 
