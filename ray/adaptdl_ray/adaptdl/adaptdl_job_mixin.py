@@ -32,7 +32,7 @@ class AdaptDLJobMixin:
         # Be wary of putting large data members here. Tune Experiment checkpointing
         # may try to serialize this.
         self._job_id = kwargs.pop("job_id", 0)
-        self.creation_timestamp = datetime.now()
+        self.creation_timestamp = kwargs.pop("creation_timestamp", datetime.now())
         super().__init__(*args, **kwargs)
 
     @property

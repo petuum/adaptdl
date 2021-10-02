@@ -40,9 +40,9 @@ logger.setLevel(logging.DEBUG)
 class AdaptDLTrial(AdaptDLJobMixin, Trial):
     """ Tune Trial that brings in AdaptDL functionality. """
     def __init__(self, *args, **kwargs):
-        super().__init__(job_id=kwargs["trial_id"], *args, **kwargs)
-        self.rescale_count = 0
+        self.rescale_count = kwargs.pop("rescale_count", 0)
         self._cached_metrics = None
+        super().__init__(job_id=kwargs["trial_id"], *args, **kwargs)
 
     @property
     def _num_replicas(self):
@@ -51,7 +51,7 @@ class AdaptDLTrial(AdaptDLJobMixin, Trial):
     def __getstate__(self):
         state = self.__dict__.copy()
         # Remove problematic members
-        for k in ("_has_resources", "_cached_metrics"):
+        for k in ("_trial_in_use", "_cached_metrics"):
             del state[k]
 
         state["resources"] = resources_to_json(self.resources)
@@ -72,7 +72,7 @@ class AdaptDLTrial(AdaptDLJobMixin, Trial):
 
     def _requeue(self, old_trial: Trial, trial_runner: "trial_runner.TrialRunner"):
         # Remove the old trial from trial_runner
-        trial_runner.trial_executor.stop_trial(old_trial, destroy_pg_if_cannot_replace=False)
+        trial_runner.trial_executor.stop_trial(old_trial)
         trial_runner._trials.pop(trial_runner._trials.index(old_trial))
         # Important: Add the new trial to the runner
         trial_runner._trials.append(self)
@@ -88,7 +88,7 @@ class AdaptDLTrial(AdaptDLJobMixin, Trial):
             return None
 
     def _allocation_in_use(self):
-        return self._has_resources(self)
+        return self._trial_in_use(self)
 
     @classmethod
     def _clone_from(cls, trial: Trial, allocation, restore_path=None) -> "AdaptDLTrial":
@@ -96,12 +96,21 @@ class AdaptDLTrial(AdaptDLJobMixin, Trial):
         pgf = allocation_to_pgf(allocation)
         num_workers = pgf_to_num_replicas(pgf)
         assert num_workers > 0
-        rescale_count = trial.rescale_count + 1 if isinstance(trial, AdaptDLTrial) else 1
+        if isinstance(trial, AdaptDLTrial):
+            # Cloning from existing AdaptDLTrial
+            rescale_count = trial.rescale_count + 1
+            # Carry over the creation_timestamp
+            creation_timestamp = trial.creation_timestamp
+        else:
+            creation_timestamp = datetime.now()
+            rescale_count = 0
 
         adaptdl_trainable_cls = AdaptDLTrainableCreator(trainable_cls._function, 
                                                         num_workers, 
                                                         group=rescale_count)
         return cls(trainable_name=adaptdl_trainable_cls.__name__,
+                   creation_timestamp=creation_timestamp,
+                   rescale_count=rescale_count,
                    config=trial.config,
                    experiment_tag=trial.experiment_tag,
                    trial_id=trial.trial_id,
@@ -132,8 +141,7 @@ class AdaptDLTrial(AdaptDLJobMixin, Trial):
         # Spawn a new trial
         new_trial = cls._clone_from(trial, new_allocation, restore_path=checkpoint_path)
         # Keep it for later use by the trials
-        new_trial._has_resources = trial_runner.has_resources_for_trial 
-        new_trial.rescale_count += 1
+        new_trial._trial_in_use = trial_runner.trial_executor._pg_manager.trial_in_use
         # Replace with old trial
         new_trial._requeue(trial, trial_runner)
         assert new_trial.restore_path == checkpoint_path

@@ -56,8 +56,8 @@ class AdaptDLScheduler(TrialScheduler):
 
     def on_trial_result(self, trial_runner: "trial_runner.TrialRunner",
                         trial: Trial, result: Dict) -> str:
-        trials = [trial for trial in trial_runner.get_trials() \
-                    if trial.status in (Trial.RUNNING, Trial.PENDING)]
+        trials = [trial for trial in trial_runner.get_trials()
+                  if trial.status in (Trial.RUNNING, Trial.PENDING)]
         if AdaptDLScheduler._try_realloc(result.get('training_iteration', 1)):
             in_use_pgs = [pg.to_dict() for pg in 
                           trial_runner.trial_executor._pg_manager._in_use_pgs]
@@ -70,7 +70,6 @@ class AdaptDLScheduler(TrialScheduler):
         if allocs.get(trial.trial_id) == [] and trial.status == Trial.RUNNING:
             # Pause only if the trial is running
             trial.pause(trial_runner)
-            trial_runner.trial_executor._pg_manager.reconcile_placement_groups(trials)
             return TrialScheduler.PAUSE
         elif allocs.get(trial.trial_id) != trial.allocation:
             trial = AdaptDLTrial.create_from(trial, 
@@ -83,6 +82,7 @@ class AdaptDLScheduler(TrialScheduler):
 
     def on_trial_complete(self, trial_runner: "trial_runner.TrialRunner",
                           trial: Trial, result: Dict):
+        # Trial completed, force resource release
         trial_runner.trial_executor._pg_manager.reconcile_placement_groups([trial])
 
     def on_trial_remove(self, trial_runner: "trial_runner.TrialRunner",
@@ -98,13 +98,13 @@ class AdaptDLScheduler(TrialScheduler):
         for trial in trial_runner.get_trials():
             if (trial.status == Trial.PAUSED
                     and trial_runner.has_resources_for_trial(trial)):
-                # Note: this puts the trial back to RUNNING. Need the new trial
-                # to have the old chekcpoint
-                # TODO: invoke the allocator here?
+                # Note: this puts the trial back to RUNNING
                 return AdaptDLTrial.create_from(trial, 
                                                 trial_runner, 
                                                 self._allocator.default_allocation(),
                                                 copy_state=True)
+        # Reconcile PGs on the PG manager, so next PAUSED/PENDING trial would get a chance
+        trial_runner.trial_executor._pg_manager.reconcile_placement_groups(trial_runner.get_trials())
         return None
 
     def debug_string(self) -> str:
