@@ -21,6 +21,7 @@ import copy
 
 import ray
 from ray.tune.trial import Trial 
+from ray.tune import PlacementGroupFactory
 from ray.tune.function_runner import FuncCheckpointUtil
 from ray.tune.trainable import TrainableUtil
 from ray.tune.resources import Resources, \
@@ -159,5 +160,13 @@ class AdaptDLTrial(AdaptDLJobMixin, Trial):
 
         # Trial will be restored from the checkpoint_path when it's resumed
         self.restore_path = checkpoint_path
-        # Clear the allocation
+
+        # Clear the allocation. This is a hack to clear the PG associated with
+        # the trial. We assign a temporary PG which will get replaced with a
+        # real PG once we resume the trial. This is needed because Tune likes
+        # to keep the PGs around even for PAUSED trials.
+        self.placement_group_factory = PlacementGroupFactory([{"CPU": 0.009}])
+        # This forces Tune to garbage-collect uneeded PGs which can then be reused
+        trial_runner.trial_executor._pg_manager.reconcile_placement_groups([self])
+
         logger.debug(f"PAUSING {self} w/ checkpoint at {checkpoint_path}")
