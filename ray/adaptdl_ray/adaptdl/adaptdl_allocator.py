@@ -53,6 +53,9 @@ class AdaptDLAllocator:
                                       node_infos,
                                       prev_allocs, 
                                       self._node_template)
-       
+        # Fill empty allocations for jobs which didn't get any 
+        for job_id in job_infos:
+            allocations[job_id] = allocations.get(job_id, [])
+
         assert all(v == [] for k, v in allocations.items()) == False
         return allocations, desired_nodes

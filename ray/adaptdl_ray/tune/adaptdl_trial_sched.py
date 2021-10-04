@@ -32,17 +32,19 @@ logger.setLevel(logging.DEBUG)
 class AdaptDLScheduler(TrialScheduler):
     """AdaptDL TrialScheduler."""
 
-    _ALLOCATOR_INVOKE_FREQ = 50
+    _ALLOCATOR_INVOKE_FREQ = 100
 
-    @staticmethod
-    def _try_realloc(iteration):
-        return iteration % AdaptDLScheduler._ALLOCATOR_INVOKE_FREQ == 0
+    def _try_realloc(self):
+        self._iterations += 1
+        return self._iterations % AdaptDLScheduler._ALLOCATOR_INVOKE_FREQ == 0
 
     def __init__(self, allocator=None):
         # Reserve 1 CPU from the first node for the Trainables
         consumed_resources = {config.nodes()[0]["NodeManagerAddress"]: {"CPU": -1.0}}
         self._allocator = allocator if allocator is not None \
                 else AdaptDLAllocator(config.nodes(consumed_resources))
+        self._allocs = {}
+        self._iterations = 0
 
     def on_trial_add(self, trial_runner: "trial_runner.TrialRunner",
                      trial: Trial):
@@ -58,32 +60,30 @@ class AdaptDLScheduler(TrialScheduler):
                         trial: Trial, result: Dict) -> str:
         trials = [trial for trial in trial_runner.get_trials()
                   if trial.status in (Trial.RUNNING, Trial.PENDING)]
-        if AdaptDLScheduler._try_realloc(result.get('training_iteration', 1)):
+        if self._try_realloc() and len(self._allocs) == 0:
             in_use_pgs = [pg.to_dict() for pg in 
                           trial_runner.trial_executor._pg_manager._in_use_pgs]
             consumed_resources = pgs_to_resources(in_use_pgs)
             nodes = config.nodes(consumed_resources)
-            allocs, desired = self._allocator.allocate(trials, nodes)
-        else:
-            allocs = {trial.trial_id: trial.allocation for trial in trials}
+            self._allocs, _ = self._allocator.allocate(trials, nodes)
 
-        if allocs.get(trial.trial_id) == [] and trial.status == Trial.RUNNING:
+        alloc = self._allocs.pop(trial.trial_id, None)
+        if alloc is None:
+            return TrialScheduler.CONTINUE
+
+        if alloc == [] and trial.status == Trial.RUNNING:
             # Pause only if the trial is running
             trial.pause(trial_runner)
             return TrialScheduler.PAUSE
-        elif allocs.get(trial.trial_id) != trial.allocation:
-            trial = AdaptDLTrial.create_from(trial, 
-                                             trial_runner, 
-                                             allocs.get(trial.trial_id),
-                                             copy_state=True)
+        elif alloc != trial.allocation:
+            trial = AdaptDLTrial.create_from(trial, trial_runner, alloc, copy_state=True)
             # Stop the old trial that's being replaced
             return TrialScheduler.STOP
         return TrialScheduler.CONTINUE
 
     def on_trial_complete(self, trial_runner: "trial_runner.TrialRunner",
                           trial: Trial, result: Dict):
-        # Trial completed, force resource release
-        trial_runner.trial_executor._pg_manager.reconcile_placement_groups([trial])
+        pass
 
     def on_trial_remove(self, trial_runner: "trial_runner.TrialRunner",
                         trial: Trial):
@@ -97,14 +97,13 @@ class AdaptDLScheduler(TrialScheduler):
                 return trial
         for trial in trial_runner.get_trials():
             if (trial.status == Trial.PAUSED
-                    and trial_runner.has_resources_for_trial(trial)):
+                and trial_runner.has_resources_for_trial(trial)
+                and len(self._allocs) == 0):
                 # Note: this puts the trial back to RUNNING
                 return AdaptDLTrial.create_from(trial, 
                                                 trial_runner, 
                                                 self._allocator.default_allocation(),
                                                 copy_state=True)
-        # Reconcile PGs on the PG manager, so next PAUSED/PENDING trial would get a chance
-        trial_runner.trial_executor._pg_manager.reconcile_placement_groups(trial_runner.get_trials())
         return None
 
     def debug_string(self) -> str:
