@@ -16,21 +16,23 @@
 import types
 import shutil
 
-import ray
 from ray.tune.function_runner import wrap_function
 from ray.tune.trainable import TrainableUtil
 
 from adaptdl.torch import init_process_group
-from adaptdl.checkpoint import save_all_states 
+from adaptdl.checkpoint import save_all_states
 from adaptdl.torch._metrics import _get_sched_hints
 
 
 # Wrap the free functions of AdaptDL with FunctionRunner methods
 def save_all_states_remote(self, trial_state):
-    """ Save all of AdaptDL's job state and return it as an in-memory object."""
+    """ Save all of AdaptDL's job state and return it as an in-memory
+    object."""
     checkpoint = save_all_states()
     parent_dir = TrainableUtil.find_checkpoint_dir(checkpoint)
-    checkpoint_path = TrainableUtil.process_checkpoint(checkpoint, parent_dir, trial_state)
+    checkpoint_path = TrainableUtil.process_checkpoint(checkpoint,
+                                                       parent_dir,
+                                                       trial_state)
     checkpoint_obj = TrainableUtil.checkpoint_to_object(checkpoint_path)
     # Done with the directory, remove
     shutil.rmtree(checkpoint_path)
@@ -45,8 +47,10 @@ def get_sched_hints_remote(self):
 def wrap_function_patched(function):
     """ Monkey-patch FunctionRunner remote trainable"""
     func_trainable = wrap_function(function)
-    func_trainable.save_all_states = types.MethodType(save_all_states_remote, func_trainable)
-    func_trainable.get_sched_hints = types.MethodType(get_sched_hints_remote, func_trainable)
+    func_trainable.save_all_states = types.MethodType(save_all_states_remote,
+                                                      func_trainable)
+    func_trainable.get_sched_hints = types.MethodType(get_sched_hints_remote,
+                                                      func_trainable)
     return func_trainable
 
 

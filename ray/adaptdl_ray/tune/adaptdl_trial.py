@@ -13,20 +13,19 @@
 # limitations under the License.
 
 
-from typing import Dict, List, Optional, Union
-from datetime import datetime, timedelta
-from collections import Counter
+from datetime import datetime
 import logging
 import copy
+from typing import List
 
 import ray
-from ray.tune.trial import Trial 
+from ray.tune import trial_runner
+from ray.tune.trial import Trial
 from ray.tune import PlacementGroupFactory
 from ray.tune.function_runner import FuncCheckpointUtil
 from ray.tune.trainable import TrainableUtil
-from ray.tune.resources import Resources, \
-    json_to_resources, resources_to_json
-from ray._private.utils import binary_to_hex, hex_to_binary
+from ray.tune.resources import resources_to_json
+from ray._private.utils import binary_to_hex
 import ray.cloudpickle as cloudpickle
 from ray.tune.trial import Location
 
@@ -46,7 +45,7 @@ class AdaptDLTrial(AdaptDLJobMixin, Trial):
         super().__init__(job_id=kwargs["trial_id"], *args, **kwargs)
 
     @property
-    def _num_replicas(self):
+    def _num_replicas(self) -> int:
         return self.get_trainable_cls()._num_workers
 
     def __getstate__(self):
@@ -71,7 +70,9 @@ class AdaptDLTrial(AdaptDLJobMixin, Trial):
 
         return copy.deepcopy(state)
 
-    def _requeue(self, old_trial: Trial, trial_runner: "trial_runner.TrialRunner"):
+    def _requeue(self,
+                 old_trial: Trial,
+                 trial_runner: "trial_runner.TrialRunner"):
         # Remove the old trial from trial_runner
         trial_runner.trial_executor.stop_trial(old_trial)
         trial_runner._trials.pop(trial_runner._trials.index(old_trial))
@@ -81,7 +82,8 @@ class AdaptDLTrial(AdaptDLJobMixin, Trial):
 
     def _fetch_metrics(self):
         if self.runner is not None:
-            self._cached_metrics = ray.get(self.runner.get_sched_hints.remote())
+            self._cached_metrics = \
+                    ray.get(self.runner.get_sched_hints.remote())
             return self._cached_metrics
         elif self._cached_metrics is not None:
             return self._cached_metrics
@@ -92,7 +94,10 @@ class AdaptDLTrial(AdaptDLJobMixin, Trial):
         return self._trial_in_use(self)
 
     @classmethod
-    def _clone_from(cls, trial: Trial, allocation, restore_path=None) -> "AdaptDLTrial":
+    def _clone_from(cls,
+                    trial: Trial,
+                    allocation,
+                    restore_path=None) -> "AdaptDLTrial":
         trainable_cls = trial.get_trainable_cls()
         pgf = allocation_to_pgf(allocation)
         num_workers = pgf_to_num_replicas(pgf)
@@ -106,8 +111,9 @@ class AdaptDLTrial(AdaptDLJobMixin, Trial):
             creation_timestamp = datetime.now()
             rescale_count = 0
 
-        adaptdl_trainable_cls = AdaptDLTrainableCreator(trainable_cls._function, 
-                                                        num_workers, 
+        adaptdl_trainable_cls = AdaptDLTrainableCreator(trainable_cls.
+                                                        _function,
+                                                        num_workers,
                                                         group=rescale_count)
         return cls(trainable_name=adaptdl_trainable_cls.__name__,
                    creation_timestamp=creation_timestamp,
@@ -120,11 +126,13 @@ class AdaptDLTrial(AdaptDLJobMixin, Trial):
                    placement_group_factory=pgf)
 
     @classmethod
-    def create_from(cls, trial: Trial, trial_runner: "trial_runner.TrialRunner", 
-                     new_allocation: List[str], copy_state=False) -> "AdaptDLTrial":
+    def create_from(cls,
+                    trial: Trial,
+                    trial_runner: "trial_runner.TrialRunner",
+                    new_allocation: List[str],
+                    copy_state=False) -> "AdaptDLTrial":
         """ Create a new AdaptDLTrial from a Trial or AdaptDLTrial with new
         allocations. This also replaces the existing Trial."""
-
         checkpoint_path = None
         logger.debug(f"Creating {trial} with {len(new_allocation)} replicas")
         if copy_state:
@@ -133,16 +141,20 @@ class AdaptDLTrial(AdaptDLJobMixin, Trial):
                 checkpoint_obj = ray.get(trial.runner.save_all_states.remote(
                                          trial.runner.get_state.remote()))
                 # Dump it to disk
-                temp_checkpoint_dir = (FuncCheckpointUtil.mk_temp_checkpoint_dir(trial.logdir))
-                checkpoint_path = TrainableUtil.create_from_pickle(checkpoint_obj, temp_checkpoint_dir)
+                temp_checkpoint_dir = (FuncCheckpointUtil.
+                                       mk_temp_checkpoint_dir(trial.logdir))
+                checkpoint_path = TrainableUtil. \
+                    create_from_pickle(checkpoint_obj, temp_checkpoint_dir)
             else:
                 # trial was PAUSED
                 checkpoint_path = trial.restore_path
 
         # Spawn a new trial
-        new_trial = cls._clone_from(trial, new_allocation, restore_path=checkpoint_path)
+        new_trial = cls._clone_from(trial, new_allocation,
+                                    restore_path=checkpoint_path)
         # Keep it for later use by the trials
-        new_trial._trial_in_use = trial_runner.trial_executor._pg_manager.trial_in_use
+        new_trial._trial_in_use = trial_runner.trial_executor.\
+            _pg_manager.trial_in_use
         # Replace with old trial
         new_trial._requeue(trial, trial_runner)
         assert new_trial.restore_path == checkpoint_path
@@ -150,13 +162,16 @@ class AdaptDLTrial(AdaptDLJobMixin, Trial):
         return new_trial
 
     def pause(self, trial_runner):
-        """ Pause a AdaptDLTrial with a checkpoint."""
+        """ Pause the AdaptDLTrial with a checkpoint. We try to remove the PG
+        attached to this trial"""
         assert self.runner is not None
         checkpoint_obj = ray.get(self.runner.save_all_states.remote(
                                  self.runner.get_state.remote()))
         # Serialize to disk
-        temp_checkpoint_dir = (FuncCheckpointUtil.mk_temp_checkpoint_dir(self.logdir))
-        checkpoint_path = TrainableUtil.create_from_pickle(checkpoint_obj, temp_checkpoint_dir)
+        temp_checkpoint_dir = (FuncCheckpointUtil.
+                               mk_temp_checkpoint_dir(self.logdir))
+        checkpoint_path = TrainableUtil.create_from_pickle(checkpoint_obj,
+                                                           temp_checkpoint_dir)
 
         # Trial will be restored from the checkpoint_path when it's resumed
         self.restore_path = checkpoint_path
@@ -165,8 +180,9 @@ class AdaptDLTrial(AdaptDLJobMixin, Trial):
         # the trial. We assign a temporary PG which will get replaced with a
         # real PG once we resume the trial. This is needed because Tune likes
         # to keep the PGs around even for PAUSED trials.
-        self.placement_group_factory = PlacementGroupFactory([{"CPU": 0.009}])
-        # This forces Tune to garbage-collect uneeded PGs which can then be reused
-        trial_runner.trial_executor._pg_manager.reconcile_placement_groups([self])
-
+        self.placement_group_factory = PlacementGroupFactory([{"CPU": 0.001}])
+        # This forces Tune to garbage-collect uneeded PGs which can then be
+        # reused
+        trial_runner.trial_executor._pg_manager.\
+            reconcile_placement_groups([self])
         logger.debug(f"PAUSING {self} w/ checkpoint at {checkpoint_path}")

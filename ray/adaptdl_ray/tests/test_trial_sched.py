@@ -14,13 +14,11 @@
 
 
 import unittest
-import sys
-
-from typing import Callable, Dict, Generator, Optional, Type
 
 import ray
 from ray import tune
 from ray.tune.integration.torch import DistributedTrainableCreator
+
 from adaptdl_ray.tune.adaptdl_trial_sched import AdaptDLScheduler
 from adaptdl_ray.adaptdl import AdaptDLAllocator
 from adaptdl_ray.tune.adaptdl_trainable import _train_simple
@@ -29,12 +27,14 @@ from adaptdl_ray.tune.adaptdl_trainable import _train_simple
 class IncrAllocator(AdaptDLAllocator):
     """Increment allocation by 1 starting with 1"""
     __test__ = False
+
     def __init__(self):
         super().__init__()
         # Reserve one CPU for the Trainable
-        self._avail_cpus = int(list(self._node_infos.values())[0].resources["CPU"] - 1)
+        self._avail_cpus = int(list(self._node_infos.values())[0].
+                               resources["CPU"] - 1)
         self._cur_cpus = 1
-    
+
     def default_allocation(self, num_devices=1):
         """ Use one device from the first node as default."""
         return [f"{list(self._node_infos)[0]}"] * num_devices
@@ -48,12 +48,14 @@ class IncrAllocator(AdaptDLAllocator):
 class DecrAllocator(AdaptDLAllocator):
     """Decrement allocation by 1 starting with max"""
     __test__ = False
+
     def __init__(self):
         super().__init__()
         # Reserve one CPU for the Trainable
-        self._avail_cpus = int(list(self._node_infos.values())[0].resources["CPU"] - 1)
-        self._cur_cpus = self._avail_cpus 
-    
+        self._avail_cpus = int(list(self._node_infos.values())[0].
+                               resources["CPU"] - 1)
+        self._cur_cpus = self._avail_cpus
+
     def default_allocation(self, num_devices=None):
         """ Use one device from the first node as default."""
         if num_devices is None:
@@ -68,10 +70,12 @@ class DecrAllocator(AdaptDLAllocator):
 
 class PausingAllocator(AdaptDLAllocator):
     __test__ = False
+
     def __init__(self):
         super().__init__()
         # Reserve one CPU for the Trainable
-        self._avail_cpus = int(list(self._node_infos.values())[0].resources["CPU"] - 1)
+        self._avail_cpus = int(list(self._node_infos.values())[0].
+                               resources["CPU"] - 1)
         self._cur_cpus = 1
         self._toggle = True
 
@@ -91,6 +95,7 @@ class PausingAllocator(AdaptDLAllocator):
 EPOCHS = 60
 NUM_CPUS_CLUSTER = 5
 
+
 class MyTest(unittest.TestCase):
     def setUp(self):
         ray.init(num_cpus=NUM_CPUS_CLUSTER, include_dashboard=False)
@@ -109,8 +114,7 @@ class MyTest(unittest.TestCase):
             metric="mean_loss",
             mode="min")
         assert len(analysis.results_df) == 1
-        assert analysis._checkpoints[0]["last_result"]["training_iteration"] >= EPOCHS
-    
+
     def testSchedulerIncr(self):
         trainable_cls = DistributedTrainableCreator(_train_simple)
         analysis = tune.run(
@@ -122,8 +126,7 @@ class MyTest(unittest.TestCase):
             metric="mean_loss",
             mode="min")
         assert len(analysis.results_df) == 1
-        assert analysis._checkpoints[0]["last_result"]["training_iteration"] >= EPOCHS
-    
+
     def testSchedulerPausing(self):
         trainable_cls = DistributedTrainableCreator(_train_simple)
         analysis = tune.run(
@@ -138,6 +141,7 @@ class MyTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    import pytest, sys
+    import pytest
+    import sys
 
     sys.exit(pytest.main(["-v", __file__]))

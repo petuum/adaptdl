@@ -13,10 +13,9 @@
 # limitations under the License.
 
 
-from typing import Dict, List, Optional, Union
-from adaptdl.goodput import GoodputFunction, PerfParams, GradParams
+from typing import Dict, List
 from adaptdl_sched.policy.pollux import PolluxPolicy
-from adaptdl_sched.policy.utils import JobInfo, NodeInfo
+from adaptdl_sched.policy.utils import NodeInfo
 from adaptdl_ray.adaptdl.adaptdl_job_mixin import AdaptDLJobMixin
 from adaptdl_ray.adaptdl import config
 
@@ -24,21 +23,26 @@ from adaptdl_ray.adaptdl import config
 class AdaptDLAllocator:
     def __init__(self, nodes: List = None):
         nodes = nodes if nodes is not None else config.nodes()
-        self._node_infos = {node['NodeManagerAddress']: NodeInfo(node['Resources'], 
-                            preemptible=False) for node in nodes}
+        self._node_infos = {node['NodeManagerAddress']:
+                            NodeInfo(node['Resources'], preemptible=False)
+                            for node in nodes}
         # Add a node template.
-        self._node_template = NodeInfo(list(self._node_infos.values())[0].resources, 
-                                       preemptible=False)
+        self._node_template = NodeInfo(list(self._node_infos.values())[0].
+                                       resources, preemptible=False)
         self._policy = PolluxPolicy()
 
-    def default_allocation(self, num_devices=1):
+    def default_allocation(self, num_devices=1) -> List[str]:
         """ Use one device from the first node as default."""
         return [f"{list(self._node_infos)[0]}"] * num_devices
 
-    def allocate(self, jobs: List[AdaptDLJobMixin], nodes: List = None):
+    def allocate(self,
+                 jobs: List[AdaptDLJobMixin],
+                 nodes: List = None) -> (Dict, int):
+        """ Use Pollux to distribute available resources between jobs."""
         if nodes is not None:
-            node_infos = {node['NodeManagerAddress']: NodeInfo(node['Resources'], 
-                              preemptible=False) for node in nodes}
+            node_infos = {node['NodeManagerAddress']:
+                          NodeInfo(node['Resources'], preemptible=False)
+                          for node in nodes}
         else:
             node_infos = self._node_infos
 
@@ -49,13 +53,13 @@ class AdaptDLAllocator:
         prev_allocs = {job.job_id: job.allocation for job in jobs}
 
         allocations, desired_nodes = \
-                self._policy.optimize(job_infos, 
-                                      node_infos,
-                                      prev_allocs, 
-                                      self._node_template)
-        # Fill empty allocations for jobs which didn't get any 
+            self._policy.optimize(job_infos,
+                                  node_infos,
+                                  prev_allocs,
+                                  self._node_template)
+        # Fill empty allocations for jobs which didn't get any
         for job_id in job_infos:
             allocations[job_id] = allocations.get(job_id, [])
 
-        assert all(v == [] for k, v in allocations.items()) == False
+        assert all(v == [] for k, v in allocations.items()) is False
         return allocations, desired_nodes

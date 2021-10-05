@@ -13,8 +13,7 @@
 # limitations under the License.
 
 
-import logging
-from typing import Dict, List, Optional, Union
+from typing import Dict, List
 from collections import defaultdict
 import ray
 
@@ -27,18 +26,21 @@ _JOB_MAX_REPLICAS = 10
 
 def _avail_nodes() -> Dict:
     """ We return all live nodes with their allocatable resources."""
-
-    alive_nodes = {node["NodeID"] : node for node in sorted(ray.nodes(), key=lambda x:x['NodeID']) if node["alive"]}
-    for node_id, resources in ray.state.state._available_resources_per_node().items():
-        pruned_resources = defaultdict(float, {k : v for k, v in resources.items() if "group" not in k})
+    alive_nodes = {node["NodeID"]: node for node in
+                   sorted(ray.nodes(), key=lambda x: x['NodeID'])
+                   if node["alive"]}
+    for node_id, resources in ray.state.state.\
+            _available_resources_per_node().items():
+        pruned_resources = defaultdict(float, {k: v for k, v in
+                                       resources.items() if "group" not in k})
         alive_nodes[node_id]["Resources"] = pruned_resources
     return alive_nodes
 
 
 def default_device() -> str:
     """ Default device will be GPU if at least one node has a GPU on it else we
-    use CPUs. It is initialized once when the allocator/scheduler is instantiated."""
-
+    use CPUs. It is initialized once when the allocator/scheduler is
+    instantiated."""
     global _DEFAULT_DEVICE
     if _DEFAULT_DEVICE is None:
         assert ray.is_initialized()
@@ -47,26 +49,23 @@ def default_device() -> str:
         else:
             _DEFAULT_DEVICE = "CPU"
     return _DEFAULT_DEVICE
-        
+
 
 def job_resources():
     """ Default job resources."""
-
     return {default_device(): 1, "memory": 1024*1024}
 
 
 def nodes(consumed_resources: Dict = None) -> List[Dict]:
     """Returns all nodes with the default device on them"""
-
     avail_nodes = _avail_nodes()
     if consumed_resources is not None:
         # Add resources we are consuming already to the available resources
-        node_id_map = {node["NodeID"]: node["NodeManagerAddress"] for node in 
+        node_id_map = {node["NodeID"]: node["NodeManagerAddress"] for node in
                        ray.nodes() if node["alive"]}
         for node_id, node in avail_nodes.items():
             resources = consumed_resources.get(node_id_map[node_id], {})
             for resource, amount in resources.items():
                 node["Resources"][resource] += amount
-
     return [node for node in avail_nodes.values()
             if default_device() in node["Resources"]]

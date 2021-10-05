@@ -13,14 +13,11 @@
 # limitations under the License.
 
 
-import logging, sys
-from typing import Callable, Dict, Generator, Optional, Type
+from typing import Dict, Optional
 
 import torch
 import torch.nn as nn
-from torch.nn.parallel import DistributedDataParallel
 import torch.optim as optim
-from torch.utils.data import DataLoader
 
 import ray
 from ray import tune
@@ -34,18 +31,20 @@ class MyDataset:
     def __init__(self, xs, ys):
         self.xs = xs
         self.ys = ys
-    
+
     def __getitem__(self, i):
         return self.xs[i], self.ys[i]
-    
+
     def __len__(self):
         return len(self.xs)
-    
+
+
 # N is batch size; D_in is input dimension;
 # H is hidden dimension; D_out is output dimension.
 N, D_in, _, D_out = 64, 5, 5, 5
 
 dataset = MyDataset(torch.randn(N, D_in), torch.randn(N, D_out))
+
 
 def _train_simple(config: Dict, checkpoint_dir: Optional[str] = None):
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
@@ -86,14 +85,14 @@ ray.init(address="auto", _tracing_startup_hook=None)
 
 trainable_cls = DistributedTrainableCreator(_train_simple)
 
-config_0 = {"epochs": 60}
-config_1 = {"epochs": 60, "H": tune.choice([8, 12]), "N": tune.grid_search(list(range(32, 64, 8)))}
+config_0 = {"epochs": 50}
+config_1 = {"epochs": 60, "H": tune.choice([8, 12]),
+            "N": tune.grid_search(list(range(32, 64, 8)))}
 
 analysis = tune.run(
     trainable_cls,
-    num_samples=1, # total trials will be num_samples x points on the grid
+    num_samples=1,  # total trials will be num_samples x points on the grid
     scheduler=AdaptDLScheduler(),
     config=config_1,
     metric="mean_loss",
     mode="min")
-

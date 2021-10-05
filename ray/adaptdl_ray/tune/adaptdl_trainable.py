@@ -13,17 +13,17 @@
 # limitations under the License.
 
 
-from typing import Callable, Dict, Generator, Optional, Type
+from typing import Callable, Dict, Optional
 from unittest.mock import patch
 from datetime import timedelta
 
 import ray
 from ray.tune.resources import Resources
-from ray.tune.registry import get_trainable_cls, register_trainable
+from ray.tune.registry import register_trainable
 from ray.tune.integration.torch import _TorchTrainable
 from ray.util.sgd.torch.constants import NCCL_TIMEOUT_S
 
-import adaptdl_ray.tune.adaptdl_patch as P 
+import adaptdl_ray.tune.adaptdl_patch as P
 from adaptdl_ray.adaptdl import config
 
 
@@ -35,16 +35,20 @@ def AdaptDLTrainableCreator(func: Callable,
                             backend: str = "gloo",
                             timeout_s: int = NCCL_TIMEOUT_S,
                             use_gpu=None):
+    """ Trainable creator for AdaptDL's elastic Trials"""
     if config.default_device() == "GPU":
         backend = "nccl"
 
     class AdaptDLTrainable(_TorchTrainable):
         """ Similar to DistributedTrainable but for AdaptDLTrials."""
         def setup(self, config: Dict):
-            """ Delay-patch methods when the Trainable actors are first initialized"""
-            with patch(target="ray.tune.integration.torch.setup_process_group", new=P.setup_process_group), \
-                patch(target='ray.tune.integration.torch.wrap_function', new=P.wrap_function_patched):
-                    _TorchTrainable.setup(self, config)
+            """ Delay-patch methods when the Trainable actors are first
+            created"""
+            with patch(target="ray.tune.integration.torch.setup_process_group",
+                       new=P.setup_process_group), \
+                 patch(target='ray.tune.integration.torch.wrap_function',
+                       new=P.wrap_function_patched):
+                _TorchTrainable.setup(self, config)
 
         # Override the default resources and use custom PG factory
         @classmethod
@@ -63,7 +67,8 @@ def AdaptDLTrainableCreator(func: Callable,
 
     AdaptDLTrainable._function = func
     AdaptDLTrainable._num_workers = num_workers
-    # Set number of GPUs if using them, this is later used when spawning the actor
+    # Set number of GPUs if we're using them, this is later used when spawning
+    # the trial actors
     if config.default_device() == "GPU":
         AdaptDLTrainable._num_gpus_per_worker = 1
     else:
@@ -71,13 +76,13 @@ def AdaptDLTrainableCreator(func: Callable,
 
     # Trainables are named after number of replicas they spawn. This is
     # essential to associate the right Trainable with the right Trial and PG.
-    AdaptDLTrainable.__name__ = AdaptDLTrainable.__name__.split("_")[0] \
-                                + f"_{num_workers}" + f"_{group}"
-    
+    AdaptDLTrainable.__name__ = AdaptDLTrainable.__name__.split("_")[0] + \
+        f"_{num_workers}" + f"_{group}"
     register_trainable(AdaptDLTrainable.__name__, AdaptDLTrainable)
     return AdaptDLTrainable
 
 
+# To support unit tests and integration tests
 def _train_simple(config: Dict, checkpoint_dir: Optional[str] = None):
     import torch
     import torch.nn as nn
@@ -89,11 +94,13 @@ def _train_simple(config: Dict, checkpoint_dir: Optional[str] = None):
         def __init__(self, xs, ys):
             self.xs = xs
             self.ys = ys
+
         def __getitem__(self, i):
             return self.xs[i], self.ys[i]
+
         def __len__(self):
             return len(self.xs)
-        
+
     # N is batch size; D_in is input dimension;
     # H is hidden dimension; D_out is output dimension.
     N, D_in, H, D_out = 64, 5, 5, 5
@@ -128,4 +135,3 @@ def _train_simple(config: Dict, checkpoint_dir: Optional[str] = None):
             optimizer.step()
 
         tune.report(mean_loss=loss.item())
-

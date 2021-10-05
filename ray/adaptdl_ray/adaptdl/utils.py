@@ -12,18 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Dict, List, Optional, Union
+from typing import Dict, List
 from collections import Counter, defaultdict
 from ray import tune
 from adaptdl_ray.adaptdl import config
 
 
 def pgf_to_allocation(pgf) -> List[str]:
+    """ Convert Placement Groups Factory to AdaptDL allocations"""
     bundles = pgf._bundles[1:]
     allocs, node_keys, num_devices = [], [], []
     for bundle in bundles:
-        node_keys += [k.split(":")[1] for k, v in bundle.items() if k.startswith("node")]
-        num_devices += [int(v) for k, v in bundle.items() if k == config.default_device()]
+        node_keys += [k.split(":")[1] for k, v in bundle.items()
+                      if k.startswith("node")]
+        num_devices += [int(v) for k, v in bundle.items()
+                        if k == config.default_device()]
 
     for node, count in zip(node_keys, num_devices):
         allocs += [node] * count
@@ -31,8 +34,9 @@ def pgf_to_allocation(pgf) -> List[str]:
 
 
 def allocation_to_pgf(alloc: List[str]):
+    """ Convert AdaptDL allocations to Placement Group Factory"""
     def _construct_bundle(node, device_count):
-        resources = {config.default_device(): device_count, 
+        resources = {config.default_device(): device_count,
                      f"node:{node}": 0.01}
         if config.default_device() == "GPU":
             # As per Ray, We need equal amount of CPUs if there are GPUs in
@@ -49,19 +53,20 @@ def allocation_to_pgf(alloc: List[str]):
 
 
 def pgf_to_num_replicas(pgf) -> int:
-    return sum(int(bundle.get(config.default_device(), 0)) 
-                   for bundle in pgf._bundles[1:])
+    """ Extract number of replicas of the trial from its PGF"""
+    return sum(int(bundle.get(config.default_device(), 0))
+               for bundle in pgf._bundles[1:])
 
 
 def pgs_to_resources(pgs: List[Dict]) -> Dict:
     """ Returns node-level resource usage by all PGs in pgs."""
-
     # Note that every bundle is tagged with the node resource
     resources = defaultdict(Counter)
     for pg in pgs:
         for bundle in pg["bundle_cache"][1:]:
             # Every bundle has a node resource
-            node_ip = [k.split(":")[1] for k in bundle.keys() if k.startswith("node")][0]
+            node_ip = [k.split(":")[1] for k in bundle.keys()
+                       if k.startswith("node")][0]
             for k, v in bundle.items():
                 resources[node_ip][k] += v
     return resources
