@@ -20,6 +20,7 @@ environment variables, or their defaults if unset.
 import os
 import sys
 
+
 def checkpoint_path():
     """
     Path to the directory used for saving and loading checkpoints. Determined
@@ -168,4 +169,3 @@ def from_ray():
     """ Returns True if the code is being called from Ray"""
     # TODO: find a fool-proof way
     return "ray" in sys.modules
-

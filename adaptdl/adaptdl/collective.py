@@ -34,9 +34,9 @@ from .reducer import Reducer, default_reduce_fn
 _REDUCER = None
 
 
-def initialize(master_addr=None, 
+def initialize(master_addr=None,
                master_port=None,
-               replica_rank=adaptdl.env.replica_rank(), 
+               replica_rank=adaptdl.env.replica_rank(),
                num_replicas=adaptdl.env.num_replicas()):
     """
     Initialize this module, must be invoked before calling any other functions.

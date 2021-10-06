@@ -47,8 +47,8 @@ def version_check(version):
         return False
 
 
-def init_process_group(backend, 
-                       replica_rank=adaptdl.env.replica_rank(), 
+def init_process_group(backend,
+                       replica_rank=adaptdl.env.replica_rank(),
                        num_replicas=adaptdl.env.num_replicas(),
                        address=None):
     url = adaptdl.env.supervisor_url()
@@ -79,10 +79,13 @@ def init_process_group(backend,
         master_addr = adaptdl.env.master_addr()
 
     # Initialize collective module.
-    adaptdl.collective.initialize(master_addr, master_port, replica_rank, num_replicas)
+    adaptdl.collective.initialize(master_addr,
+                                  master_port,
+                                  replica_rank,
+                                  num_replicas)
 
     # Initialize torch.distributed.
-    torch_port = adaptdl.collective.broadcast(portpicker.pick_unused_port() 
+    torch_port = adaptdl.collective.broadcast(portpicker.pick_unused_port()
                                               if replica_rank == 0
                                               else 0)
     init_method = "tcp://{}:{}?rank={}&world_size={}".format(

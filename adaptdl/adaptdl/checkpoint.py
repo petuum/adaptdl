@@ -111,7 +111,9 @@ def save_all_states():
     """
     if from_ray():
         from ray.tune.trainable import TrainableUtil
-        checkpoint_dir = TrainableUtil.make_checkpoint_dir("/tmp", index=None, override=True)
+        checkpoint_dir = TrainableUtil.make_checkpoint_dir("/tmp",
+                                                           index=None,
+                                                           override=True)
     else:
         checkpoint_dir = checkpoint_path()
     for state in _STATES_TO_NAMES:
