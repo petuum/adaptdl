@@ -48,11 +48,16 @@ def version_check(version):
 
 
 def init_process_group(backend,
-                       replica_rank=adaptdl.env.replica_rank(),
-                       num_replicas=adaptdl.env.num_replicas(),
+                       replica_rank=None,
+                       num_replicas=None,
                        address=None):
     url = adaptdl.env.supervisor_url()
     master_port = adaptdl.env.master_port()
+    if replica_rank is None:
+        replica_rank = adaptdl.env.replica_rank()
+    if num_replicas is None:
+        num_replicas = adaptdl.env.num_replicas()
+
     if address is not None:
         _, master_addr, master_port = address.split(":")
         master_addr = master_addr[2:]
@@ -85,9 +90,7 @@ def init_process_group(backend,
                                   num_replicas)
 
     # Initialize torch.distributed.
-    torch_port = adaptdl.collective.broadcast(portpicker.pick_unused_port()
-                                              if replica_rank == 0
-                                              else 0)
+    torch_port = adaptdl.collective.broadcast(portpicker.pick_unused_port())
     init_method = "tcp://{}:{}?rank={}&world_size={}".format(
             master_addr, torch_port, replica_rank, num_replicas)
     LOG.info("Initializing torch.distributed using %s", init_method)

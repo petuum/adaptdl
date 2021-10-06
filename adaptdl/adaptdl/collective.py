@@ -36,8 +36,8 @@ _REDUCER = None
 
 def initialize(master_addr=None,
                master_port=None,
-               replica_rank=adaptdl.env.replica_rank(),
-               num_replicas=adaptdl.env.num_replicas()):
+               replica_rank=None,
+               num_replicas=None):
     """
     Initialize this module, must be invoked before calling any other functions.
     This function will block until it has been invoked from all replicas.
@@ -45,11 +45,18 @@ def initialize(master_addr=None,
     Arguments:
         master_addr: address of the replica with rank 0.
         master_port: free port of the replica with rank 0.
+        replica_rank: rank of the current replica.
+        num_replicas: total number of replicas.
 
     Raises:
         RuntimeError: If this module had already been initialized.
     """
     global _REDUCER
+    if replica_rank is None:
+        replica_rank = adaptdl.env.replica_rank()
+    if num_replicas is None:
+        num_replicas = adaptdl.env.num_replicas()
+
     if _REDUCER is not None:
         raise RuntimeError("{} is already initialized".format(__name__))
     if master_addr is None:
@@ -58,7 +65,8 @@ def initialize(master_addr=None,
         master_port = adaptdl.env.master_port()
     _REDUCER = Reducer(replica_rank,
                        num_replicas,
-                       master_addr, master_port)
+                       master_addr,
+                       master_port)
 
 
 def teardown():
