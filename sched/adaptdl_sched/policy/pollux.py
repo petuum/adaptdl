@@ -16,14 +16,14 @@
 import copy
 import logging
 import numpy as np
-import pymoo.model.crossover
-import pymoo.model.mutation
-import pymoo.model.problem
-import pymoo.model.repair
+import pymoo.core.crossover
+import pymoo.core.mutation
+import pymoo.core.problem
+import pymoo.core.repair
 import pymoo.optimize
 
 from collections import OrderedDict
-from pymoo.algorithms.nsga2 import NSGA2
+from pymoo.algorithms.moo.nsga2 import NSGA2
 from pymoo.operators.crossover.util import crossover_mask
 from pymoo.util.nds.non_dominated_sorting import NonDominatedSorting
 
@@ -223,7 +223,7 @@ class PolluxPolicy(object):
                 if idx is not None else {}), desired_nodes
 
 
-class Problem(pymoo.model.problem.Problem):
+class Problem(pymoo.core.problem.Problem):
     def __init__(self, jobs, nodes, base_state):
         """
         Multi-objective optimization problem used by PolluxPolicy to determine
@@ -428,7 +428,7 @@ class Problem(pymoo.model.problem.Problem):
         return pop.new("X", states.reshape(states.shape[0], -1))
 
 
-class Crossover(pymoo.model.crossover.Crossover):
+class Crossover(pymoo.core.crossover.Crossover):
     def __init__(self):
         super().__init__(n_parents=2, n_offsprings=2)
 
@@ -436,11 +436,11 @@ class Crossover(pymoo.model.crossover.Crossover):
         return problem._crossover(states, **kwargs)
 
 
-class Mutation(pymoo.model.mutation.Mutation):
+class Mutation(pymoo.core.mutation.Mutation):
     def _do(self, problem, states, **kwargs):
         return problem._mutation(states, **kwargs)
 
 
-class Repair(pymoo.model.repair.Repair):
+class Repair(pymoo.core.repair.Repair):
     def _do(self, problem, pop, **kwargs):
         return problem._repair(pop, **kwargs)
