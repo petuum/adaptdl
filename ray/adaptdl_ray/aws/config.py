@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# TODO: replace with Omkar's version when it gets merged
 
 import logging
 from typing import Dict, List, Optional, Union

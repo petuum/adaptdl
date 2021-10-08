@@ -21,15 +21,12 @@ from adaptdl.goodput import GoodputFunction, GradParams, PerfParams
 def optimize(hints, existing_ips, job_resources, max_cluster_size):
     if not hints:
         return ["virtual_node_0"]
-    print(f"optimizer ips: {existing_ips}")
     existing_ips = [ip for (ip, running) in existing_ips.items() if running]
-    print(f"existing ips: {existing_ips}")
     virtual_nodes = [
         f"virtual_node_{i}"
         for i in range(max_cluster_size - len(existing_ips))]
 
     nodes = existing_ips + virtual_nodes
-    print(f"Nodes: {nodes}")
 
     existing_ips = set(existing_ips)
     node_resources = {
@@ -78,7 +75,6 @@ def optimize(hints, existing_ips, job_resources, max_cluster_size):
         if goodput > max_goodput and (goodput >= optimal_goodput * 0.5):
             best_replicas = num_actors
             max_goodput = goodput
-    print(base_goodput, goodputs, optimal_goodputs)
 
     result = []
     while best_replicas > 0:
@@ -93,5 +89,4 @@ def optimize(hints, existing_ips, job_resources, max_cluster_size):
             nodes = nodes[1:]
             replicas_per_node = replicas_per_node[1:]
 
-    print(f"rescaling to {result}")
     return result

@@ -17,6 +17,7 @@ from aiohttp import web
 
 import asyncio
 import copy
+import logging
 import uuid
 
 from adaptdl_job_mixin import AdaptDLJobMixin
@@ -33,21 +34,20 @@ from ray.util.placement_group import (
     remove_placement_group
 )
 
-MOCK = False
 
-namespace = "foo"
-name = "foo"
-group = "0"
+NAMESPACE = "adaptdl_job"
+NAME = "adaptdl_job"
 
-job_key = str(uuid.uuid4())[:8]
-
-RESCALE_TIMEOUT = 60
+job_uid = str(uuid.uuid4())[:8]
 
 
 @ray.remote(num_cpus=1)
 class Manager(AdaptDLJobMixin):
-    def __init__(self, worker_resources,
-                 cluster_size, worker_port_offset, **kwargs):
+    def __init__(self, worker_resources, cluster_size,
+                 checkpoint_timeout, rescale_timeout,
+                 worker_port_offset, **kwargs):
+        logging.basicConfig(level=logging.INFO)
+        logging.info("launching manager")
         self._worker_resources = worker_resources
         self._max_cluster_size = cluster_size
         self._job_params = kwargs
@@ -75,9 +75,12 @@ class Manager(AdaptDLJobMixin):
         self._status = Status.RUNNING
 
         self._update_lock = asyncio.Lock()
+        self._rescale_timeout = rescale_timeout
+        self._checkpoint_timeout = checkpoint_timeout
 
     async def run_job(self):
-        status, site = await asyncio.gather(self._run_controller(), self._run_app())
+        status, site = await asyncio.gather(
+            self._run_controller(), self._run_app())
         return status
 
     async def _run_controller(self):
@@ -93,12 +96,12 @@ class Manager(AdaptDLJobMixin):
 
     def _force_worker_checkpoint(self):
         # TODO: replace with logging
-        print("Checkpoint needed: stopping workers")
+        logging.info("Checkpoint needed: stopping workers")
         for task in self._worker_tasks.values():
             ray.cancel(task, force=False)
 
     def _stop_workers(self):
-        print("Terminating workers")
+        logging.info("Terminating workers")
         for worker, task in self._worker_tasks.items():
             ray.cancel(task, force=True)
 
@@ -114,13 +117,13 @@ class Manager(AdaptDLJobMixin):
 
         found_workers_count = 0
         for worker in allocation:
-            if "virtual" not in worker:
+            if "virtual" in worker or worker in terminated_instances:
+                virtual_nodes += [worker]
+            else:
                 node = nodes[worker]
                 for resource, amount in self._worker_resources.items():
                     node[resource] -= amount
                 found_workers_count += 1
-            else:
-                virtual_nodes += [worker]
 
         for _ in virtual_nodes:
             for node in nodes.values():
@@ -138,7 +141,8 @@ class Manager(AdaptDLJobMixin):
         return True, found_workers_count
 
     async def _expand_cluster(self, allocation):
-        print(f"Attempting to expand cluster to {len(allocation)} nodes")
+        logging.info("Attempting to expand cluster to "
+                     f"{len(allocation)} nodes")
         terminated_instances = {
             node for node, running in self._nodes.items() if not running}
         node_resources = [
@@ -148,12 +152,14 @@ class Manager(AdaptDLJobMixin):
             bundle["CPU"] += 0.1
         sdk.request_resources(bundles=node_resources)
         waited = 0.0
-        while (waited < RESCALE_TIMEOUT and
+        logging.info(f"Waiting for up to {self._rescale_timeout} seconds for "
+                     "nodes to be ready")
+        while (waited < self._rescale_timeout and
                not self._cluster_ready(allocation, terminated_instances)[0]):
             await asyncio.sleep(1.0)
             waited += 1.0
         ready, nodes = self._cluster_ready(allocation, terminated_instances)
-        print(f"Found {nodes} available nodes")
+        logging.info(f"Found {nodes} available nodes")
         if not ready:
             allocation = (
                 [node for node in allocation if "virtual" not in node] +
@@ -170,14 +176,15 @@ class Manager(AdaptDLJobMixin):
         if self._pg:
             remove_placement_group(self._pg)
             await asyncio.sleep(10)
-        print(f"Creating {len(allocation)} worker tasks")
+        logging.info(f"Creating {len(allocation)} worker tasks")
         self.placement_group_factory = AdaptDLJobMixin.allocation_to_pgf(
-            allocation)
+            allocation, self._worker_resources)
         self._pg = self.placement_group_factory()
         self._worker_tasks = {
             worker_index:
             run_adaptdl.options(placement_group=self._pg).remote(
-                job_key,
+                f"{NAMESPACE}/{NAME}",
+                job_uid,
                 worker_index,
                 len(allocation),
                 self._url,
@@ -200,13 +207,15 @@ class Manager(AdaptDLJobMixin):
 
                 # TODO: fix this
                 waited = 0.0
-                while (self._worker_tasks and waited <= 120.0 and not self._checkpoint_recieved):
+                while (self._worker_tasks and
+                       waited <= self._checkpoint_timeout
+                       and not self._checkpoint_recieved):
                     await asyncio.sleep(1)
                     waited += 1.0
 
-                if waited >= 120.0:
-                    print("Waited for checkpoint, not found. "
-                          "Proceeding with previous checkpoint")
+                if waited >= self._checkpoint_timeout:
+                    logging.warning("Waited for checkpoint, not found. "
+                                    "Proceeding with previous checkpoint")
 
                 self._checkpoint_recieved = False
                 self._stop_workers()
@@ -236,7 +245,7 @@ class Manager(AdaptDLJobMixin):
             self._spot_termination_continuation(self._listener_tasks[ip]))
 
     async def register_status(self, status):
-        print(f"Received status from worker: {Status(status)}")
+        logging.info(f"Received status from worker: {Status(status)}")
         self._completed.set()
         self._status = Status(status)
 
@@ -260,7 +269,7 @@ class Manager(AdaptDLJobMixin):
         app.add_routes([
             web.get('/discover/{namespace}/{name}/{group}',
                     self._handle_discover),
-            web.put(f'/hints/{namespace}/{name}', self._handle_report),
+            web.put('/hints/{namespace}/{name}', self._handle_report),
         ])
         self._runner = web.AppRunner(app)
         await self._runner.setup()

@@ -14,35 +14,46 @@
 
 
 import argparse
+import logging
+import os
+from pathlib import Path
 
 from manager import Manager
-from utils import Status
-from pathlib import Path
 
 import ray
 
-import time
+from utils import Status
+
+logging.basicConfig()
+LOG = logging.getLogger(__name__)
+LOG.setLevel(logging.INFO)
 
 
-def run_as_ray(path, argv, ray_uri, working_dir,
-               worker_resources, cluster_size, worker_port_offset):
+def run_adaptdl_on_ray_cluster(
+        path, argv, ray_uri, working_dir,
+        worker_resources, cluster_size, worker_port_offset,
+        checkpoint_timeout, rescale_timeout):
+    LOG.info("Starting AdaptDLJob")
     if ray.is_initialized():
         return
     if not working_dir:
         path = Path(path)
-        working_dir = path.parent.absolute()
+        working_dir = path.parent.absolute().as_posix()
 
+    if not os.path.exists(path):
+        raise RuntimeError(f"Cannot find local file {path}")
+    if not os.path.exists(working_dir):
+        raise RuntimeError(f"Cannot find local directory {working_dir}")
     runtime_env = {
         "working_dir": working_dir}
     ray.init(ray_uri, runtime_env=runtime_env, log_to_driver=True)
 
     manager = Manager.options(name="AdaptDLManager").remote(
-        worker_resources, cluster_size, worker_port_offset=worker_port_offset,
-        path=path, argv=argv)
+        worker_resources, cluster_size, checkpoint_timeout, rescale_timeout,
+        worker_port_offset=worker_port_offset, path=path, argv=argv)
     status = ray.get(manager.run_job.remote())
-    time.sleep(5)
-    print(status)
     if status == Status.SUCCEEDED:
+        LOG.info("Job succeeded")
         return 0
     else:
         raise RuntimeError("Job failed")
@@ -63,21 +74,43 @@ if __name__ == "__main__":
     parser.add_argument(
         "--gpus", type=int, help="number of gpus per worker", default=1)
     parser.add_argument(
-        "--port-offset", type=int,
-        help="Torch communication worker port offset", default=0)
+        "--cpus", type=int, help="number of cpus per worker", default=1)
+    parser.add_argument(
+        "--port-offset", type=int, default=0,
+        help=("Torch communication worker port offset. Generally to be used "
+              "in case the adaptdl communication ports are taken "))
     parser.add_argument(
         "-d", "--working-dir", type=str,
         help=("Directory to copy to the worker tasks. Should contain the file "
               "specified by -f/--file. Defaults to the parent of -f/--file"),
         required=False)
     parser.add_argument(
-        "-a", "--arguments", type=str, nargs="+", action="extend",
+        "--checkpoint-timeout", type=int, default=120,
+        help=("Number of seconds that the controller will wait for the "
+              "checkpoint object to be reported back by worker 0. "
+              "If the checkpoint is not received by that time, an old "
+              "checkpoint will be used, if one exists"))
+    parser.add_argument(
+        "--cluster-rescale-timeout", type=int, default=60,
+        help=("Number of seconds that the controller will wait for the "
+              "cluster to rescale to the desired size. If the desired size "
+              "is not reached by the end of this timeout, then the controller "
+              "will allocate on whatever nodes it finds then"))
+    parser.add_argument(
+        "arguments", type=str, nargs=argparse.REMAINDER,
         help=("Command line arguments to be passed to the file specified by "
-              "-f/--f"))
+              "-f/--f. You many seperate these from the other command line "
+              "arguments with --"))
     args = parser.parse_args()
-    run_as_ray(args.file, argv=args.arguments,
-               ray_uri=args.uri,
-               working_dir=args.working_dir,
-               worker_resources={"CPU": 1, "GPU": args.gpus},
-               cluster_size=args.max_cluster_size,
-               worker_port_offset=args.port_offset)
+    if args.arguments and args.arguments[0] == "--":
+        arguments = args.arguments[1:]
+    run_adaptdl_on_ray_cluster(
+        args.file,
+        argv=arguments,
+        ray_uri=args.uri,
+        working_dir=args.working_dir,
+        worker_resources={"CPU": args.cpus, "GPU": args.gpus},
+        cluster_size=args.max_cluster_size,
+        worker_port_offset=args.port_offset,
+        checkpoint_timeout=args.checkpoint_timeout,
+        rescale_timeout=args.cluster_rescale_timeout)

@@ -14,6 +14,7 @@
 
 # TODO: replace with Omkar's version when his stuff gets merged in
 
+import copy
 from typing import Dict, List, Optional, Union
 from datetime import datetime, timedelta
 from collections import Counter
@@ -85,15 +86,12 @@ class AdaptDLJobMixin:
         return allocs
 
     @staticmethod
-    def allocation_to_pgf(alloc: List[str]):
+    def allocation_to_pgf(alloc: List[str], resources_per_node):
         def _construct_bundle(node, device_count):
-            resources = {config.default_device(): device_count}
+            resources = copy.deepcopy(resources_per_node)
+            #resources = {config.default_device(): device_count}
             if "virtual" not in node:
                 resources[f"node:{node}"] = 0.01
-            if config.default_device() == "GPU":
-                # As per Ray, We need equal amount of CPUs if there are GPUs in
-                # this bundle
-                resources["CPU"] = device_count
             return resources
 
         assert len(alloc) > 0
