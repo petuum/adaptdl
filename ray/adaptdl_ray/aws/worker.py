@@ -31,7 +31,7 @@ import ray.services as services
 MOCK = (os.environ.get("MOCK", "False").lower() == "true")
 
 
-@ray.remote(num_cpus=0.1)
+@ray.remote(num_cpus=0.1, max_retries=0)
 def listen_for_spot_termination():
     logging.basicConfig(level=logging.INFO)
 
@@ -66,7 +66,8 @@ def listen_for_spot_termination():
             time.sleep(5)
 
 
-@ray.remote(num_cpus=1, num_gpus=1)
+# TODO: fix cpus, gpus
+@ray.remote(max_retries=0)
 def run_adaptdl(job_key, job_uid, rank, replicas, supervisor_url,
                 num_restarts, checkpoint=None, offset=0, path="", argv=None):
     logging.basicConfig(level=logging.INFO)
@@ -74,9 +75,9 @@ def run_adaptdl(job_key, job_uid, rank, replicas, supervisor_url,
 
     def report_status(status):
         status_obj_ref = ray.put(status.value)
-        manager.register_status.remote(status_obj_ref)
+        controller.register_status.remote(status_obj_ref)
 
-    manager = ray.get_actor("AdaptDLManager")
+    controller = ray.get_actor("AdaptDLController")
 
     os.environ["ADAPTDL_MASTER_PORT"] = str(47000 + num_restarts + offset)
     os.environ["ADAPTDL_REPLICA_RANK"] = str(rank)
@@ -105,7 +106,7 @@ def run_adaptdl(job_key, job_uid, rank, replicas, supervisor_url,
 
         rank_obj_ref = ray.put(rank)
         ip_obj_ref = ray.put(services.get_node_ip_address())
-        manager.register_worker.remote(rank_obj_ref, ip_obj_ref)
+        controller.register_worker.remote(rank_obj_ref, ip_obj_ref)
     except Exception as e:
         logging.info(traceback.format_exc())
         time.sleep(5)
@@ -124,16 +125,16 @@ def run_adaptdl(job_key, job_uid, rank, replicas, supervisor_url,
         spec.loader.exec_module(module)
 
     except SystemExit:
-        # Received a cancel from the manager -- the job is being rescheduled
-        # Worker 0 needs to send the checkpoint back to the manager so the
+        # Received a cancel from the controller -- the job is being rescheduled
+        # Worker 0 needs to send the checkpoint back to the controller so the
         # next generation of workers can resume
         logging.info(f"Worker {rank} received system exit")
         if rank == 0:
             checkpoint_obj = _serialize_checkpoint(checkpoint_path)
             checkpoint_obj_ref = ray.put(checkpoint_obj)
-            manager.register_checkpoint.remote(checkpoint_obj_ref)
+            controller.register_checkpoint.remote(checkpoint_obj_ref)
         # This sleep is to keep this remote task alive
-        # until its worker object can be killed by the manager
+        # until its worker object can be killed by the controller
         time.sleep(1000)
 
     except Exception as e:

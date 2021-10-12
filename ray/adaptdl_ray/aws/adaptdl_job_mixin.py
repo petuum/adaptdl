@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# TODO: replace with Omkar's version when his stuff gets merged in
-
 import copy
 from typing import Dict, List, Optional, Union
 from datetime import datetime, timedelta

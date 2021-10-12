@@ -18,7 +18,7 @@ import logging
 import os
 from pathlib import Path
 
-from manager import Manager
+from controller import Controller
 
 import ray
 
@@ -46,17 +46,20 @@ def run_adaptdl_on_ray_cluster(
         raise RuntimeError(f"Cannot find local directory {working_dir}")
     runtime_env = {
         "working_dir": working_dir}
-    ray.init(ray_uri, runtime_env=runtime_env, log_to_driver=True)
+    ray.init(ray_uri, runtime_env=runtime_env)
 
-    manager = Manager.options(name="AdaptDLManager").remote(
+    controller = Controller.options(name="AdaptDLController").remote(
         worker_resources, cluster_size, checkpoint_timeout, rescale_timeout,
         worker_port_offset=worker_port_offset, path=path, argv=argv)
-    status = ray.get(manager.run_job.remote())
-    if status == Status.SUCCEEDED:
-        LOG.info("Job succeeded")
-        return 0
-    else:
-        raise RuntimeError("Job failed")
+    try:
+        status = ray.get(controller.run_job.remote())
+        if status == Status.SUCCEEDED:
+            LOG.info("Job succeeded")
+            return 0
+        else:
+            raise RuntimeError("Job failed")
+    except Exception as e:
+        raise e
 
 
 if __name__ == "__main__":

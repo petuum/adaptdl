@@ -38,7 +38,7 @@ See `examples/cluster_config.yaml` for an example of the cluster.
 
 To ensure that the ndoes have enough space for Docker to use, you will need to include something like the following `BlockDeviceMapping` configuration in all of the nodes:
 
-.. code-block:: yaml
+:: 
     node_config:
       InstanceType: <your instance type>
       BlockDeviceMappings:
@@ -48,7 +48,7 @@ To ensure that the ndoes have enough space for Docker to use, you will need to i
 
 Just creating the EBS volume will not make it available for docker. You will also need to format and mount the volume as part of the initialization commands:
 
-.. code-block:: yaml
+::
     initialization_commands:
       - sudo usermod -aG docker $USER
       - sudo mkdir /docker_volume
@@ -58,7 +58,7 @@ Just creating the EBS volume will not make it available for docker. You will als
 
 If you find that your code does not have enough access to disk space, you can also mount an external volume (as provisioned above) to the runtime containers via:
 
-.. code-block:: yaml
+::
    docker:
      image: <your-image-name>
      run_options:
@@ -88,12 +88,10 @@ Example
 To run the example code found in ``examples/pytorch-cifar/main.py``, do the following:
 
 1. Install the AWS CLI and authenticate.
-2. Install Docker or Python version <exact version here> # TODO: replace version
-3. Inside the ``example/ray/aws`` directory, run ``ray up -y cluster.yaml -v``. Note: running this step will create an AWS EC2 cluster, which will cost money
-4. Keep track of the ip and port `ray up` returns.
-5. Still inside ``example/ray/aws``, run ``docker run <docker version> python3 adaptdl_ray.py -f main.py -m 3 -u ray://<ip>:<port> -- -autoscale-bsz``. If you are using Python <exact version here>. then install the requirements in ``ray/aws/requirements.txt` and run `python3 adaptdl_ray.py -f main.py -m 3 -u ray://<ip>:<port> -- -autoscale-bsz``
-
- # TODO: replace stuff
+2. Inside the ``example/ray/aws`` directory, run ``ray up -y cluster.yaml -v``. Note: running this step will create an AWS EC2 cluster, which will cost money
+3. Keep track of the ip and port `ray up` returns.
+4. Install Docker or the exact Python version used by your cluster. You can determine the python version by running `ray attach <cluster-config-file`, and then running Python.
+5. Still inside ``example/ray/aws``, run ``docker run <docker version> python3 adaptdl_ray.py -f main.py -m 3 -u ray://<ip>:<port> -- -autoscale-bsz``. If you are using Python. then install the requirements in ``ray/aws/requirements.txt`` and run ``python3 adaptdl_ray.py -f main.py -m 3 -u ray://<ip>:<port> -- -autoscale-bsz``.
 
 Advanced Usage
 --------------
@@ -116,12 +114,14 @@ There are several options to deal with this:
 Using S3
 ^^^^^^^^
 
-The difference with using an S3 Dataset in the Ray cluster versus on your local machine is ensuring that all of the nodes have the proper permissions. Please follow `these instructions <https://docs.ray.io/en/latest/cluster/aws-tips.html?highlight=s3#configure-worker-nodes-to-access-amazon-s3>`_
+One difference with using an S3 Dataset in the Ray cluster versus on your local machine is ensuring that all of the nodes have the proper permissions. Please follow `these instructions <https://docs.ray.io/en/latest/cluster/aws-tips.html?highlight=s3#configure-worker-nodes-to-access-amazon-s3>`_
 
 Using EFS
 ^^^^^^^^^
 
 `EFS <https://aws.amazon.com/efs/>`_ allows you to use a distributed filesystem with your EC2 cluster. To begin, you will need to create an EFS instance. Once that is done, use the ``setup_commands`` listed `here <https://docs.ray.io/en/master/cluster/aws-tips.html?highlight=efs#using-amazon-efs>`_ to attach your EFS instance to the nodes.
+
+Please note that using EFS will incur additional costs.
 
 Imports
 ^^^^^^^
@@ -135,4 +135,4 @@ There are two conditions where the job controller will need to wait for some rep
 
 First, when the workers are terminated in order to perform a rescaling, the controller will wait to recieve a checkpoint object of the training state from worker 0. If the controller does not receive a checkpoint by the amount of time specified in ``--checkpoint-timeout`` (default 120 seconds), then the controller will use a previous version of the checkpoint, or restart from 0, if a previous checkpoint does not exist. Note that spot instances have around a 2 minute warning for termination.
 
-Second, when the cluster is rescaling to more workers, it can take some time for the new workers to be ready. In addition, spot instances requests may never be fulfilled if their bid price is too low. The controller therefore waits for some time, up to the amount specified in ``--cluster-rescale-timeout`` (default 60), for the new nodes to be provisioned and ready. If the nodes are not ready by that time, it schedules up to the maximum supported by the current cluster.
+Second, when the cluster is rescaling to more workers, it can take some time for the new workers to be ready. In addition, spot instances requests may never be fulfilled if their bid price is too low. The controller therefore waits for some time, up to the amount specified in ``--cluster-rescale-timeout`` (default 60), for the new nodes to be provisioned and ready. If the nodes are not ready by that time, it schedules up to the maximum supported by the current cluster. Please note that the new nodes need to download the Docker image set in the cluster config. As these images can be large, it may take 5-10 minutes for new nodes to be available.

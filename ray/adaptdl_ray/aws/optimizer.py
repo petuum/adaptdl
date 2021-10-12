@@ -33,7 +33,7 @@ def optimize(hints, existing_ips, job_resources, max_cluster_size):
         node["NodeManagerAddress"]: node["Resources"]
         for node in ray.nodes()
         if (node["NodeManagerAddress"] in existing_ips
-            and node["Resources"])}
+            and node["Resources"] and node["alive"])}
 
     replicas_per_node = [0 for node in nodes]
     for index, node in enumerate(nodes):

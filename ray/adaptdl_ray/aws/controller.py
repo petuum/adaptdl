@@ -42,12 +42,12 @@ job_uid = str(uuid.uuid4())[:8]
 
 
 @ray.remote(num_cpus=1)
-class Manager(AdaptDLJobMixin):
+class Controller(AdaptDLJobMixin):
     def __init__(self, worker_resources, cluster_size,
                  checkpoint_timeout, rescale_timeout,
                  worker_port_offset, **kwargs):
         logging.basicConfig(level=logging.INFO)
-        logging.info("launching manager")
+        logging.info("launching controller")
         self._worker_resources = worker_resources
         self._max_cluster_size = cluster_size
         self._job_params = kwargs
@@ -95,15 +95,20 @@ class Manager(AdaptDLJobMixin):
         return self._status
 
     def _force_worker_checkpoint(self):
-        # TODO: replace with logging
         logging.info("Checkpoint needed: stopping workers")
         for task in self._worker_tasks.values():
             ray.cancel(task, force=False)
 
     def _stop_workers(self):
         logging.info("Terminating workers")
-        for worker, task in self._worker_tasks.items():
-            ray.cancel(task, force=True)
+        tasks = self._worker_tasks.values()
+        self._worker_tasks = {}
+        self._workers = {}
+        for task in tasks:
+            try:
+                ray.cancel(task, force=True)
+            except Exception:
+                pass
 
     def _cluster_ready(self, allocation, terminated_instances):
         nodes = ray.nodes()
@@ -117,7 +122,8 @@ class Manager(AdaptDLJobMixin):
 
         found_workers_count = 0
         for worker in allocation:
-            if "virtual" in worker or worker in terminated_instances:
+            if ("virtual" in worker or worker in terminated_instances or
+                    worker not in nodes):
                 virtual_nodes += [worker]
             else:
                 node = nodes[worker]
@@ -143,22 +149,25 @@ class Manager(AdaptDLJobMixin):
     async def _expand_cluster(self, allocation):
         logging.info("Attempting to expand cluster to "
                      f"{len(allocation)} nodes")
-        terminated_instances = {
+        terminated_nodes = {
             node for node, running in self._nodes.items() if not running}
-        node_resources = [
+        terminated_workers = {
+            worker_id: ip for worker_id, ip in self._workers.items()
+            if ip in terminated_nodes}
+        worker_resources = [
             copy.deepcopy(self._worker_resources)
-            for _ in range(len(allocation) + len(terminated_instances))]
-        for bundle in node_resources:
+            for _ in range(len(allocation) + len(terminated_workers))]
+        for bundle in worker_resources:
             bundle["CPU"] += 0.1
-        sdk.request_resources(bundles=node_resources)
+        sdk.request_resources(bundles=worker_resources)
         waited = 0.0
         logging.info(f"Waiting for up to {self._rescale_timeout} seconds for "
                      "nodes to be ready")
         while (waited < self._rescale_timeout and
-               not self._cluster_ready(allocation, terminated_instances)[0]):
+               not self._cluster_ready(allocation, terminated_nodes)[0]):
             await asyncio.sleep(1.0)
             waited += 1.0
-        ready, nodes = self._cluster_ready(allocation, terminated_instances)
+        ready, nodes = self._cluster_ready(allocation, terminated_nodes)
         logging.info(f"Found {nodes} available nodes")
         if not ready:
             allocation = (
@@ -170,42 +179,61 @@ class Manager(AdaptDLJobMixin):
 
     async def _handle_spot_instance_termination(self):
         self._force_worker_checkpoint()
-        await self._update_workers(self._nodes, False)
+        await self._update_workers(self._workers.values(), False)
+
+    async def _handle_worker_failure(self, tasks):
+        try:
+            await asyncio.gather(*tasks)
+        except Exception as e:
+            if self._workers:
+                logging.error("worker failure detected")
+                logging.error(e)
+                # Let the autoscheduler resolve any dead nodes
+                await asyncio.sleep(60)
+                await self._update_workers(
+                    [f"virtual_{i}" for i in self._workers.keys()],
+                    force_checkpoint=False, force_update=True)
 
     async def _create_workers(self, allocation):
         if self._pg:
             remove_placement_group(self._pg)
             await asyncio.sleep(10)
+        self._nodes = {}
         logging.info(f"Creating {len(allocation)} worker tasks")
         self.placement_group_factory = AdaptDLJobMixin.allocation_to_pgf(
             allocation, self._worker_resources)
         self._pg = self.placement_group_factory()
         self._worker_tasks = {
             worker_index:
-            run_adaptdl.options(placement_group=self._pg).remote(
-                f"{NAMESPACE}/{NAME}",
-                job_uid,
-                worker_index,
-                len(allocation),
-                self._url,
-                self._iteration,
-                self._checkpoint_ref,
-                self._worker_port_offset,
-                **self._job_params)
+            run_adaptdl.options(
+                num_cpus=self._worker_resources["CPU"],
+                num_gpus=self._worker_resources["GPU"],
+                placement_group=self._pg).remote(
+                    f"{NAMESPACE}/{NAME}",
+                    job_uid,
+                    worker_index,
+                    len(allocation),
+                    self._url,
+                    self._iteration,
+                    self._checkpoint_ref,
+                    self._worker_port_offset,
+                    **self._job_params)
             for worker_index, node in enumerate(allocation)}
 
+        asyncio.create_task(
+            self._handle_worker_failure(list(self._worker_tasks.values())))
         self._iteration += 1
 
-    async def _update_workers(self, allocation, force_checkpoint=True):
+    async def _update_workers(self, allocation,
+                              force_checkpoint=True, force_update=False):
         # have worker 0 be on not-spot
         # add way to restore a partially killed job
         async with self._update_lock:
             allocation = await self._expand_cluster(allocation)
-            if set(self._workers.values()) != set(allocation):
+            if set(self._workers.values()) != set(allocation) or force_update:
                 if force_checkpoint:
                     self._force_worker_checkpoint()
 
-                # TODO: fix this
                 waited = 0.0
                 while (self._worker_tasks and
                        waited <= self._checkpoint_timeout
@@ -218,10 +246,12 @@ class Manager(AdaptDLJobMixin):
                                     "Proceeding with previous checkpoint")
 
                 self._checkpoint_recieved = False
+
                 self._stop_workers()
-                self._workers = {}
-                self._worker_tasks = {}
+                logging.info(allocation)
                 await self._create_workers(allocation)
+            else:
+                logging.info("allocation unchanged, proceeding")
 
     async def register_checkpoint(self, obj):
         self._checkpoint = obj
@@ -229,9 +259,12 @@ class Manager(AdaptDLJobMixin):
         self._checkpoint_ref = ray.put(obj)
 
     async def _spot_termination_continuation(self, task):
-        ip = await task
-        self._nodes[ip] = False
-        await self._handle_spot_instance_termination()
+        try:
+            ip = await task
+            self._nodes[ip] = False
+            await self._handle_spot_instance_termination()
+        except ray.exceptions.WorkerCrashedError:
+            pass
 
     async def register_worker(self, rank, ip):
         self._workers[rank] = ip
