@@ -167,5 +167,8 @@ def supervisor_url():
 
 def from_ray():
     """ Returns True if the code is being called from Ray"""
-    # TODO: find a fool-proof way
-    return "ray" in sys.modules
+    if "ray" in sys.modules:
+        import ray
+        return ray.is_initialized()
+    else:
+        return False
