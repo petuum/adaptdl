@@ -72,8 +72,8 @@ class AdaptDLJobMixin:
     def allocation(self) -> List[str]:
         """ Current allocation the job is utilizing"""
         # Allocation is in use if the job is using it
-        assert self.placement_group_factory is not None
         if self._allocation_in_use():
+            assert self.placement_group_factory is not None
             return pgf_to_allocation(self.placement_group_factory)
         else:
             return []
