@@ -37,12 +37,12 @@ def _avail_nodes() -> Dict:
     return alive_nodes
 
 
-def default_device() -> str:
+def default_device(refresh=False) -> str:
     """ Default device will be GPU if at least one node has a GPU on it else we
     use CPUs. It is initialized once when the allocator/scheduler is
     instantiated."""
     global _DEFAULT_DEVICE
-    if _DEFAULT_DEVICE is None:
+    if _DEFAULT_DEVICE is None or refresh:
         assert ray.is_initialized()
         if any("GPU" in node['Resources'] for node in _avail_nodes().values()):
             _DEFAULT_DEVICE = "GPU"

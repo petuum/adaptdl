@@ -19,7 +19,7 @@ from adaptdl_ray.adaptdl import config
 
 
 def pgf_to_allocation(pgf) -> List[str]:
-    """ Convert Placement Groups Factory to AdaptDL allocations"""
+    """ Convert a Placement Groups Factory to AdaptDL allocation"""
     bundles = pgf._bundles[1:]
     allocs, node_keys, num_devices = [], [], []
     for bundle in bundles:
@@ -34,7 +34,7 @@ def pgf_to_allocation(pgf) -> List[str]:
 
 
 def allocation_to_pgf(alloc: List[str]):
-    """ Convert AdaptDL allocations to Placement Group Factory"""
+    """ Convert AdaptDL allocation to a Placement Group Factory"""
     def _construct_bundle(node, device_count):
         resources = {config.default_device(): device_count,
                      f"node:{node}": 0.01}
@@ -53,13 +53,13 @@ def allocation_to_pgf(alloc: List[str]):
 
 
 def pgf_to_num_replicas(pgf) -> int:
-    """ Extract number of replicas of the trial from its PGF"""
+    """ Extract the number of replicas of the trial from its PGF"""
     return sum(int(bundle.get(config.default_device(), 0))
                for bundle in pgf._bundles[1:])
 
 
 def pgs_to_resources(pgs: List[Dict]) -> Dict:
-    """ Returns node-level resource usage by all PGs in pgs."""
+    """ Return node-level resource usage by all PGs in pgs."""
     # Note that every bundle is tagged with the node resource
     resources = defaultdict(Counter)
     for pg in pgs:
