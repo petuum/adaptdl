@@ -36,11 +36,11 @@ class TrialRunnerTest(unittest.TestCase):
         ray.shutdown()
         self.cluster.shutdown()
 
-    def testResources(self):
+    def testAvailableResources(self):
         assert len(nodes()) == 2
         assert default_device(refresh=True) == "GPU"
 
-    def testFoo(self):
+    def testOthersTakingResources(self):
         # Let someone occupy the head node
         pg = placement_group([{"CPU": 4, "GPU": 1}])
         ray.get(pg.ready())
