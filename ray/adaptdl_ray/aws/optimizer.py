@@ -13,80 +13,74 @@
 # limitations under the License.
 
 
-import copy
-import ray
-from adaptdl.goodput import GoodputFunction, GradParams, PerfParams
+import numpy as np
 
 
-def optimize(hints, existing_ips, job_resources, max_cluster_size):
+def optimize(job, cluster, max_cluster_size):
+    hints = job.hints
     if not hints:
         return ["virtual_node_0"]
-    existing_ips = [ip for (ip, running) in existing_ips.items() if running]
+
+    job_info = job.job_info
+
+    existing_nodes = cluster.get_nodes()
     virtual_nodes = [
         f"virtual_node_{i}"
-        for i in range(max_cluster_size - len(existing_ips))]
+        for i in range(max_cluster_size - len(existing_nodes))]
+
+    existing_ips = [node["NodeManagerAddress"] for node in existing_nodes]
 
     nodes = existing_ips + virtual_nodes
 
     existing_ips = set(existing_ips)
     node_resources = {
         node["NodeManagerAddress"]: node["Resources"]
-        for node in ray.nodes()
-        if (node["NodeManagerAddress"] in existing_ips
-            and node["Resources"] and node["alive"])}
+        for node in existing_nodes}
+
+    job_resources = cluster.worker_resources
 
     replicas_per_node = [0 for node in nodes]
     for index, node in enumerate(nodes):
-        resources = node_resources.get(node, copy.deepcopy(job_resources))
+        if node not in node_resources:
+            resources = cluster.worker_resources
+        else:
+            resources = node_resources[node]
         replicas_per_node[index] = int(
             min(resources.get(resource_type, 0.0) / value
                 for resource_type, value in job_resources.items()))
 
     max_workers = sum(replicas_per_node)
 
-    if "norm" in hints["gradParams"]:
-        hints["gradParams"]["sqr"] = hints["gradParams"]["norm"]
-        del hints["gradParams"]["norm"]
-    perf_params = PerfParams(**hints["perfParams"])
-    grad_params = GradParams(**hints["gradParams"])
+    allocation = []
 
-    goodput_fn = GoodputFunction(perf_params, grad_params,
-                                 hints["initBatchSize"])
+    workers_left = max_workers
 
-    max_batch_size = hints["maxBatchSize"]
-    atomic_bsz_range = hints["localBszBounds"]
-    accumulation = hints["gradientAccumulation"]
-
-    goodputs = [(num_actors,
-                 goodput_fn.optimize(
-                     1, num_actors, max_batch_size=max_batch_size,
-                     atomic_bsz_range=atomic_bsz_range,
-                     accumulation=accumulation))
-                for num_actors in range(1, max_workers + 1)]
-
-    base_goodput = goodputs[0][1][0]
-    optimal_goodputs = [
-        base_goodput * num_actors
-        for (num_actors, (goodput, atomic_bsz, accum_steps)) in goodputs]
-    max_goodput = float("-inf")
-    best_replicas = 1
-    for (num_actors, (goodput, atomic_bsz, accum_steps)), optimal_goodput in \
-            zip(goodputs, optimal_goodputs):
-        if goodput > max_goodput and (goodput >= optimal_goodput * 0.5):
-            best_replicas = num_actors
-            max_goodput = goodput
-
-    result = []
-    while best_replicas > 0:
-        count = (min(replicas_per_node[0], best_replicas))
+    while workers_left > 0:
+        count = (min(replicas_per_node[0], workers_left))
         if count:
-            result += [(nodes[0]) * count]
+            allocation += [(nodes[0]) * count]
             if count == replicas_per_node[0]:
                 nodes = nodes[1:]
                 replicas_per_node = replicas_per_node[1:]
-            best_replicas -= count
+            workers_left -= count
         else:
             nodes = nodes[1:]
             replicas_per_node = replicas_per_node[1:]
 
-    return result
+    speedup_fn = job_info.speedup_fn
+
+    base_speedup = speedup_fn(1, 1)
+
+    workers_arr = np.asarray(range(1, max_workers+1))
+    speedups = speedup_fn(workers_arr, workers_arr)
+    print(f"Optimizer speedups: {speedups}")
+
+    best_replicas = 1
+    nodes_used = set()
+    for worker, speedup in enumerate(speedups):
+        nodes_used.add(allocation[worker])
+        num_nodes = len(nodes_used)
+        if (speedup / num_nodes >= base_speedup * 0.35):
+            best_replicas = worker + 1
+
+    return allocation[:best_replicas]

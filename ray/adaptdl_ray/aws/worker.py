@@ -66,9 +66,8 @@ def listen_for_spot_termination():
             time.sleep(5)
 
 
-# TODO: fix cpus, gpus
 @ray.remote(max_retries=0)
-def run_adaptdl(job_key, job_uid, rank, replicas, supervisor_url,
+def run_adaptdl(job_key, job_uid, rank, replicas,
                 num_restarts, checkpoint=None, offset=0, path="", argv=None):
     logging.basicConfig(level=logging.INFO)
     logging.info(f"Starting worker {rank}")
@@ -78,6 +77,7 @@ def run_adaptdl(job_key, job_uid, rank, replicas, supervisor_url,
         controller.register_status.remote(status_obj_ref)
 
     controller = ray.get_actor("AdaptDLController")
+    supervisor_url = ray.get(controller.get_url.remote())
 
     os.environ["ADAPTDL_MASTER_PORT"] = str(47000 + num_restarts + offset)
     os.environ["ADAPTDL_REPLICA_RANK"] = str(rank)
@@ -115,10 +115,11 @@ def run_adaptdl(job_key, job_uid, rank, replicas, supervisor_url,
 
         # TODO: replace with block
     try:
+        filename = Path(path).name
+        sys.argv = [filename]
         if argv:
             # Need to augment the argv to mimic that file being called
-            filename = Path(path).name
-            sys.argv = [filename] + argv
+            sys.argv += argv
         spec = importlib.util.spec_from_file_location("__main__", path)
         module = importlib.util.module_from_spec(spec)
         # TODO: fix imports when caller module is not in the root path
@@ -131,11 +132,14 @@ def run_adaptdl(job_key, job_uid, rank, replicas, supervisor_url,
         logging.info(f"Worker {rank} received system exit")
         if rank == 0:
             checkpoint_obj = _serialize_checkpoint(checkpoint_path)
+            logging.info("checkpoint created")
             checkpoint_obj_ref = ray.put(checkpoint_obj)
-            controller.register_checkpoint.remote(checkpoint_obj_ref)
+            logging.info("checkpoint placed")
+            result = ray.get(controller.register_checkpoint.remote(checkpoint_obj_ref))
+            logging.info(f"checkpoint registered: {result}")
         # This sleep is to keep this remote task alive
         # until its worker object can be killed by the controller
-        time.sleep(1000)
+        time.sleep(1800)
 
     except Exception as e:
         logging.error(traceback.format_exc())

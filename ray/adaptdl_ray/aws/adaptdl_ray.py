@@ -49,15 +49,21 @@ def run_adaptdl_on_ray_cluster(
     ray.init(ray_uri, runtime_env=runtime_env)
 
     controller = Controller.options(name="AdaptDLController").remote(
-        worker_resources, cluster_size, checkpoint_timeout, rescale_timeout,
-        worker_port_offset=worker_port_offset, path=path, argv=argv)
+        cluster_size, rescale_timeout)
+
+    controller.run_controller.remote()
     try:
-        status = ray.get(controller.run_job.remote())
+        status_obj = controller.create_job.remote(
+            worker_resources, worker_port_offset, checkpoint_timeout,
+            path=path, argv=argv)
+        status = ray.get(status_obj)
+        LOG.info(status)
         if status == Status.SUCCEEDED:
             LOG.info("Job succeeded")
             return 0
         else:
             raise RuntimeError("Job failed")
+        LOG.info(status)
     except Exception as e:
         raise e
 
@@ -107,6 +113,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if args.arguments and args.arguments[0] == "--":
         arguments = args.arguments[1:]
+    else:
+        arguments = []
     run_adaptdl_on_ray_cluster(
         args.file,
         argv=arguments,

@@ -51,21 +51,34 @@ class AdaptDLJobMixin:
     def job_info(self):
         metrics = self._fetch_metrics()
         if metrics is not None:
-            perf_params = metrics.perf_params
-            grad_params = metrics.grad_params
-            goodput_fn = GoodputFunction(perf_params, grad_params, 128)
-            speedup_fn = SpeedupFunction(goodput_fn, max_batch_size=1280, # TODO
-                                         atomic_bsz_range=(64, 256))
+            if type(metrics) == dict:
+                perf_params = metrics["perfParams"]
+                grad_params = metrics["gradParams"]
+                init_batch_size = metrics["initBatchSize"]
+                atomic_bsz_range = metrics["localBszBounds"]
+                max_batch_size = metrics["maxBatchSize"]
+                accumulation = metrics["gradientAccumulation"]
+            else:
+                perf_params = metrics.perf_params
+                grad_params = metrics.grad_params
+                init_batch_size =  128
+                atomic_bsz_range = (32, 256)
+                max_batch_size = 1024
+                accumulation = False
+                min_replicas = config._JOB_MIN_REPLICAS
+                max_replicas = config._JOB_MAX_REPLICAS
+            goodput_fn = GoodputFunction(perf_params, grad_params, init_batch_size)
+            speedup_fn = SpeedupFunction(goodput_fn, max_batch_size=max_batch_size, # TODO
+                                         atomic_bsz_range=atomic_bsz_range, accumulation=accumulation)
         else:
             speedup_fn = lambda n, r: r  # noqa: E731
 
         return JobInfo(config.job_resources(), speedup_fn, self.creation_timestamp,
-                       config._JOB_MIN_REPLICAS, config._JOB_MAX_REPLICAS)
+                       0, 10)
 
     @property
     def allocation(self):
         # Allocation is in use if the job is using it
-        assert self.placement_group_factory is not None
         if self._allocation_in_use():
             return AdaptDLJobMixin.pgf_to_allocation(self.placement_group_factory)
         else:
@@ -85,6 +98,7 @@ class AdaptDLJobMixin:
 
     @staticmethod
     def allocation_to_pgf(alloc: List[str], resources_per_node):
+        time.sleep(5)
         def _construct_bundle(node, device_count):
             resources = copy.deepcopy(resources_per_node)
             #resources = {config.default_device(): device_count}
@@ -97,7 +111,6 @@ class AdaptDLJobMixin:
         alloc = Counter(alloc)
         for node, res in alloc.items():
             resources.append(_construct_bundle(node, res))
-        print(resources)
         time.sleep(5)
         return tune.PlacementGroupFactory(resources)
     
