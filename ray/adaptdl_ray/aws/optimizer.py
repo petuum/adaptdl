@@ -68,11 +68,11 @@ def optimize(job, cluster, max_cluster_size):
             replicas_per_node = replicas_per_node[1:]
 
     speedup_fn = job_info.speedup_fn
-
     base_speedup = speedup_fn(1, 1)
 
     workers_arr = np.asarray(range(1, max_workers+1))
     speedups = speedup_fn(workers_arr, workers_arr)
+    print(f"Optimizer speedups: {speedups}")
 
     best_replicas = 1
     nodes_used = set()

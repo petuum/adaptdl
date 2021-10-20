@@ -21,7 +21,6 @@ import logging
 import uuid
 
 from adaptdl_job_mixin import AdaptDLJobMixin
-from adaptdl_allocator import AdaptDLAllocator
 
 from adaptdl.goodput import PerfParams, GradParams
 
@@ -71,7 +70,7 @@ class RayAdaptDLJob(AdaptDLJobMixin):
         self._iteration = 0
 
         self.completed = asyncio.Event()
-        self.status = Status.RUNNING
+        self._status = Status.RUNNING
 
         self._placement_group_factory = None
 
@@ -106,6 +105,10 @@ class RayAdaptDLJob(AdaptDLJobMixin):
 
     def register_hints(self, hints):
         self._last_metrics = copy.deepcopy(hints)
+
+    @property
+    def status(self):
+        return self._status
 
     @property
     def worker_resources(self):
@@ -307,7 +310,7 @@ class Cluster():
 
 
 @ray.remote(num_cpus=1)
-class Controller(AdaptDLAllocator):
+class Controller():
     def __init__(self, cluster_size, rescale_timeout):
         super().__init__()
         logging.basicConfig(level=logging.INFO)

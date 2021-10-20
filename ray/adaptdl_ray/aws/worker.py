@@ -124,6 +124,7 @@ def run_adaptdl(job_key, job_uid, rank, replicas,
         module = importlib.util.module_from_spec(spec)
         # TODO: fix imports when caller module is not in the root path
         spec.loader.exec_module(module)
+        time.sleep(5)
 
     except SystemExit:
         # Received a cancel from the controller -- the job is being rescheduled
@@ -150,4 +151,6 @@ def run_adaptdl(job_key, job_uid, rank, replicas,
     else:
         if rank == 0:
             logging.info("Job succeeded, exiting")
+            time.sleep(5)
             report_status(Status.SUCCEEDED)
+            time.sleep(5)
