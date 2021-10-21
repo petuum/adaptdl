@@ -16,7 +16,7 @@
 from typing import List
 from datetime import datetime
 
-from adaptdl.goodput import GoodputFunction
+from adaptdl.goodput import GoodputFunction, GradParams
 from adaptdl_sched.policy.speedup import SpeedupFunction
 from adaptdl_sched.policy.utils import JobInfo
 from adaptdl_ray.adaptdl import config
@@ -51,7 +51,10 @@ class AdaptDLJobMixin:
         metrics = self._fetch_metrics()
         if metrics is not None:
             perf_params = metrics.perf_params
-            grad_params = metrics.grad_params
+            if metrics.grad_params is not None:
+                grad_params = metrics.grad_params
+            else:
+                grad_params = GradParams(0.0, 1.0)
             goodput_fn = GoodputFunction(perf_params,
                                          grad_params,
                                          metrics.init_batch_size)
