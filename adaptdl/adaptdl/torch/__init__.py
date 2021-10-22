@@ -48,18 +48,36 @@ def version_check(version):
 
 
 def init_process_group(backend,
-                       replica_rank=None,
-                       num_replicas=None,
-                       address=None):
+                       init_method=None,
+                       world_size=None,
+                       rank=None):
+    """
+    Initializes the default distributed process group and the AdaptDL
+    collectives module.
+
+    Args:
+        backend (str or Backend): The backend to use. Use "nccl" for multi-GPU
+            training else "gloo".
+        init_method (str, optional): URL specifying how to initialize the
+                                     process group.
+        world_size (int, optional): Number of processes participating in
+                                    the job
+        rank (int, optional): Rank of the current process (it should be a
+                              number between 0 and ``world_size``-1).
+
+    If init_method, world_size and rank is NOT provided, AdaptDL will try to
+    infer them through environment variables ADAPTDL_MASTER_ADDR,
+    ADAPTDL_NUM_REPLICAS and ADAPTDL_REPLICA_RANK respectively.
+    """
     url = adaptdl.env.supervisor_url()
     master_port = adaptdl.env.master_port()
-    if replica_rank is None:
-        replica_rank = adaptdl.env.replica_rank()
-    if num_replicas is None:
-        num_replicas = adaptdl.env.num_replicas()
+    if rank is None:
+        rank = adaptdl.env.replica_rank()
+    if world_size is None:
+        world_size = adaptdl.env.num_replicas()
 
-    if address is not None:
-        _, master_addr, master_port = address.split(":")
+    if init_method is not None:
+        _, master_addr, master_port = init_method.split(":")
         master_addr = master_addr[2:]
         master_port = int(master_port)
     elif url:
@@ -86,13 +104,13 @@ def init_process_group(backend,
     # Initialize collective module.
     adaptdl.collective.initialize(master_addr,
                                   master_port,
-                                  replica_rank,
-                                  num_replicas)
+                                  rank,
+                                  world_size)
 
     # Initialize torch.distributed.
     torch_port = adaptdl.collective.broadcast(portpicker.pick_unused_port())
     init_method = "tcp://{}:{}?rank={}&world_size={}".format(
-            master_addr, torch_port, replica_rank, num_replicas)
+            master_addr, torch_port, rank, world_size)
     LOG.info("Initializing torch.distributed using %s", init_method)
     torch.distributed.init_process_group(backend, init_method)
 

@@ -56,6 +56,6 @@ def wrap_function_patched(function):
 
 def setup_process_group(*args, **kwargs):
     init_process_group(backend=kwargs["backend"],
-                       replica_rank=kwargs["world_rank"],
-                       num_replicas=kwargs["world_size"],
-                       address=kwargs["url"])
+                       init_method=kwargs["url"],
+                       world_size=kwargs["world_size"],
+                       rank=kwargs["world_rank"])
