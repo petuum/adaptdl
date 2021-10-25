@@ -14,6 +14,7 @@
 
 
 import sys
+import os
 if "darwin" in sys.platform.lower():
     # To avoid multiple runs of the model code
     # https://pythonspeed.com/articles/python-multiprocessing/
@@ -69,10 +70,20 @@ def init_process_group(backend,
     infer them through environment variables ADAPTDL_MASTER_ADDR,
     ADAPTDL_NUM_REPLICAS and ADAPTDL_REPLICA_RANK respectively.
     """
+    if adaptdl.env.from_ray():
+        from adaptdl_ray.adaptdl import config
+        assert init_method is not None
+        assert world_size is not None
+        assert rank is not None
+        os.environ["ADAPTDL_NUM_NODES"] = str(len(config.nodes()))
+        os.environ["ADAPTDL_REPLICA_RANK"] = str(rank)
+        os.environ["ADAPTDL_NUM_REPLICAS"] = str(world_size)
+
     url = adaptdl.env.supervisor_url()
     master_port = adaptdl.env.master_port()
     if rank is None:
         rank = adaptdl.env.replica_rank()
+
     if world_size is None:
         world_size = adaptdl.env.num_replicas()
 

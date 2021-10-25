@@ -82,13 +82,11 @@ class AdaptDLTrial(AdaptDLJobMixin, Trial):
 
     def _fetch_metrics(self):
         if self.runner is not None:
-            self._cached_metrics = \
-                    ray.get(self.runner.get_sched_hints.remote())
-            return self._cached_metrics
-        elif self._cached_metrics is not None:
-            return self._cached_metrics
-        else:
-            return None
+            metrics = ray.get(self.runner.get_sched_hints.remote())
+            if metrics is not None:
+                # Update cache
+                self._cached_metrics = metrics
+        return self._cached_metrics
 
     def _allocation_in_use(self):
         return self._trial_in_use(self)

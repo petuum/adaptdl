@@ -128,6 +128,9 @@ def _fit_perf_params():
 
 
 def _get_sched_hints():
+    state = _metrics_state()
+    if len(state.profile) == 0:
+        return None
     _fit_perf_params()
     return _metrics_state()
 
