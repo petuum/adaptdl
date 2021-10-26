@@ -28,19 +28,20 @@ from utils import _checkpoint_obj_to_dir, _serialize_checkpoint, Status
 import ray
 import ray.services as services
 
-MOCK = (os.environ.get("MOCK", "False").lower() == "true")
-
 
 @ray.remote(num_cpus=0.1, max_retries=0)
-def listen_for_spot_termination():
+def listen_for_spot_termination(timeout=None):
+    MOCK = (os.environ.get("MOCK", "False").lower() == "true")
     logging.basicConfig(level=logging.INFO)
 
     if MOCK:
         logging.debug("Using mocked spot instance")
-        endpoint = "0.0.0.0:8234"
+        endpoint = f"{services.get_node_ip_address()}:8234"
     else:
         # AWS spot instance termination endpoint
         endpoint = "169.254.169.254"
+
+    start = time.time()
 
     while True:
         try:
@@ -61,6 +62,8 @@ def listen_for_spot_termination():
                 raise RuntimeError(
                     "AWS spot instance interrupt warning "
                     "endpoint not responding")
+            if timeout and time.time() - start > timeout:
+                return None
         except requests.RequestException as e:
             logging.error(e)
             time.sleep(5)

@@ -36,6 +36,8 @@ from ray.util.placement_group import (
     remove_placement_group
 )
 
+# To be used when there are no running tasks
+FULL_RESCALE_TIMEOUT = 6000
 
 NAMESPACE = "adaptdl_job"
 NAME = "adaptdl_job"
@@ -160,8 +162,8 @@ class RayAdaptDLJob(AdaptDLJobMixin):
         self._worker_tasks = {
             worker_index:
             run_adaptdl.options(
-                num_cpus=self._worker_resources["CPU"],
-                num_gpus=self._worker_resources["GPU"],
+                num_cpus=self._worker_resources.get("CPU", 1),
+                num_gpus=self._worker_resources.get("GPU", 0),
                 placement_group=self._pg).remote(
                     f"{NAMESPACE}/{NAME}",
                     job_uid,
@@ -188,6 +190,7 @@ class RayAdaptDLJob(AdaptDLJobMixin):
                 if force_checkpoint:
                     await self.force_worker_checkpoint()
 
+                # TODO: use asyncio events
                 waited = 0.0
                 while (self._worker_tasks and
                        waited <= self._checkpoint_timeout
@@ -278,7 +281,7 @@ class Cluster():
             worker_id: ip for worker_id, ip in current_workers.items()
             if ip not in nodes}
         if len(invalid_workers) == len(current_workers):
-            rescale_timeout = 6000
+            rescale_timeout = FULL_RESCALE_TIMEOUT
             logging.info(
                 "No live workers found. "
                 "Waiting longer than specified for rescaling.")
@@ -287,7 +290,7 @@ class Cluster():
 
         worker_resources = [
             copy.deepcopy(self._worker_resources)
-            for _ in range(len(allocation) + len(invalid_workers) + 1)]
+            for _ in range(len(allocation) + len(invalid_workers))]
         for bundle in worker_resources:
             bundle["CPU"] += 0.1
         sdk.request_resources(bundles=worker_resources)
@@ -309,7 +312,9 @@ class Cluster():
             return allocation
 
 
-@ray.remote(num_cpus=1)
+# This class is generally used remotely, but for testing purposes
+# we also keep a local version. See https://stackoverflow.com/a/62309671
+# from Robert Nishihara
 class Controller():
     def __init__(self, cluster_size, rescale_timeout):
         super().__init__()
@@ -395,7 +400,7 @@ class Controller():
         # TODO: error handling
         return web.json_response(pod_ip_list)
 
-    async def _run_app(self):
+    async def _run_app(self, port=8080):
         app = web.Application()
         app.add_routes([
             web.get('/discover/{namespace}/{name}/{group}',
@@ -404,7 +409,14 @@ class Controller():
         ])
         self._runner = web.AppRunner(app)
         await self._runner.setup()
-        site = web.TCPSite(self._runner, services.get_node_ip_address(), 8080)
+        site = web.TCPSite(self._runner, services.get_node_ip_address(), port)
         await site.start()
         self._ready.set()
         return None
+
+
+# For testing
+_test_controller = Controller
+
+# For general usage
+Controller = ray.remote(num_cpus=1)(Controller)

@@ -18,7 +18,7 @@ import logging
 import os
 from pathlib import Path
 
-from controller import Controller, RayAdaptDLJob
+from controller import Controller
 
 import ray
 
