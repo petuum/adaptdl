@@ -175,7 +175,8 @@ class RayAdaptDLJob(AdaptDLJobMixin):
             if self._worker_tasks:
                 try:
                     await asyncio.wait_for(
-                        self._checkpoint_received, self._checkpoint_timeout)
+                        self._checkpoint_received.wait(),
+                        self._checkpoint_timeout)
                     self._checkpoint_received.clear()
                 except asyncio.TimeoutError:
                     logging.warning("Waited for checkpoint, not found. "
@@ -185,10 +186,11 @@ class RayAdaptDLJob(AdaptDLJobMixin):
             return list(self._worker_tasks.values())
         else:
             logging.info("Allocation unchanged, proceeding")
+            return None
 
     def register_checkpoint(self, obj):
         self._checkpoint = obj
-        self._checkpoint_received = True
+        self._checkpoint_received.set()
         self._checkpoint_ref = ray.put(obj)
 
     def register_status(self, status):
@@ -331,15 +333,16 @@ class Controller():
         return self._job.status
 
     async def _reschedule_jobs(self):
-        with self._rescale_lock:
+        async with self._rescale_lock:
             allocation = optimize(
                 self._job, self._cluster, self._cluster_size)
             allocation = await self._cluster.expand_cluster(
                 self._job.workers, allocation)
 
             worker_tasks = await self._job.update_workers(allocation)
-            asyncio.create_task(
-                self._handle_worker_failure(worker_tasks))
+            if worker_tasks:
+                asyncio.create_task(
+                    self._handle_worker_failure(worker_tasks))
             self._cluster._force_immediate_allocation.clear()
 
     async def _spot_termination_continuation(self, task):
@@ -347,7 +350,7 @@ class Controller():
             ip = await task
             self._cluster.mark_node_for_termination(ip)
             self._cluster._force_immediate_allocation.set()
-            await self._reschedule_jobs(force=True)
+            await self._reschedule_jobs()
         except ray.exceptions.WorkerCrashedError:
             pass
 
@@ -355,7 +358,7 @@ class Controller():
         try:
             await asyncio.gather(*tasks)
         except Exception as e:
-            if self._workers:
+            if self._job._workers:
                 logging.error("worker failure detected")
                 logging.error(e)
                 # Let the autoscheduler resolve any dead nodes
@@ -375,7 +378,7 @@ class Controller():
 
     async def register_checkpoint(self, checkpoint):
         self._job.register_checkpoint(checkpoint)
-        return self._job._checkpoint_received
+        return self._job._checkpoint_received.is_set()
 
     async def register_status(self, status):
         self._job.register_status(status)
@@ -392,7 +395,8 @@ class Controller():
         # TODO: error handling
         return web.json_response(pod_ip_list)
 
-    async def _run_app(self, port=8080):
+    async def _run_app(self):
+        port = 8080
         app = web.Application()
         app.add_routes([
             web.get('/discover/{namespace}/{name}/{group}',

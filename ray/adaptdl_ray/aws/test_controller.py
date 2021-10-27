@@ -25,9 +25,6 @@ import asyncio # noqa
 from collections import namedtuple # noqa
 import requests # noqa
 
-loop = asyncio.new_event_loop()
-asyncio.set_event_loop(loop)
-
 
 # see https://stackoverflow.com/a/60334747
 @pytest.fixture(scope="module")
@@ -40,7 +37,7 @@ def ray_fix():
 MockedJob = namedtuple("Job", ["workers"])
 
 
-def test_adaptdl_job_checkpoint(ray_fix):
+async def test_adaptdl_job_checkpoint(ray_fix):
     job = RayAdaptDLJob(None, 0, 0)
 
     @ray.remote
@@ -50,17 +47,17 @@ def test_adaptdl_job_checkpoint(ray_fix):
     tasks = {i: worker.remote() for i in range(5)}
     job._worker_tasks = tasks
     job._running = True
-    loop.run_until_complete(job.force_worker_checkpoint())
+    await job.force_worker_checkpoint()
     assert not job._running
 
 
-def test_adaptdl_job_register_hints(ray_fix):
+async def test_adaptdl_job_register_hints(ray_fix):
     job = RayAdaptDLJob(None, 0, 0)
     job.register_hints("some hints")
     assert job._last_metrics == "some hints"
 
 
-def test_adaptdl_job_hints(ray_fix):
+async def test_adaptdl_job_hints(ray_fix):
     hints = {
         "gradParams": {"norm": 3.0, "var": 4.0},
         "perfParams": {
@@ -71,17 +68,17 @@ def test_adaptdl_job_hints(ray_fix):
     job.hints
 
 
-def test_adaptdl_job_register_checkpoint(ray_fix):
+async def test_adaptdl_job_register_checkpoint(ray_fix):
     job = RayAdaptDLJob(None, 0, 0)
     checkpoint = "foo"
-    assert not job._checkpoint_received
+    assert not job._checkpoint_received.is_set()
     job.register_checkpoint(checkpoint)
     assert job._checkpoint == "foo"
-    assert job._checkpoint_received
+    assert job._checkpoint_received.is_set()
     assert ray.get(job._checkpoint_ref) == "foo"
 
 
-def test_adaptdl_job_register_status(ray_fix):
+async def test_adaptdl_job_register_status(ray_fix):
     job = RayAdaptDLJob(None, 0, 0)
     status = Status.FAILED.value
     job.register_status(status)
@@ -101,7 +98,7 @@ def test_adaptdl_job_register_status(ray_fix):
     assert not job.completed.is_set()
 
 
-def test_cluster_invalid_nodes(ray_fix):
+async def test_cluster_invalid_nodes(ray_fix):
     cluster = Cluster(None, 0)
     cluster.mark_node_for_termination("some ip")
     cluster.mark_node_for_termination("some other ip")
@@ -109,7 +106,7 @@ def test_cluster_invalid_nodes(ray_fix):
             {"some ip", "some other ip", ray.services.get_node_ip_address()})
 
 
-def test_controller_run(ray_fix):
+async def test_controller_run(ray_fix):
     controller = Controller(100, 5)
     controller.app_ran = False
 
@@ -126,14 +123,14 @@ def test_controller_run(ray_fix):
         controller.app_ran = True
 
     controller._run_app = mocked_run_app
-    loop.run_until_complete(controller.run_controller())
+    await controller.run_controller()
 
     assert controller._runner.cleaned_up
     assert controller.app_ran
-    controller._runner.cleanup()
+    await controller._runner.cleanup()
 
 
-def test_controller_create_job(ray_fix):
+async def test_controller_create_job(ray_fix):
     controller = Controller(100, 5)
     controller._ready.set()
     controller.rescheduled = False
@@ -146,11 +143,10 @@ def test_controller_create_job(ray_fix):
     controller._reschedule_jobs = mocked_reschedule
 
     resources = {"CPU": 1, "GPU": 2}
-    loop.run_until_complete(
-        controller.create_job(
-            worker_resources=resources,
-            worker_port_offset=0,
-            checkpoint_timeout=1))
+    await controller.create_job(
+        worker_resources=resources,
+        worker_port_offset=0,
+        checkpoint_timeout=1)
 
     assert controller._job._worker_resources == resources
     assert controller._job._worker_port_offset == 0
@@ -160,52 +156,62 @@ def test_controller_create_job(ray_fix):
     assert controller._job._status == Status.SUCCEEDED
 
 
-def test_controller_reschedule_jobs(ray_fix):
+async def test_controller_reschedule_jobs(ray_fix):
     controller = Controller(100, 5)
-    job = RayAdaptDLJob(None, 0, 0)
+    job = RayAdaptDLJob({"CPU": 1}, 0, 0)
     controller._job = job
     job.forced_checkpoint = False
     job.updated = 0
+    controller.handled_workers = []
 
-    async def mocked_force_worker_checkpoint():
-        job.forced_checkpoint = True
+    async def mocked_handle_worker_failure(tasks):
+        controller.handled_workers += tasks
 
-    async def mocked_update_workers(allocation, force_checkpoint):
+    async def mocked_update_workers(allocation):
         await asyncio.sleep(3)
         job.updated += 1
+        if job._workers != allocation:
+            job._workers = allocation
+            return allocation
+        return None
 
-    job.force_worker_checkpoint = mocked_force_worker_checkpoint
+    controller._handle_worker_failure = mocked_handle_worker_failure
     job.update_workers = mocked_update_workers
 
     controller._cluster = Cluster(None, 0)
     controller._cluster.expanded = None
 
     async def mocked_expand_cluster(workers, allocation):
-        controller._cluster.expanded = (workers, allocation)
+        controller._cluster.expanded = allocation
+        return allocation
 
     controller._cluster.expand_cluster = mocked_expand_cluster
 
-    async def wrapped_call(duration, force=False):
+    async def wrapped_call(duration):
         await asyncio.sleep(duration)
-        await controller._reschedule_jobs(force)
+        await controller._reschedule_jobs()
 
-    loop.run_until_complete(asyncio.gather(wrapped_call(0), wrapped_call(1), wrapped_call(2, True)))
+    await asyncio.wait_for(
+        asyncio.gather(
+            wrapped_call(0), wrapped_call(1), wrapped_call(2)),
+        15)
 
-    assert job.forced_checkpoint
-    assert job.updated == 2
-    assert controller._cluster.expanded == ({}, ['virtual_node_0'])
+    await asyncio.sleep(4)
+    assert job.updated == 3
+
+    # Default allocation
+    assert controller.handled_workers == ['virtual_node_0']
+    assert controller._cluster.expanded == ['virtual_node_0']
 
 
-def test_controller_spot_termination_continuation(ray_fix):
+async def test_controller_spot_termination_continuation(ray_fix):
     controller = Controller(100, 5)
     job = RayAdaptDLJob(None, 0, 0)
     controller._job = job
     controller.rescheduled = False
-    controller.immediate_checkpoint = None
 
-    async def mocked_reschedule(immediate_checkpoint):
+    async def mocked_reschedule():
         controller.rescheduled = True
-        controller.immediate_checkpoint = immediate_checkpoint
 
     controller._cluster = Cluster(None, 0)
     controller._reschedule_jobs = mocked_reschedule
@@ -224,13 +230,12 @@ def test_controller_spot_termination_continuation(ray_fix):
         awaitable_task = asyncio.create_task(task())
         await controller._spot_termination_continuation(awaitable_task)
 
-    loop.run_until_complete(wrapper())
+    await wrapper()
     assert controller.rescheduled
-    assert controller.immediate_checkpoint
     assert controller._cluster.marked == "some ip"
 
 
-def test_controller_register_worker(ray_fix):
+async def test_controller_register_worker(ray_fix):
     controller = Controller(100, 5)
     job = RayAdaptDLJob(None, 0, 0)
     controller._job = job
@@ -245,41 +250,43 @@ def test_controller_register_worker(ray_fix):
 
     ip = ray.services.get_node_ip_address()
 
-    loop.run_until_complete(controller.register_worker(0, "some-ip"))
-    loop.run_until_complete(controller.register_worker(1, ray.services.get_node_ip_address()))
+    await controller.register_worker(0, "some-ip")
+    await controller.register_worker(1, ray.services.get_node_ip_address())
+
+    await asyncio.sleep(1)
 
     assert job._workers[0] == "some-ip"
     assert job._workers[1] == ip
     assert controller.task_result == "a different ip"
 
 
-def test_controller_register_checkpoint(ray_fix):
+async def test_controller_register_checkpoint(ray_fix):
     controller = Controller(100, 5)
     job = RayAdaptDLJob(None, 0, 0)
     controller._job = job
     checkpoint = "foo"
-    checkpoint_received = loop.run_until_complete(controller.register_checkpoint(checkpoint))
+    checkpoint_received = await controller.register_checkpoint(checkpoint)
     assert checkpoint_received
     assert job._checkpoint_received
     assert job._checkpoint == "foo"
     assert ray.get(job._checkpoint_ref) == "foo"
 
 
-def test_controller_register_status():
+async def test_controller_register_status():
     controller = Controller(100, 5)
     job = RayAdaptDLJob(None, 0, 0)
     controller._job = job
     status = Status.RUNNING.value
-    loop.run_until_complete(controller.register_status(status))
+    await controller.register_status(status)
     assert(job._status == Status.RUNNING and not job.completed.is_set())
     status = Status.SUCCEEDED.value
-    loop.run_until_complete(controller.register_status(status))
+    await controller.register_status(status)
     assert(job._status == Status.SUCCEEDED and job.completed.is_set())
 
 
-def test_controller_handle_report():
-    controller = Controller(100, 5)
-    job = RayAdaptDLJob(None, 0, 0)
+async def test_controller_handle_report():
+    controller = Controller(100, 1)
+    job = RayAdaptDLJob(None, 0, 1)
     controller._job = job
     controller.rescheduled = False
 
@@ -296,7 +303,10 @@ def test_controller_handle_report():
             return self._body
     hints = {"some": "hints"}
     hints_json = MockedRequest(json.dumps(hints))
-    loop.run_until_complete(controller._handle_report(hints_json))
+    await controller._handle_report(hints_json)
+
+    await asyncio.sleep(5)
+
     assert(
         controller.rescheduled and
         json.loads(job._last_metrics) == hints and
@@ -323,8 +333,6 @@ async def test_controller_run_app(aiohttp_client):
         controller.called_discover = True
         return web.Response(text="Success Discover")
 
-    port = 8713
-
     async def put():
         await asyncio.sleep(5)
         client = await aiohttp_client(controller._runner.app())
@@ -337,7 +345,7 @@ async def test_controller_run_app(aiohttp_client):
 
     controller._handle_discover = mocked_discover
     controller._handle_report = mocked_report
-    await controller._run_app(port)
+    await controller._run_app()
     put_response = await put()
     get_response = await get()
 

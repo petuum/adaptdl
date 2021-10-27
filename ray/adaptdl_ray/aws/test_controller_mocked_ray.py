@@ -90,28 +90,20 @@ async def test_adaptdl_job_update_workers():
     job._worker_ips = None
     job._create_workers = mocked_create_workers
 
-    await job.update_workers(
-        allocation, force_checkpoint=True, force_update=False)
+    await job.update_workers(allocation)
     assert job._checkpoint == 3
     assert job._workers_created
     assert job._worker_ips == allocation
 
     job._checkpoint = 0
-    await job.update_workers(
-        allocation, force_checkpoint=False, force_update=True)
-    assert job._checkpoint == 0
-    assert job._workers_created
-    assert job._worker_ips == allocation
-
     job._workers_created = False
     job._workers = {i: value for i, value in enumerate(allocation)}
-    await job.update_workers(
-        allocation, force_checkpoint=False, force_update=False)
+    await job.update_workers(allocation)
     assert not job._workers_created
     assert job._checkpoint == 0
 
 
-def test_cluster_get_nodes():
+async def test_cluster_get_nodes():
     cluster = Cluster(None, 0)
     cluster.mark_node_for_termination("some ip address")
     nodes = cluster.get_nodes()
@@ -119,7 +111,7 @@ def test_cluster_get_nodes():
     assert nodes[0]["NodeManagerAddress"] == "one last ip address"
 
 
-def test_cluster_ready():
+async def test_cluster_ready():
     cluster = Cluster({"CPU": 1}, 5)
     allocation_1 = ["one last ip address"]
     allocation_2 = ["one last ip address", "an ip we don't have"]
