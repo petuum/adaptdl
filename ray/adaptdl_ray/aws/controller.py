@@ -65,7 +65,7 @@ class RayAdaptDLJob(AdaptDLJobMixin):
         self._running = False
         self._checkpoint = None
         self._checkpoint_ref = None
-        self._checkpoint_received = False
+        self._checkpoint_received = asyncio.Event()
         self._checkpoint_lock = asyncio.Lock()
         self._checkpoint_timeout = checkpoint_timeout
 
@@ -139,19 +139,6 @@ class RayAdaptDLJob(AdaptDLJobMixin):
     def _allocation_in_use(self):
         return self._workers
 
-    async def _handle_worker_failure(self, tasks):
-        try:
-            await asyncio.gather(*tasks)
-        except Exception as e:
-            if self._workers:
-                logging.error("worker failure detected")
-                logging.error(e)
-                # Let the autoscheduler resolve any dead nodes
-                await asyncio.sleep(60)
-                await self.update_workers(
-                    [f"virtual_{i}" for i in self._workers.keys()],
-                    force_checkpoint=False, force_update=True)
-
     async def _create_workers(self, allocation):
         if self._pg:
             remove_placement_group(self._pg)
@@ -175,37 +162,29 @@ class RayAdaptDLJob(AdaptDLJobMixin):
                     **self._job_params)
             for worker_index, node in enumerate(allocation)}
 
-        asyncio.create_task(
-            self._handle_worker_failure(list(self._worker_tasks.values())))
         self._running = True
         self._iteration += 1
 
-    async def update_workers(self, allocation,
-                             force_checkpoint=True, force_update=False):
+    async def update_workers(self, allocation):
         logging.info(
             f"Updating workers. before: {len(self._workers.values())} workers"
             f", after: {len(allocation)} workers")
-        async with self._update_lock:
-            if set(self._workers.values()) != set(allocation) or force_update:
-                if force_checkpoint:
-                    await self.force_worker_checkpoint()
-
-                # TODO: use asyncio events
-                waited = 0.0
-                while (self._worker_tasks and
-                       waited <= self._checkpoint_timeout
-                       and not self._checkpoint_received):
-                    await asyncio.sleep(1)
-                    waited += 1.0
-
-                if waited >= self._checkpoint_timeout:
+        if set(self._workers.values()) != set(allocation):
+            await self.force_worker_checkpoint()
+            # TODO: use asyncio events
+            if self._worker_tasks:
+                try:
+                    await asyncio.wait_for(
+                        self._checkpoint_received, self._checkpoint_timeout)
+                    self._checkpoint_received.clear()
+                except asyncio.TimeoutError:
                     logging.warning("Waited for checkpoint, not found. "
                                     "Proceeding with previous checkpoint")
-                self._checkpoint_received = False
-                self._stop_workers()
-                await self._create_workers(allocation)
-            else:
-                logging.info("Allocation unchanged, proceeding")
+            self._stop_workers()
+            await self._create_workers(allocation)
+            return list(self._worker_tasks.values())
+        else:
+            logging.info("Allocation unchanged, proceeding")
 
     def register_checkpoint(self, obj):
         self._checkpoint = obj
@@ -223,6 +202,7 @@ class Cluster():
         self._worker_resources = worker_resources
         self._rescale_timeout = rescale_timeout
         self._terminating_nodes = set()
+        self._force_immediate_allocation = asyncio.Event()
 
     @property
     def worker_resources(self):
@@ -298,7 +278,8 @@ class Cluster():
         logging.info(f"Waiting for up to {rescale_timeout} seconds for "
                      "nodes to be ready")
         while (waited < rescale_timeout and
-               not self._cluster_ready(allocation)[0]):
+               not self._cluster_ready(allocation)[0] and
+               not self._force_immediate_allocation.is_set()):
             await asyncio.sleep(1.0)
             waited += 1.0
         ready, nodes = self._cluster_ready(allocation)
@@ -349,27 +330,38 @@ class Controller():
         self._completed.set()
         return self._job.status
 
-    async def _reschedule_jobs(self, immediate_checkpoint=False):
-        if immediate_checkpoint:
-            await self._job.force_worker_checkpoint()
-        elif self._rescale_lock.locked():
-            return
-        async with self._rescale_lock:
+    async def _reschedule_jobs(self):
+        with self._rescale_lock:
             allocation = optimize(
                 self._job, self._cluster, self._cluster_size)
             allocation = await self._cluster.expand_cluster(
                 self._job.workers, allocation)
 
-            await self._job.update_workers(
-                allocation, force_checkpoint=(not immediate_checkpoint))
+            worker_tasks = await self._job.update_workers(allocation)
+            asyncio.create_task(
+                self._handle_worker_failure(worker_tasks))
+            self._cluster._force_immediate_allocation.clear()
 
     async def _spot_termination_continuation(self, task):
         try:
             ip = await task
             self._cluster.mark_node_for_termination(ip)
-            await self._reschedule_jobs(immediate_checkpoint=True)
+            self._cluster._force_immediate_allocation.set()
+            await self._reschedule_jobs(force=True)
         except ray.exceptions.WorkerCrashedError:
             pass
+
+    async def _handle_worker_failure(self, tasks):
+        try:
+            await asyncio.gather(*tasks)
+        except Exception as e:
+            if self._workers:
+                logging.error("worker failure detected")
+                logging.error(e)
+                # Let the autoscheduler resolve any dead nodes
+                await asyncio.sleep(60)
+                # Todo: remove
+                await self._reschedule_jobs()
 
     async def register_worker(self, rank, ip):
         self._job._workers[rank] = ip
