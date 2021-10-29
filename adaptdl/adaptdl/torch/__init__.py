@@ -71,11 +71,11 @@ def init_process_group(backend,
     ADAPTDL_NUM_REPLICAS and ADAPTDL_REPLICA_RANK respectively.
     """
     if adaptdl.env.from_ray():
-        from adaptdl_ray.adaptdl import config
+        from adaptdl_ray.adaptdl.utils import unique_nodes_pg
         assert init_method is not None
         assert world_size is not None
         assert rank is not None
-        os.environ["ADAPTDL_NUM_NODES"] = str(len(config.nodes()))
+        os.environ["ADAPTDL_NUM_NODES"] = str(unique_nodes_pg())
         os.environ["ADAPTDL_REPLICA_RANK"] = str(rank)
         os.environ["ADAPTDL_NUM_REPLICAS"] = str(world_size)
 

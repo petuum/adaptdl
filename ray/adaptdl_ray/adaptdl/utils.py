@@ -15,6 +15,7 @@
 from typing import Dict, List
 from collections import Counter, defaultdict
 from ray import tune
+from ray.util.placement_group import get_current_placement_group
 from adaptdl_ray.adaptdl import config
 
 
@@ -70,3 +71,12 @@ def pgs_to_resources(pgs: List[Dict]) -> Dict:
             for k, v in bundle.items():
                 resources[node_ip][k] += v
     return resources
+
+
+def unique_nodes_pg() -> int:
+    nodes = []
+    for bundle in get_current_placement_group().bundle_specs:
+        for resource in bundle:
+            if "node" in resource:
+                nodes.append(resource)
+    return len(set(nodes))
