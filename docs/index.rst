@@ -13,13 +13,15 @@ AdaptDL Documentation
 Getting Started
 ---------------
 
-AdaptDL consists of a *Kubernetes job scheduler* and an *adaptive training
-library*. They can be used in two ways:
+AdaptDL consists of a *job scheduler* and an *adaptive training library*. They
+can be used in multiple ways:
 
-1.  Scheduling multiple training jobs on a shared cluster or the cloud
+1.  Scheduling multiple training jobs on a shared Kubernetes cluster or the cloud
     (:doc:`Scheduler Installation<installation/index>`).
 2.  Adapting the batch size and learning rate for a single training job
     (:doc:`Standalone Training<standalone-training>`).
+3.  As a Ray Tune Trial Scheduler
+    (:doc:`Tune Trial Scheduler<ray/tune_tutorial.rst>`).
 
 .. toctree::
    :maxdepth: 2
@@ -31,4 +33,5 @@ library*. They can be used in two ways:
    Command Line Interface<commandline/index.rst>
    AdaptDL with PyTorch<adaptdl-pytorch.rst>
    Standalone Training<standalone-training.rst>
+   Tune Trial Scheduler<ray/tune_tutorial.rst>
    API Reference<api/adaptdl.rst>
