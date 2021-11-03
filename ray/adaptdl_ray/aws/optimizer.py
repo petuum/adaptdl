@@ -72,14 +72,23 @@ def optimize(job, cluster, max_cluster_size):
 
     workers_arr = np.asarray(range(1, max_workers+1))
     speedups = speedup_fn(workers_arr, workers_arr)
-    print(f"Optimizer speedups: {speedups}")
 
-    best_replicas = 1
+    best_replicas = 0
+    best_speedup = 0.0
     nodes_used = set()
+    current_replicas = len(job._worker_tasks)
+
+    current_speedup = speedups[current_replicas - 1]
     for worker, speedup in enumerate(speedups):
         nodes_used.add(allocation[worker])
         num_nodes = len(nodes_used)
         if (speedup / num_nodes >= base_speedup * 0.35):
             best_replicas = worker + 1
+            best_speedup = speedup
+
+    if (best_speedup < current_speedup * 1.05 or
+            (abs(best_replicas + 1 - current_replicas) <
+             0.15 * current_replicas)):
+        best_replicas = current_replicas
 
     return allocation[:best_replicas]

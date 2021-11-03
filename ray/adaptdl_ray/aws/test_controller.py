@@ -143,6 +143,7 @@ async def test_controller_create_job(ray_fix):
     controller._reschedule_jobs = mocked_reschedule
 
     resources = {"CPU": 1, "GPU": 2}
+    asyncio.create_task(controller._reschedule_listener())
     await controller.create_job(
         worker_resources=resources,
         worker_port_offset=0,
@@ -204,7 +205,7 @@ async def test_controller_reschedule_jobs(ray_fix):
     assert controller._cluster.expanded == ['virtual_node_0']
 
 
-async def test_controller_spot_termination_continuation(ray_fix):
+async def test_controller_spot_termination_handler(ray_fix):
     controller = Controller(100, 5)
     job = RayAdaptDLJob(None, 0, 0)
     controller._job = job
@@ -215,6 +216,7 @@ async def test_controller_spot_termination_continuation(ray_fix):
 
     controller._cluster = Cluster(None, 0)
     controller._reschedule_jobs = mocked_reschedule
+    asyncio.create_task(controller._reschedule_listener())
 
     controller._cluster.marked = None
 
@@ -228,9 +230,10 @@ async def test_controller_spot_termination_continuation(ray_fix):
 
     async def wrapper():
         awaitable_task = asyncio.create_task(task())
-        await controller._spot_termination_continuation(awaitable_task)
+        await controller._spot_termination_handler(awaitable_task)
 
     await wrapper()
+    await asyncio.sleep(4)
     assert controller.rescheduled
     assert controller._cluster.marked == "some ip"
 
@@ -243,10 +246,10 @@ async def test_controller_register_worker(ray_fix):
 
     controller.task_result = None
 
-    async def mocked_spot_termination_continuation(task):
+    async def mocked_spot_termination_handler(task):
         controller.task_result = ray.get(task)
 
-    controller._spot_termination_continuation = mocked_spot_termination_continuation
+    controller._spot_termination_handler = mocked_spot_termination_handler
 
     ip = ray.services.get_node_ip_address()
 
@@ -294,6 +297,7 @@ async def test_controller_handle_report():
         controller.rescheduled = True
 
     controller._reschedule_jobs = mocked_reschedule
+    asyncio.create_task(controller._reschedule_listener())
 
     class MockedRequest:
         def __init__(self, body):

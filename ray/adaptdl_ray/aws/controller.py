@@ -19,6 +19,7 @@ import asyncio
 import copy
 import logging
 import uuid
+import time
 
 from adaptdl_job_mixin import AdaptDLJobMixin
 
@@ -75,8 +76,6 @@ class RayAdaptDLJob(AdaptDLJobMixin):
         self._status = Status.RUNNING
 
         self._placement_group_factory = None
-
-        self._update_lock = asyncio.Lock()
 
     async def force_worker_checkpoint(self):
         if self._worker_tasks:
@@ -259,9 +258,10 @@ class Cluster():
         logging.info("Attempting to expand cluster to "
                      f"{len(allocation)} nodes")
         nodes = self.get_nodes()
+        node_ips = {node["NodeManagerAddress"] for node in nodes}
         invalid_workers = {
             worker_id: ip for worker_id, ip in current_workers.items()
-            if ip not in nodes}
+            if ip not in node_ips}
         if len(invalid_workers) == len(current_workers):
             rescale_timeout = FULL_RESCALE_TIMEOUT
             logging.info(
@@ -307,17 +307,19 @@ class Controller():
         self._cluster_size = cluster_size
         self._runner = None
         self._url = f"http://{services.get_node_ip_address()}:8080"
-        self._rescale_lock = asyncio.Lock()
         self._spot_listener_tasks = {}
         self._ready = asyncio.Event()
         self._completed = asyncio.Event()
         self._rescale_timeout = rescale_timeout
+        self._reschedule_queue = asyncio.Queue(maxsize=1)
+        self._last_deployed = time.time()
 
     def get_url(self):
         return self._url
 
     async def run_controller(self):
         asyncio.create_task(self._run_app())
+        asyncio.create_task(self._reschedule_listener())
         await self._completed.wait()
         await self._runner.cleanup()
 
@@ -327,30 +329,53 @@ class Controller():
         self._cluster = Cluster(
             self._job.worker_resources,
             self._rescale_timeout)
-        await self._reschedule_jobs()
+        await self._enqueue_reschedule(immediate=True)
         await self._job.completed.wait()
         self._completed.set()
         return self._job.status
 
+    async def _reschedule_listener(self):
+        while True:
+            immediate = await self._reschedule_queue.get()
+            logging.info("waiting for job")
+            current_time = time.time()
+            if not immediate and (current_time - self._last_deployed <= 300):
+                await asyncio.sleep(int(current_time - self._last_deployed))
+            await self._reschedule_jobs()
+            self._last_deployed = time.time()
+            logging.info("done rescheduling")
+
+    async def _enqueue_reschedule(self, immediate=False):
+        if not immediate:
+            try:
+                self._reschedule_queue.put_nowait(False)
+                logging.info("enqueued reschedule")
+            except asyncio.QueueFull:
+                logging.info("enqueued reschedule failed, queue full")
+                pass
+        else:
+            if not self._reschedule_queue.empty():
+                self._reschedule_queue.get_nowait()
+            await self._reschedule_queue.put(True)
+
     async def _reschedule_jobs(self):
-        async with self._rescale_lock:
-            allocation = optimize(
-                self._job, self._cluster, self._cluster_size)
-            allocation = await self._cluster.expand_cluster(
-                self._job.workers, allocation)
+        allocation = optimize(
+            self._job, self._cluster, self._cluster_size)
+        allocation = await self._cluster.expand_cluster(
+            self._job.workers, allocation)
 
-            worker_tasks = await self._job.update_workers(allocation)
-            if worker_tasks:
-                asyncio.create_task(
-                    self._handle_worker_failure(worker_tasks))
-            self._cluster._force_immediate_allocation.clear()
+        worker_tasks = await self._job.update_workers(allocation)
+        if worker_tasks:
+            asyncio.create_task(
+                self._handle_worker_failure(worker_tasks))
+        self._cluster._force_immediate_allocation.clear()
 
-    async def _spot_termination_continuation(self, task):
+    async def _spot_termination_handler(self, task):
         try:
             ip = await task
             self._cluster.mark_node_for_termination(ip)
             self._cluster._force_immediate_allocation.set()
-            await self._reschedule_jobs()
+            await self._enqueue_reschedule(immediate=True)
         except ray.exceptions.WorkerCrashedError:
             pass
 
@@ -364,7 +389,7 @@ class Controller():
                 # Let the autoscheduler resolve any dead nodes
                 await asyncio.sleep(60)
                 # Todo: remove
-                await self._reschedule_jobs()
+                await self._enqueue_reschedule(immediate=True)
 
     async def register_worker(self, rank, ip):
         self._job._workers[rank] = ip
@@ -373,7 +398,7 @@ class Controller():
                 listen_for_spot_termination.options(
                      num_cpus=0.1, resources={f"node:{ip}": 0.01}).remote()
             asyncio.create_task(
-                self._spot_termination_continuation(
+                self._spot_termination_handler(
                     self._spot_listener_tasks[ip]))
 
     async def register_checkpoint(self, checkpoint):
@@ -385,7 +410,7 @@ class Controller():
 
     async def _handle_report(self, request):
         self._job.register_hints(await request.json())
-        asyncio.create_task(self._reschedule_jobs())
+        await self._enqueue_reschedule()
         return web.Response(text="metrics added")
 
     async def _handle_discover(self, request):
