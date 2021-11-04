@@ -66,9 +66,10 @@ def init_process_group(backend,
         rank (int, optional): Rank of the current process (it should be a
                               number between 0 and ``world_size``-1).
 
-    If init_method, world_size and rank is NOT provided, AdaptDL will try to
-    infer them through environment variables ADAPTDL_MASTER_ADDR,
-    ADAPTDL_NUM_REPLICAS and ADAPTDL_REPLICA_RANK respectively.
+    If init_method, world_size and rank is NOT provided, typically in the
+    Kubernetes environment, AdaptDL will try to infer them through environment
+    variables ADAPTDL_MASTER_ADDR, ADAPTDL_NUM_REPLICAS and
+    ADAPTDL_REPLICA_RANK respectively.
     """
     if adaptdl.env.from_ray():
         from adaptdl_ray.adaptdl.utils import unique_nodes_pg
