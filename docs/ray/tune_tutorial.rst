@@ -15,15 +15,10 @@ here <https://docs.ray.io/en/latest/tune/api_docs/trainable.html#distributed-tor
 Setup
 -----
 
-1. Install the Ray nightly package for your platform by following instructions
-   `here
-   <https://docs.ray.io/en/latest/installation.html#daily-releases-nightlies>`_.
+1. Install the required packages
+   `pip install -U adaptdl-ray hyperopt`
 
-2. Install latest `adaptdl`, `adaptdl-ray` and `adaptdl-sched` pip packages.
-
-3. Install HyperOpt.
-
-4. Start the ray cluster.
+2. Start the ray cluster.
 
 
 Incorporating the AdaptDL API
@@ -167,6 +162,7 @@ To run the example, simply run it from command line
 
    $ python3 hyperopt_example.py
 
+   ...
    == Status ==
     Current time: 2021-10-26 12:55:14 (running for 00:04:55.09)
     Memory usage on this node: 2.1/31.2 GiB
@@ -190,4 +186,3 @@ The trial names in the end can be interpreted as
 `AdaptDLTrainable_$num_replicas_$num_restarts_$trial_id`. Trials can expand or
 shrink based on the decisions of the AdaptDL optimizer and this gets reflected
 through their names.
-
