@@ -82,7 +82,7 @@ def optimize(job, cluster, max_cluster_size):
     for worker, speedup in enumerate(speedups):
         nodes_used.add(allocation[worker])
         num_nodes = len(nodes_used)
-        if (speedup / num_nodes >= base_speedup * 0.35):
+        if (speedup / num_nodes >= base_speedup * 0.5):
             best_replicas = worker + 1
             best_speedup = speedup
 
