@@ -13,6 +13,7 @@
 # limitations under the License.
 
 
+from itertools import cycle
 from typing import Dict, List
 from adaptdl_sched.policy.pollux import PolluxPolicy
 from adaptdl_sched.policy.utils import NodeInfo
@@ -26,14 +27,15 @@ class AdaptDLAllocator:
         self._node_infos = {node['NodeManagerAddress']:
                             NodeInfo(node['Resources'], preemptible=False)
                             for node in nodes}
+        self._default_node = cycle(list(self._node_infos))
         # Add a node template.
         self._node_template = NodeInfo(list(self._node_infos.values())[0].
                                        resources, preemptible=False)
         self._policy = PolluxPolicy()
 
     def default_allocation(self, num_devices=1) -> List[str]:
-        """ Use one device from the first node as default."""
-        return [f"{list(self._node_infos)[0]}"] * num_devices
+        """ Cycle through nodes for default trial allocation."""
+        return [f"{next(self._default_node)}"] * num_devices
 
     def allocate(self,
                  jobs: List[AdaptDLJobMixin],

@@ -2,11 +2,11 @@
 Using the Adaptive Tune Trial Scheduler
 =======================================
 
-This is a tutorial on using the AdaptDL as a Tune Trial Scheduler. We'll go
-through an example that uses HyperOpt to tune hyperparameters like the learning
-rate, momentum and initial batch size. The batch size and number of replicas
-will be automatically adjusted by AdaptDL throughout the lifetimes of the
-trials so as to efficiently and fairly share the resources of the Ray cluster.
+This is a tutorial on using AdaptDL as a Tune Trial Scheduler. We'll go through
+an example that uses HyperOpt to tune hyperparameters like the learning rate,
+momentum and initial batch size. The batch size and number of replicas will be
+automatically adjusted by AdaptDL throughout the lifetimes of the trials so as
+to efficiently and fairly share the resources of the Ray cluster.
 
 We'll be relying on the PyTorch `DistributedTrainable` Tune API `documented
 here <https://docs.ray.io/en/latest/tune/api_docs/trainable.html#distributed-torch>`_.
