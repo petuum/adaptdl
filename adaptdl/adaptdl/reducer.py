@@ -85,8 +85,8 @@ class Reducer(object):
                 if (self._root_port == 0):
                     # waiting for server to get a valid port in local mode
                     raise ConnectionRefusedError
-                logger.info(f"rank {rank} connecting to {root_host} "
-                            f"on port {self._root_port}")
+                logger.info(f"rank {rank} of {replicas} connecting to "
+                            f"{root_host} on port {self._root_port}")
                 sock.connect((root_host, self._root_port))
             except ConnectionRefusedError:
                 logger.warning("Could not connect to root, trying again...")

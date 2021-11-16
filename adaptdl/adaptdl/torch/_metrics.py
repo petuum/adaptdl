@@ -127,6 +127,14 @@ def _fit_perf_params():
                                         accum_step_time, optim_step_time)
 
 
+def _get_sched_hints():
+    state = _metrics_state()
+    if len(state.profile) == 0:
+        return None
+    _fit_perf_params()
+    return _metrics_state()
+
+
 def _report_sched_hints():
     assert adaptdl.env.replica_rank() == 0
     state = _metrics_state()
