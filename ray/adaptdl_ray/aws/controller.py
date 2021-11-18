@@ -20,14 +20,15 @@ import copy
 import logging
 import uuid
 import time
+from types import MappingProxyType
 
-from adaptdl_job_mixin import AdaptDLJobMixin
+from adaptdl_ray.adaptdl.adaptdl_job_mixin import AdaptDLJobMixin
 
 from adaptdl.goodput import PerfParams, GradParams
 
 import ray
 import ray.autoscaler.sdk as sdk
-import ray.services as services
+import ray._private.services as services
 
 from optimizer import optimize
 from utils import Status
@@ -133,7 +134,7 @@ class RayAdaptDLJob(AdaptDLJobMixin):
         return hints
 
     def _fetch_metrics(self):
-        return self.hints
+        return MappingProxyType(self.hints)
 
     def _allocation_in_use(self):
         return self._workers

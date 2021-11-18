@@ -26,7 +26,7 @@ import traceback
 from utils import _checkpoint_obj_to_dir, _serialize_checkpoint, Status
 
 import ray
-import ray.services as services
+import ray._private.services as services
 
 
 @ray.remote(num_cpus=0.1, max_retries=0)
