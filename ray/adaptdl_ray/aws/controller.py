@@ -30,9 +30,9 @@ import ray
 import ray.autoscaler.sdk as sdk
 import ray._private.services as services
 
-from optimizer import optimize
-from utils import Status
-from worker import listen_for_spot_termination, run_adaptdl
+from .optimizer import optimize
+from .utils import Status
+from .worker import listen_for_spot_termination, run_adaptdl
 
 from ray.util.placement_group import (
     remove_placement_group
@@ -162,6 +162,7 @@ class RayAdaptDLJob(AdaptDLJobMixin):
                     **self._job_params)
             for worker_index, node in enumerate(allocation)}
 
+        self._checkpoint_received.clear()
         self._running = True
         self._iteration += 1
 
@@ -177,7 +178,6 @@ class RayAdaptDLJob(AdaptDLJobMixin):
                     await asyncio.wait_for(
                         self._checkpoint_received.wait(),
                         self._checkpoint_timeout)
-                    self._checkpoint_received.clear()
                 except asyncio.TimeoutError:
                     logging.warning("Waited for checkpoint, not found. "
                                     "Proceeding with previous checkpoint")

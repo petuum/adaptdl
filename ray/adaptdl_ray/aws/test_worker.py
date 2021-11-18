@@ -35,7 +35,7 @@ class MockedController():
         return self.checkpoint
 
     def get_url(self):
-        return ray.services.get_node_ip_address()
+        return ray._private.services.get_node_ip_address()
 
 
 @ray.remote
@@ -58,7 +58,7 @@ class TerminationEndpoint():
         runner = web.AppRunner(app)
         await runner.setup()
         site = web.TCPSite(
-            runner, ray.services.get_node_ip_address(), 8234)
+            runner, ray._private.services.get_node_ip_address(), 8234)
         await site.start()
         await asyncio.sleep(30)
         await runner.cleanup()
@@ -121,5 +121,5 @@ def test_spot_instance_termination(ray_fix):
     time.sleep(5)
     endpoint.set_to_terminate.remote()
     ip = ray.get(task, timeout=10)
-    assert(ip == ray.services.get_node_ip_address()), \
-        f"found {ip}, expected {ray.services.get_node_ip_address()}"
+    assert(ip == ray._private.services.get_node_ip_address()), \
+        f"found {ip}, expected {ray._private.services.get_node_ip_address()}"

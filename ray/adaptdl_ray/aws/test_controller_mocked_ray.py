@@ -24,7 +24,7 @@ worker.run_adaptdl = MockedRunAdaptDL
 
 
 def mocked_nodes():
-    current_ip = ray.services.get_node_ip_address()
+    current_ip = ray._private.services.get_node_ip_address()
     return [
         {"NodeManagerAddress": current_ip,
          "alive": True,

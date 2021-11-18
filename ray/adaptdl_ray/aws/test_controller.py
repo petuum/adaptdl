@@ -103,7 +103,7 @@ async def test_cluster_invalid_nodes(ray_fix):
     cluster.mark_node_for_termination("some ip")
     cluster.mark_node_for_termination("some other ip")
     assert (cluster._invalid_nodes ==
-            {"some ip", "some other ip", ray.services.get_node_ip_address()})
+            {"some ip", "some other ip", ray._private.services.get_node_ip_address()})
 
 
 async def test_controller_run(ray_fix):
@@ -251,10 +251,10 @@ async def test_controller_register_worker(ray_fix):
 
     controller._spot_termination_handler = mocked_spot_termination_handler
 
-    ip = ray.services.get_node_ip_address()
+    ip = ray._private.services.get_node_ip_address()
 
     await controller.register_worker(0, "some-ip")
-    await controller.register_worker(1, ray.services.get_node_ip_address())
+    await controller.register_worker(1, ray._private.services.get_node_ip_address())
 
     await asyncio.sleep(1)
 

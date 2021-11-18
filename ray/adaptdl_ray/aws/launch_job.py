@@ -18,7 +18,7 @@ import logging
 import os
 from pathlib import Path
 
-from controller import Controller
+from adaptdl_ray.aws.controller import Controller
 
 import ray
 
