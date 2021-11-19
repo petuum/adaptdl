@@ -1,7 +1,7 @@
 Adaptdl on Ray AWS
 ==================
 
-<WORKING-NAME-HERE> allows you to run an AdaptDL job on an AWS-Ray cluster.
+The executable `adaptdl_on_ray_aws` allows you to run an AdaptDL job on an AWS-Ray cluster.
 The intention of this module is to allow you to get AdaptDL jobs working quickly, without the need to deploy kubernetes, and you to use Ray's cluster rescaling with AdaptDL's worker autoscaling.
 
 Usage
@@ -44,7 +44,7 @@ To ensure that the ndoes have enough space for Docker to use, you will need to i
       BlockDeviceMappings:
         - DeviceName: /dev/sda1
           Ebs:
-             VolumeSize: 100 #  Feel free to change this value
+            VolumeSize: 100 #  Feel free to change this value
 
 Just creating the EBS volume will not make it available for docker. You will also need to format and mount the volume as part of the initialization commands:
 
@@ -71,11 +71,13 @@ Running your code
 
 Once the cluster has been deployed, you will need the address and port of the cluster head. Generally, this will be of the form ``<head-node-ip>:10001``. Make sure that you have access to that port via the AWS subnet and inbound rules. 
 
+On your local machine, make sure to install the pip package for ``adaptdl_ray``. This package includes the launcher script, and will generally install it in ``/usr/local/bin/adaptdl_on_ray_aws``.
+
 If you have some AdaptDL training code runnable at ``code.py`` via ``python3 code.py <command-line-args>``, you can run the training code on Ray via 
 
-``python3 adaptdl-ray -u "ray://head-node-ip:10001" -f code.py -m <maximum-number-of-workers> --cpus <cpus-per-worker> --gpus <gpus-per-worker> -- <command-line-args>``
+``./usr/local/bin/adaptdl_on_ray_aws -u "ray://head-node-ip:10001" -f code.py -m <maximum-number-of-workers> --cpus <cpus-per-worker> --gpus <gpus-per-worker> -- <command-line-args>``
 
-If your local version of Python does not match the cluster's, Ray will not work. In this case, one option is to run the command within a Docker container. Be sure to mount your code directory in the container, e.g. via `-v`.
+If your local version of Python does not match the cluster's, Ray will not work. In this case, one option is to run the command within a Docker container. Be sure to mount your code directory in the container, e.g. via ``-v``.
 
 Retrieving your trained model
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -89,9 +91,9 @@ To run the example code found in ``examples/pytorch-cifar/main.py``, do the foll
 
 1. Install the AWS CLI and authenticate.
 2. Inside the ``example/ray/aws`` directory, run ``ray up -y cluster.yaml -v``. Note: running this step will create an AWS EC2 cluster, which will cost money
-3. Keep track of the ip and port `ray up` returns.
-4. Install Docker or the exact Python version used by your cluster. You can determine the python version by running `ray attach <cluster-config-file`, and then running Python.
-5. Still inside ``example/ray/aws``, run ``docker run <docker version> python3 adaptdl_ray.py -f main.py -m 3 -u ray://<ip>:<port> -- -autoscale-bsz``. If you are using Python. then install the requirements in ``ray/aws/requirements.txt`` and run ``python3 adaptdl_ray.py -f main.py -m 3 -u ray://<ip>:<port> -- -autoscale-bsz``.
+3. Keep track of the ip and port ``ray up`` returns.
+4. Install Docker or the exact Python version used by your cluster. You can determine the python version by running ``ray attach <cluster-config-file``, and then running Python.
+5. Still inside ``example/ray/aws``, run ``docker run <docker version> python3 adaptdl_ray.py -f main.py -m 3 -u ray://<ip>:<port> -- -autoscale-bsz``. If you are using Python. then install the requirements in ``ray/aws/requirements.txt`` and run ``./usr/local/bin/adaptdl_on_ray_aws -f main.py -m 3 -u ray://<ip>:<port> -- -autoscale-bsz``.
 
 Advanced Usage
 --------------
