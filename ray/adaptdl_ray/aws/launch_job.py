@@ -43,7 +43,8 @@ def run_adaptdl_on_ray_cluster(
     if not os.path.exists(working_dir):
         raise RuntimeError(f"Cannot find local directory {working_dir}")
     if not os.path.exists(os.path.join(working_dir, path)):
-        raise RuntimeError(f"Cannot find local file {os.path.join(working_dir, path)}")
+        raise RuntimeError(
+            f"Cannot find local file {os.path.join(working_dir, path)}")
     runtime_env = {
         "working_dir": working_dir}
     ray.init(ray_uri, runtime_env=runtime_env)

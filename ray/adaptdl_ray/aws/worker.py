@@ -23,7 +23,8 @@ import sys
 import time
 import traceback
 
-from adaptdl_ray.aws.utils import _checkpoint_obj_to_dir, _serialize_checkpoint, Status
+from adaptdl_ray.aws.utils import \
+    _checkpoint_obj_to_dir, _serialize_checkpoint, Status
 
 import ray
 import ray._private.services as services
@@ -139,7 +140,8 @@ def run_adaptdl(job_key, job_uid, rank, replicas,
             logging.info("checkpoint created")
             checkpoint_obj_ref = ray.put(checkpoint_obj)
             logging.info("checkpoint placed")
-            result = ray.get(controller.register_checkpoint.remote(checkpoint_obj_ref))
+            result = ray.get(
+                controller.register_checkpoint.remote(checkpoint_obj_ref))
             logging.info(f"checkpoint registered: {result}")
         # This sleep is to keep this remote task alive
         # until its worker object can be killed by the controller

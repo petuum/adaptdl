@@ -114,7 +114,8 @@ async def test_cluster_invalid_nodes(ray_fix):
     cluster.mark_node_for_termination("some ip")
     cluster.mark_node_for_termination("some other ip")
     assert (cluster._invalid_nodes ==
-            {"some ip", "some other ip", ray._private.services.get_node_ip_address()})
+            {"some ip", "some other ip",
+             ray._private.services.get_node_ip_address()})
 
 
 async def test_controller_run(ray_fix):
@@ -234,7 +235,8 @@ async def test_controller_spot_termination_handler(ray_fix):
     def mocked_mark_node_for_termination(ip):
         controller._cluster.marked = ip
 
-    controller._cluster.mark_node_for_termination = mocked_mark_node_for_termination
+    controller._cluster.mark_node_for_termination = \
+        mocked_mark_node_for_termination
 
     async def task():
         return "some ip"
@@ -265,7 +267,8 @@ async def test_controller_register_worker(ray_fix):
     ip = ray._private.services.get_node_ip_address()
 
     await controller.register_worker(0, "some-ip")
-    await controller.register_worker(1, ray._private.services.get_node_ip_address())
+    await controller.register_worker(
+        1, ray._private.services.get_node_ip_address())
 
     await asyncio.sleep(1)
 
@@ -330,7 +333,8 @@ async def test_controller_handle_report():
 
 async def test_controller_handle_discover():
     controller = Controller(4, 100)
-    controller._job = MockedJob(workers={0: "127.0.0.1", 1: "127.0.0.2", 2: "0.0.0.0"})
+    controller._job = MockedJob(
+        workers={0: "127.0.0.1", 1: "127.0.0.2", 2: "0.0.0.0"})
     workers = await controller._handle_discover(None)
     assert (json.loads(workers.text) == ["127.0.0.1", "127.0.0.2", "0.0.0.0"])
 

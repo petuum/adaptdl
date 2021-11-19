@@ -299,7 +299,8 @@ class Cluster():
         logging.info(f"Found {nodes} available nodes")
         if not ready:
             allocation = (
-                [node for node in allocation if "adaptdl_virtual" not in node] +
+                [node for node in allocation
+                 if "adaptdl_virtual" not in node] +
                 [node for node in allocation if "adaptdl_virtual" in node])
             return allocation[:nodes]
         else:
