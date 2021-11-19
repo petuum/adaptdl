@@ -19,13 +19,13 @@ import numpy as np
 def optimize(job, cluster, max_cluster_size):
     hints = job.hints
     if not hints:
-        return ["virtual_node_0"]
+        return ["adaptdl_virtual_node_0"]
 
     job_info = job.job_info
 
     existing_nodes = cluster.get_nodes()
     virtual_nodes = [
-        f"virtual_node_{i}"
+        f"adaptdl_virtual_node_{i}"
         for i in range(max_cluster_size - len(existing_nodes))]
 
     existing_ips = [node["NodeManagerAddress"] for node in existing_nodes]

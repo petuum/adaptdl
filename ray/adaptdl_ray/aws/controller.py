@@ -20,9 +20,11 @@ import copy
 import logging
 import uuid
 import time
-from types import MappingProxyType
+
+from collections import namedtuple
 
 from adaptdl_ray.adaptdl.adaptdl_job_mixin import AdaptDLJobMixin
+from adaptdl_ray.adaptdl.utils import allocation_to_pgf
 
 from adaptdl.goodput import PerfParams, GradParams
 
@@ -134,7 +136,14 @@ class RayAdaptDLJob(AdaptDLJobMixin):
         return hints
 
     def _fetch_metrics(self):
-        return MappingProxyType(self.hints)
+        hints = self.hints
+        metrics = {}
+        for key, value in hints.items():
+            metrics_key = ''.join(
+                ['_'+c.lower() if c.isupper() else c for c in key]).lstrip('_')
+            metrics[metrics_key] = value
+        Metrics = namedtuple("Metrics", metrics.keys())
+        return Metrics(**metrics)
 
     def _allocation_in_use(self):
         return self._workers
@@ -143,7 +152,7 @@ class RayAdaptDLJob(AdaptDLJobMixin):
         if self._pg:
             remove_placement_group(self._pg)
         logging.info(f"Creating {len(allocation)} worker tasks")
-        self._placement_group_factory = AdaptDLJobMixin.allocation_to_pgf(
+        self._placement_group_factory = allocation_to_pgf(
             allocation, self._worker_resources)
         self._pg = self._placement_group_factory()
         self._worker_tasks = {
@@ -194,7 +203,8 @@ class RayAdaptDLJob(AdaptDLJobMixin):
         self._checkpoint_ref = ray.put(obj)
 
     def register_status(self, status):
-        self._status = Status(status)
+        if self._status != Status.SUCCEEDED:
+            self._status = Status(status)
         if self._status != Status.RUNNING:
             self.completed.set()
 
@@ -233,7 +243,7 @@ class Cluster():
 
         found_workers_count = 0
         for worker in allocation:
-            if ("virtual" in worker or worker not in nodes):
+            if ("adaptdl_virtual" in worker or worker not in nodes):
                 virtual_workers += [worker]
             else:
                 node = nodes[worker]
@@ -289,8 +299,8 @@ class Cluster():
         logging.info(f"Found {nodes} available nodes")
         if not ready:
             allocation = (
-                [node for node in allocation if "virtual" not in node] +
-                [node for node in allocation if "virtual" in node])
+                [node for node in allocation if "adaptdl_virtual" not in node] +
+                [node for node in allocation if "adaptdl_virtual" in node])
             return allocation[:nodes]
         else:
             return allocation

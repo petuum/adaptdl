@@ -19,10 +19,10 @@ import os
 from pathlib import Path
 
 from adaptdl_ray.aws.controller import Controller
+from adaptdl_ray.aws.utils import Status
 
 import ray
 
-from utils import Status
 
 logging.basicConfig()
 LOG = logging.getLogger(__name__)
@@ -57,18 +57,16 @@ def run_adaptdl_on_ray_cluster(
             worker_resources, worker_port_offset, checkpoint_timeout,
             path=path, argv=argv)
         status = ray.get(status_obj)
-        LOG.info(status)
-        if status == Status.SUCCEEDED:
+        if status.value == Status.SUCCEEDED.value:
             LOG.info("Job succeeded")
             return 0
         else:
             raise RuntimeError("Job failed")
-        LOG.info(status)
     except Exception as e:
         raise e
 
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser(description="Adaptdl on Ray")
     parser.add_argument(
         "-f", "--file", type=str,
@@ -125,3 +123,7 @@ if __name__ == "__main__":
         worker_port_offset=args.port_offset,
         checkpoint_timeout=args.checkpoint_timeout,
         rescale_timeout=args.cluster_rescale_timeout)
+
+
+if __name__ == "__main__":
+    main()

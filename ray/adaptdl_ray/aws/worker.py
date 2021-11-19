@@ -23,7 +23,7 @@ import sys
 import time
 import traceback
 
-from .utils import _checkpoint_obj_to_dir, _serialize_checkpoint, Status
+from adaptdl_ray.aws.utils import _checkpoint_obj_to_dir, _serialize_checkpoint, Status
 
 import ray
 import ray._private.services as services

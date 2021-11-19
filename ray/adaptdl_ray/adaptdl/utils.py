@@ -45,7 +45,8 @@ def allocation_to_pgf(alloc: List[str], resources_per_node=None):
     def _construct_bundle(node, number_of_instances):
         resources = deepcopy(resources_per_node)
         resources["CPU"] *= number_of_instances
-        resources["GPU"] *= number_of_instances
+        if "GPU" in resources:
+            resources["GPU"] *= number_of_instances
         if "adaptdl_virtual" not in node:
             resources[f"node:{node}"] = 0.01
         return resources

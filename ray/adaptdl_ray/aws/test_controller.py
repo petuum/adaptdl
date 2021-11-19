@@ -3,7 +3,7 @@ import ray
 
 import json
 
-import worker
+import adaptdl_ray.aws.worker as worker
 from aiohttp import web
 
 
@@ -16,9 +16,9 @@ def mocked_listen_for_spot_termination():
 worker.listen_for_spot_termination = mocked_listen_for_spot_termination
 
 
-from controller import RayAdaptDLJob, Cluster # noqa
-from controller import _test_controller as Controller # noqa
-from utils import Status # noqa
+from adaptdl_ray.aws.controller import RayAdaptDLJob, Cluster # noqa
+from adaptdl_ray.aws.controller import _test_controller as Controller # noqa
+from adaptdl_ray.aws.utils import Status # noqa
 
 import time # noqa
 import asyncio # noqa
@@ -66,6 +66,17 @@ async def test_adaptdl_job_hints(ray_fix):
     job = RayAdaptDLJob(None, 0, 0)
     job._last_metrics = hints
     job.hints
+
+
+async def test_fetch_metrics():
+    hints = {
+        "gradParams": {"norm": 3.0, "var": 4.0},
+        "perfParams": {
+            'alpha_c': 0, 'beta_c': 0, 'alpha_n': 0,
+            'beta_n': 0, 'alpha_r': 0, 'beta_r': 0, 'gamma': 0}}
+    job = RayAdaptDLJob(None, 0, 0)
+    job._last_metrics = hints
+    job._fetch_metrics()
 
 
 async def test_adaptdl_job_register_checkpoint(ray_fix):
@@ -201,8 +212,8 @@ async def test_controller_reschedule_jobs(ray_fix):
     assert job.updated == 3
 
     # Default allocation
-    assert controller.handled_workers == ['virtual_node_0']
-    assert controller._cluster.expanded == ['virtual_node_0']
+    assert controller.handled_workers == ['adaptdl_virtual_node_0']
+    assert controller._cluster.expanded == ['adaptdl_virtual_node_0']
 
 
 async def test_controller_spot_termination_handler(ray_fix):

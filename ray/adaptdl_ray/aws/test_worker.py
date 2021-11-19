@@ -1,6 +1,6 @@
 import ray
 import pytest
-from worker import run_adaptdl, listen_for_spot_termination
+from adaptdl_ray.aws.worker import run_adaptdl, listen_for_spot_termination
 import asyncio
 import os
 import time
@@ -23,9 +23,11 @@ class MockedController():
         self.checkpoint = None
 
     def register_status(self, *args, **kwargs):
+        print(*args, **kwargs)
         pass
 
     def register_worker(self, *args, **kwargs):
+        print(*args, **kwargs)
         pass
 
     def register_checkpoint(self, obj):
@@ -75,7 +77,7 @@ def test_worker(ray_fix):
     restarts = 3
     checkpoint = None
     offset = 50
-    path = "example_worker_for_unit_test.py"
+    path = "ray/adaptdl_ray/aws/example_worker_for_unit_test.py"
     argv = ["--arg1", "value", "--arg2", "value"]
 
     worker_task = run_adaptdl.remote(
@@ -83,11 +85,12 @@ def test_worker(ray_fix):
         restarts, checkpoint, offset, path, argv)
 
     # can't cancel with force=True
-    time.sleep(10)
+    time.sleep(20)
     ray.cancel(worker_task, force=False)
     print("canceling")
-    time.sleep(10)
+    time.sleep(20)
     checkpoint = ray.get(controller.get_checkpoint.remote())
+    print(checkpoint)
     assert('file.txt' in checkpoint)
     ray.cancel(worker_task, force=False)
 

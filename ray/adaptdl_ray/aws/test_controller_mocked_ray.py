@@ -1,4 +1,4 @@
-import worker
+import adaptdl_ray.aws.worker as worker
 import ray.autoscaler.sdk as sdk
 import ray
 
@@ -50,11 +50,11 @@ sdk.request_resources = mocked_sdk_request
 ray.nodes = mocked_nodes
 
 
-import controller # noqa
+import adaptdl_ray.aws.controller as controller# noqa
 
 controller.FULL_RESCALE_TIMEOUT = 4
 
-from controller import Cluster, RayAdaptDLJob # noqa
+from adaptdl_ray.aws.controller import Cluster, RayAdaptDLJob # noqa
 
 
 async def test_adaptdl_job_create_workers():
@@ -65,7 +65,8 @@ async def test_adaptdl_job_create_workers():
 
     job._handle_worker_failure = mocked_handle_worker_failure
     await job._create_workers([
-        "virtual_node_0", "virtual_node_1", "virtual_node_2"])
+        "adaptdl_virtual_node_0", "adaptdl_virtual_node_1",
+        "adaptdl_virtual_node_2"])
     assert len(job._worker_tasks) == 3
     for i in range(3):
         print(type(job._worker_tasks[i]))
@@ -74,7 +75,9 @@ async def test_adaptdl_job_create_workers():
 
 async def test_adaptdl_job_update_workers():
     job = RayAdaptDLJob({"CPU": 2}, 0, 3)
-    allocation = ["virtual_node_0", "virtual_node_1", "virtual_node_2"]
+    allocation = [
+        "adaptdl_virtual_node_0", "adaptdl_virtual_node_1",
+        "adaptdl_virtual_node_2"]
 
     async def mocked_force_worker_checkpoint():
         print("forcing checkpoint")
@@ -133,18 +136,18 @@ async def test_cluster_ready():
 
 async def test_expand_cluster():
     cluster = Cluster({"CPU": 1}, 3)
-    # Note: placeholders will have "virtual" in their name
+    # Note: placeholders will have "adaptdl_virtual" in their name
     allocation = [
-        "a virtual ip we don't have",
+        "an adaptdl_virtual ip we don't have",
         "one last real ip address",
-        "one virtual ip too many"]
+        "one adaptdl_virtual ip too many"]
     result = await cluster.expand_cluster({}, allocation)
     assert len(worker.bundles) == 3
     assert "one last real ip address" in result
     assert len(result) == 2
 
     allocation = [
-        "a virtual ip we don't have",
+        "an adaptdl_virtual ip we don't have",
         "one last real ip address"]
     result = await cluster.expand_cluster({}, allocation)
     assert len(worker.bundles) == 2
