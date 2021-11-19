@@ -53,6 +53,9 @@ jobs:
         pytest ray/adaptdl/aws/test_controller.py --cov=ray/adaptdl --cov-branch --cov-append --cov-report=
         pytest ray/adaptdl/aws/test_controller_mocked_ray.py --cov=ray/adaptdl --cov-branch --cov-append --cov-report=
         pytest ray/adaptdl/aws/test_worker.py --cov=ray/adaptdl --cov-branch --cov-append --cov-report=
+        pytest ray/adaptdl/tests --cov=ray/adaptdl --cov-branch --cov-append --cov-report=
+        pytest ray/adaptdl/tune --cov=ray/adaptdl --cov-branch --cov-append --cov-report=
+        pytest ray/adaptdl/adaptdl --cov=ray/adaptdl --cov-branch --cov-append --cov-report=
         mv .coverage .coverage.ray 
     - name: Coverage
       run: |
