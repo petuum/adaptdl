@@ -38,7 +38,7 @@ See `examples/cluster_config.yaml` for an example of the cluster.
 
 To ensure that the ndoes have enough space for Docker to use, you will need to include something like the following `BlockDeviceMapping` configuration in all of the nodes:
 
-:: 
+:: code-block: yaml
     node_config:
       InstanceType: <your instance type>
       BlockDeviceMappings:
@@ -48,7 +48,7 @@ To ensure that the ndoes have enough space for Docker to use, you will need to i
 
 Just creating the EBS volume will not make it available for docker. You will also need to format and mount the volume as part of the initialization commands:
 
-::
+:: code-block: yaml
     initialization_commands:
       - sudo usermod -aG docker $USER
       - sudo mkdir /docker_volume
@@ -58,7 +58,7 @@ Just creating the EBS volume will not make it available for docker. You will als
 
 If you find that your code does not have enough access to disk space, you can also mount an external volume (as provisioned above) to the runtime containers via:
 
-::
+:: code-block: yaml
    docker:
      image: <your-image-name>
      run_options:
