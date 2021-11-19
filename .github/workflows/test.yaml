@@ -47,6 +47,13 @@ jobs:
       run: |
         pytest adaptdl -xv --cov=adaptdl --cov-branch --cov-report=
         mv .coverage .coverage.train
+    - name: Test ray
+      run: |
+        # Need to be seperate to allow ray to work
+        pytest ray/adaptdl/aws/test_controller.py --cov=ray/adaptdl --cov-branch --cov-append --cov-report=
+        pytest ray/adaptdl/aws/test_controller_mocked_ray.py --cov=ray/adaptdl --cov-branch --cov-append --cov-report=
+        pytest ray/adaptdl/aws/test_worker.py --cov=ray/adaptdl --cov-branch --cov-append --cov-report=
+        mv .coverage .coverage.ray 
     - name: Coverage
       run: |
         coverage combine

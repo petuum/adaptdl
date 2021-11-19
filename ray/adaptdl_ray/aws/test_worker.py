@@ -85,10 +85,10 @@ def test_worker(ray_fix):
         restarts, checkpoint, offset, path, argv)
 
     # can't cancel with force=True
-    time.sleep(20)
+    time.sleep(10)
     ray.cancel(worker_task, force=False)
     print("canceling")
-    time.sleep(20)
+    time.sleep(10)
     checkpoint = ray.get(controller.get_checkpoint.remote())
     print(checkpoint)
     assert('file.txt' in checkpoint)
