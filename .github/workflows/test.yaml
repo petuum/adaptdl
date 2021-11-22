@@ -53,14 +53,12 @@ jobs:
     - name: Test ray
       run: |
         # Need to be seperate to allow ray to work
-        pytest ray/adaptdl_ray/aws/test_controller.py --cov=ray/adaptdl --cov-branch --cov-report=
-        mv .coverage .coverage.ray_aws.controller 
-        pytest ray/adaptdl_ray/aws/test_controller_mocked_ray.py --cov=ray/adaptdl --cov-branch --cov-report=
-        mv .coverage .coverage.ray_aws.controller_2
-        pytest ray/adaptdl_ray/aws/test_worker.py --cov=ray/adaptdl --cov-branch --cov-report=
-        mv .coverage .coverage.ray_aws.worker
+        pytest ray/adaptdl_ray/aws/test_controller.py ray/adaptdl_ray/aws_test_worker.py --cov=ray/adaptdl --cov-branch --cov-report=
+        mv .coverage .coverage.ray_aws
+        pytest ray/adaptdl_ray/aws/test_controller_mocked_ray --cov=ray/adaptdl --cov-branch --cov-report=
+        mv .coverage .coverage.ray_aws.mocked
         pytest ray/adaptdl_ray/tests --cov=ray/adaptdl --cov-branch --cov-report=
-        mv .coverage .coverage.ray
+        mv .coverage .coverage.ray.tests
         pytest ray/adaptdl_ray/tune --cov=ray/adaptdl --cov-branch --cov-report=
         mv .coverage .coverage.ray.tune
         pytest ray/adaptdl_ray/adaptdl --cov=ray/adaptdl --cov-branch --cov-append --cov-report=
