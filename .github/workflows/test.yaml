@@ -52,12 +52,11 @@ jobs:
         mv .coverage .coverage.train
     - name: Test ray
       run: |
-        # Need to be seperate to allow ray to work
-        pytest ray/adaptdl_ray/aws/test_worker.py --cov=ray/adaptdl --cov-branch --cov-report=
+        MOCK=true pytest ray/adaptdl_ray/aws/test_worker.py --cov=ray/adaptdl --cov-branch --cov-report=
         mv .coverage .coverage.ray_aws.worker
         pytest ray/adaptdl_ray/aws/test_controller.py --cov=ray/adaptdl --cov-branch --cov-report=
         mv .coverage .coverage.ray_aws.controller
-        pytest ray/adaptdl_ray/aws/test_controller_mocked_ray --cov=ray/adaptdl --cov-branch --cov-report=
+        pytest ray/adaptdl_ray/aws/test_controller_mocked_ray.py --cov=ray/adaptdl --cov-branch --cov-report=
         mv .coverage .coverage.ray_aws.controller_mocked
         pytest ray/adaptdl_ray/tests --cov=ray/adaptdl --cov-branch --cov-report=
         mv .coverage .coverage.ray.tests

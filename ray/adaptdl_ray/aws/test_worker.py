@@ -128,19 +128,16 @@ def test_worker(ray_fix):
         assert (result == 5)
 
 
-def test_spot_instance_termination(ray_fix):
+async def test_spot_instance_termination(ray_fix):
     endpoint = TerminationEndpoint.remote()
     endpoint.start_server.remote()
 
-    runtime_env = {"env_vars": {"MOCK": "true"}}
-    task = listen_for_spot_termination.options(
-        runtime_env=runtime_env).remote(timeout=5.0)
+    task = listen_for_spot_termination.remote(timeout=5.0)
     ip = ray.get(task)
     assert(ip is None)
-    task = listen_for_spot_termination.options(
-        runtime_env=runtime_env).remote(timeout=15.0)
+    task = listen_for_spot_termination.remote(timeout=15.0)
     time.sleep(5)
-    endpoint.set_to_terminate.remote()
+    await endpoint.set_to_terminate.remote()
     ip = ray.get(task, timeout=10)
     assert(ip == ray._private.services.get_node_ip_address()), \
         f"found {ip}, expected {ray._private.services.get_node_ip_address()}"
