@@ -11,9 +11,12 @@ from aiohttp import web
 # see https://stackoverflow.com/a/60334747
 @pytest.fixture(scope="module")
 def ray_fix():
-    ray.init()
-    yield None
-    ray.shutdown()
+    if not ray.is_initialized:
+        ray.init()
+        yield None
+        ray.shutdown()
+    else:
+        yield None
 
 
 @ray.remote
@@ -77,7 +80,7 @@ def test_worker(ray_fix):
     restarts = 3
     checkpoint = None
     offset = 50
-    path = "ray/adaptdl_ray/aws/example_worker_for_unit_test.py"
+    path = "ray/adaptdl_ray/aws/_example_worker.py"
     argv = ["--arg1", "value", "--arg2", "value"]
 
     worker_task = run_adaptdl.remote(
