@@ -25,7 +25,8 @@ def foo(x, y):
 if __name__ == "__main__":
     x = foo(3, 2)
     if os.environ.get("ADAPTDL_REPLICA_RANK", None) == "0":
-        with open(f"{os.environ['ADAPTDL_CHECKPOINT_PATH']}/file.txt", "w") as f:
+        with open(
+                f"{os.environ['ADAPTDL_CHECKPOINT_PATH']}/file.txt", "w") as f:
             f.write(f"{x}\n")
         for _ in range(30):
             time.sleep(1)
