@@ -81,8 +81,11 @@ def pgs_to_resources(pgs: List[Dict]) -> Dict:
 
 def unique_nodes_pg() -> int:
     nodes = []
-    for bundle in get_current_placement_group().bundle_specs:
-        for resource in bundle:
-            if "node" in resource:
-                nodes.append(resource)
-    return len(set(nodes))
+    if get_current_placement_group() is None:
+        return 0
+    else:
+        for bundle in get_current_placement_group().bundle_specs:
+            for resource in bundle:
+                if "node" in resource:
+                    nodes.append(resource)
+        return len(set(nodes))
