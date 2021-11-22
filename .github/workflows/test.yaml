@@ -62,7 +62,7 @@ jobs:
         mv .coverage .coverage.ray.tests
         pytest ray/adaptdl_ray/tune --cov=ray/adaptdl --cov-branch --cov-report=
         mv .coverage .coverage.ray.tune
-        pytest ray/adaptdl_ray/adaptdl --cov=ray/adaptdl --cov-branch --cov-append --cov-report=
+        pytest ray/adaptdl_ray/adaptdl --cov=ray/adaptdl --cov-branch --cov-report=
         mv .coverage .coverage.ray.adaptdl 
     - name: Coverage
       run: |
