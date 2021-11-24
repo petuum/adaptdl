@@ -36,10 +36,6 @@ def run_adaptdl_on_ray_cluster(
     LOG.info("Starting AdaptDLJob")
     if ray.is_initialized():
         return
-    if not working_dir:
-        path = Path(path)
-        working_dir = path.parent.absolute().as_posix()
-
     if not os.path.exists(working_dir):
         raise RuntimeError(f"Cannot find local directory {working_dir}")
     if not os.path.exists(os.path.join(working_dir, path)):
@@ -71,7 +67,8 @@ def main():
     parser = argparse.ArgumentParser(description="Adaptdl on Ray")
     parser.add_argument(
         "-f", "--file", type=str,
-        help="File to run on the cluster", required=True)
+        help=("File to run on the cluster. The path must be a relative path"
+              "rooted at the argument of --working-dir"), required=True)
     parser.add_argument(
         "-u", "--uri", type=str,
         help="URI of the ray cluster, e.g. `ray://<ip>:10001", required=True)
@@ -90,8 +87,8 @@ def main():
     parser.add_argument(
         "-d", "--working-dir", type=str,
         help=("Directory to copy to the worker tasks. Should contain the file "
-              "specified by -f/--file. Defaults to the parent of -f/--file"),
-        required=False)
+              "specified by -f/--file."),
+        required=True)
     parser.add_argument(
         "--checkpoint-timeout", type=int, default=120,
         help=("Number of seconds that the controller will wait for the "
