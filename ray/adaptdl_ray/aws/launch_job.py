@@ -16,7 +16,6 @@
 import argparse
 import logging
 import os
-from pathlib import Path
 
 from adaptdl_ray.aws.controller import Controller
 from adaptdl_ray.aws.utils import Status
