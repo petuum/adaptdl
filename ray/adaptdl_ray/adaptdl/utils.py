@@ -14,6 +14,7 @@
 
 from typing import Dict, List
 from collections import Counter, defaultdict
+from copy import deepcopy
 from ray import tune
 from ray.util.placement_group import get_current_placement_group
 from adaptdl_ray.adaptdl import config
@@ -34,15 +35,20 @@ def pgf_to_allocation(pgf) -> List[str]:
     return allocs
 
 
-def allocation_to_pgf(alloc: List[str]):
+def allocation_to_pgf(alloc: List[str], resources_per_node=None):
     """ Convert AdaptDL allocation to a Placement Group Factory"""
-    def _construct_bundle(node, device_count):
-        resources = {config.default_device(): device_count,
-                     f"node:{node}": 0.01}
+    if not resources_per_node:
+        resources_per_node = {"CPU": 1.0}
         if config.default_device() == "GPU":
-            # As per Ray, We need equal amount of CPUs if there are GPUs in
-            # this bundle
-            resources["CPU"] = device_count
+            resources_per_node["GPU"] = 1.0
+
+    def _construct_bundle(node, number_of_instances):
+        resources = deepcopy(resources_per_node)
+        resources["CPU"] *= number_of_instances
+        if "GPU" in resources:
+            resources["GPU"] *= number_of_instances
+        if "adaptdl_virtual" not in node:
+            resources[f"node:{node}"] = 0.01
         return resources
 
     assert len(alloc) > 0
@@ -75,8 +81,11 @@ def pgs_to_resources(pgs: List[Dict]) -> Dict:
 
 def unique_nodes_pg() -> int:
     nodes = []
-    for bundle in get_current_placement_group().bundle_specs:
-        for resource in bundle:
-            if "node" in resource:
-                nodes.append(resource)
-    return len(set(nodes))
+    if get_current_placement_group() is None:
+        return 0
+    else:
+        for bundle in get_current_placement_group().bundle_specs:
+            for resource in bundle:
+                if "node" in resource:
+                    nodes.append(resource)
+        return len(set(nodes))
