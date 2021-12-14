@@ -15,7 +15,6 @@
 
 from datetime import datetime
 import logging
-import copy
 from typing import List
 
 import ray
@@ -24,10 +23,6 @@ from ray.tune.trial import Trial
 from ray.tune import PlacementGroupFactory
 from ray.tune.function_runner import FuncCheckpointUtil
 from ray.tune.trainable import TrainableUtil
-from ray.tune.resources import resources_to_json
-from ray._private.utils import binary_to_hex
-import ray.cloudpickle as cloudpickle
-from ray.tune.trial import Location
 
 from adaptdl_ray.adaptdl import AdaptDLJobMixin
 from adaptdl_ray.tune.adaptdl_trainable import AdaptDLTrainableCreator
@@ -49,26 +44,16 @@ class AdaptDLTrial(AdaptDLJobMixin, Trial):
         return self.get_trainable_cls()._num_workers
 
     def __getstate__(self):
-        state = self.__dict__.copy()
+        copy_state = {}
         # Remove problematic members
         for k in ("_trial_in_use", "_cached_metrics"):
-            del state[k]
-
-        state["resources"] = resources_to_json(self.resources)
-
-        for key in self._nonjson_fields:
-            state[key] = binary_to_hex(cloudpickle.dumps(state.get(key)))
-
-        state["runner"] = None
-        state["location"] = Location()
-        # Avoid waiting for events that will never occur on resume.
-        state["restoring_from"] = None
-        state["saving_to"] = None
-
-        state["_state_json"] = None
-        state["_state_valid"] = False
-
-        return copy.deepcopy(state)
+            copy_state[k] = self.__dict__[k]
+            del self.__dict__[k]
+        state = super().__getstate__()
+        # Restore members
+        for k, v in copy_state.items():
+            self.__dict__[k] = v
+        return state
 
     def _requeue(self,
                  old_trial: Trial,
@@ -118,6 +103,8 @@ class AdaptDLTrial(AdaptDLJobMixin, Trial):
                    rescale_count=rescale_count,
                    config=trial.config,
                    experiment_tag=trial.experiment_tag,
+                   evaluated_params=trial.evaluated_params,
+                   stopping_criterion=trial.stopping_criterion,
                    trial_id=trial.trial_id,
                    restore_path=restore_path,
                    local_dir="/tmp",  # TODO: Decide a proper way

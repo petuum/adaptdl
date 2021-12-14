@@ -108,11 +108,13 @@ class AdaptDLScheduler(TrialScheduler):
             self, trial_runner: "trial_runner.TrialRunner") -> Optional[Trial]:
         for trial in trial_runner.get_trials():
             if (trial.status == Trial.PENDING
-                    and trial_runner.has_resources_for_trial(trial)):
+                    and trial_runner.trial_executor.
+                    has_resources_for_trial(trial)):
                 return trial
         for trial in trial_runner.get_trials():
             if (trial.status == Trial.PAUSED and
-                    trial_runner.has_resources_for_trial(trial) and
+                    trial_runner.trial_executor.
+                    has_resources_for_trial(trial) and
                     len(self._allocs) == 0):
                 # Note: this puts the trial back to RUNNING, we allow Trials to
                 # resume when the allocation cache is empty and we reach a sync
