@@ -22,6 +22,8 @@ can be used in multiple ways:
     (:doc:`Standalone Training<standalone-training>`).
 3.  As a Ray Tune Trial Scheduler
     (:doc:`Tune Trial Scheduler<ray/tune_tutorial.rst>`).
+4.  As a single training job running on a Ray AWS cluster
+    (:doc:`Ray AWS Launcher<ray/aws_ray_adaptdl.rst>`)
 
 .. toctree::
    :maxdepth: 2

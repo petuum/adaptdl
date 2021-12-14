@@ -27,15 +27,18 @@ jobs:
     - name: Lint with flake8
       run: |
         # stop the build if there are Python syntax errors or undefined names
-        flake8 adaptdl cli cli/bin/adaptdl sched --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 adaptdl cli ray cli/bin/adaptdl sched --count --select=E9,F63,F7,F82 --show-source --statistics
         # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
-        flake8 adaptdl cli cli/bin/adaptdl sched --exclude cli/adaptdl_cli/__init__.py
+        flake8 adaptdl cli ray cli/bin/adaptdl sched --exclude cli/adaptdl_cli/__init__.py
     - name: Build and install train package
       run: |
         pip install -e ./adaptdl
     - name: Build and install sched package
       run: |
         pip install -e ./sched
+    - name: Build and install adaptdl_ray package
+      run: |
+        pip install -e ./ray
     - name: Build and install CLI package
       run: |
         pip install -e ./cli
@@ -47,6 +50,20 @@ jobs:
       run: |
         pytest adaptdl -xv --cov=adaptdl --cov-branch --cov-report=
         mv .coverage .coverage.train
+    - name: Test ray
+      run: |
+        MOCK=true pytest ray/adaptdl_ray/aws/test_worker.py --cov=ray/adaptdl --cov-branch --cov-report=
+        mv .coverage .coverage.ray_aws.worker
+        pytest ray/adaptdl_ray/aws/test_controller.py --cov=ray/adaptdl --cov-branch --cov-report=
+        mv .coverage .coverage.ray_aws.controller
+        pytest ray/adaptdl_ray/aws/test_controller_mocked_ray.py --cov=ray/adaptdl --cov-branch --cov-report=
+        mv .coverage .coverage.ray_aws.controller_mocked
+        pytest ray/adaptdl_ray/tests --cov=ray/adaptdl --cov-branch --cov-report=
+        mv .coverage .coverage.ray.tests
+        pytest ray/adaptdl_ray/tune --cov=ray/adaptdl --cov-branch --cov-report=
+        mv .coverage .coverage.ray.tune
+        pytest ray/adaptdl_ray/adaptdl --cov=ray/adaptdl --cov-branch --cov-report=
+        mv .coverage .coverage.ray.adaptdl 
     - name: Coverage
       run: |
         coverage combine

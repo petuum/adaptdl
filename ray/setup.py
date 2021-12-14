@@ -46,4 +46,6 @@ if __name__ == "__main__":
                                                    "adaptdl_ray.*"]),
         python_requires='>=3.6',
         install_requires=read_requirements("requirements.txt"),
+        entry_points={'console_scripts': [
+            'adaptdl_on_ray_aws = adaptdl_ray.aws.launch_job:main']}
     )
