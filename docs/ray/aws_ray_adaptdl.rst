@@ -1,7 +1,7 @@
 Adaptdl on Ray AWS
 ==================
 
-The executable `adaptdl_on_ray_aws` allows you to run an AdaptDL job on an AWS-Ray cluster.
+The executable ``adaptdl_on_ray_aws`` allows you to run an AdaptDL job on an AWS-Ray cluster.
 The intention of this module is to allow you to get AdaptDL jobs working quickly, without the need to deploy kubernetes, and you to use Ray's cluster rescaling with AdaptDL's worker autoscaling.
 
 Usage
