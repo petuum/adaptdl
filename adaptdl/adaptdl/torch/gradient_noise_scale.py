@@ -225,9 +225,8 @@ class GradientNoiseScale(object):
                 if param.grad is None:
                     grads[-1].append(None)
                     continue
-                grad = param.grad.detach().float()
-                grads[-1].append(
-                    grad / mixed_precision_scale / self._accum_count)
+                param.grad.div_(self._accum_count)
+                grads[-1].append(param.grad.detach().float() / mixed_precision_scale)
         preconditioner = self._get_preconditioner()
 
         # Note: mixed precision can result in nan/inf gradients,
@@ -299,7 +298,7 @@ class AdamGradientNoiseScale(GradientNoiseScale):
 
     def _calculate_preconditioner(self, idx, param):
         state = self._optimizer.state[param]
-        if state.get('step', 0) < 5:
+        if state.get('step', 0) < 1:
             return torch.ones_like(param, memory_format=torch.preserve_format)
 
         exp_avg_sq = state["exp_avg_sq"].clone()  # not sure if clone is needed
@@ -309,7 +308,7 @@ class AdamGradientNoiseScale(GradientNoiseScale):
         pinv = (exp_avg_sq.sqrt() / math.sqrt(correction)).add_(eps)
         return pinv
 
-    def _reset_adam_state(self, step=0):
+    def _reset_adam_state(self, step=1):
         for group in self._optimizer.param_groups:
             beta1, beta2 = group["betas"]
             for param in group["params"]:
