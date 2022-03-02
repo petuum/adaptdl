@@ -235,8 +235,8 @@ class GradientNoiseScale(object):
         # there are nan/inf, so we also skip the update here
         grads_normsqr = _normsqr_groups(grads, preconditioner)
         if not np.all(np.isfinite(grads_normsqr)):
-            LOG.warning("GradientNoiseScale detected invalid gradient! "
-                        "Skipping step.")
+            LOG.warning(f"GradientNoiseScale detected invalid gradient! "
+                        f"at scale {mixed_precision_scale}, Skipping step.")
             return
         count = self._num_replicas * self._accum_count
         scale = self._accum_scale * self._accum_count
@@ -323,7 +323,6 @@ class AdamGradientNoiseScale(GradientNoiseScale):
     def _final_callback(self):
         scale = self._accum_scale * self._accum_count
         if not np.isclose(scale, self._state["prev_scale"]):
-            self._reset_adam_state()
             # reset Adam states when scale is changed
             self._state["prev_scale"] = scale
         return super()._final_callback()

@@ -299,6 +299,7 @@ class AdaptiveDataLoaderHelper(object):
             if speedup > self._speedup_threshold:
                 self._state.current_local_bsz = atomic_bsz
                 self._state.accumulation_steps = accum_steps
+        self._state.current_local_bsz = 3584 # max_tokens
         self._state.current_local_bsz, self._state.accumulation_steps = \
             adaptdl.collective.broadcast((self._state.current_local_bsz,
                                           self._state.accumulation_steps))

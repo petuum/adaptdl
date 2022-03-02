@@ -120,8 +120,11 @@ class GoodputFunction(object):
                 np.logical_and(num_replicas == 1,
                                local_bsz > self._init_batch_size + eps),
                 np.maximum(accum_steps, 1), accum_steps).astype(int)
-            atomic_bsz = np.ceil(
-                local_bsz / (accum_steps + 1) - eps).astype(int)
+            if min_atomic_bsz == max_atomic_bsz:
+                atomic_bsz = np.tile([[min_atomic_bsz]], local_bsz.shape)
+            else:
+                atomic_bsz = np.ceil(
+                    local_bsz / (accum_steps + 1) - eps).astype(int)
         else:
             accum_steps = np.zeros_like(local_bsz, dtype=np.int)
             atomic_bsz = np.where(
