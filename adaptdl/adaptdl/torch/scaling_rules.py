@@ -55,6 +55,13 @@ class ScalingRuleBase(object):
     def scale_lr(self, scale):
         raise NotImplementedError
 
+    def scale_lr_smoothing(self, param_group):
+        if "momentum" in param_group:
+            return param_group["momentum"]
+        if "betas" in param_group:
+            return param_group["betas"][1]
+        return 0.0
+
     def zero_grad(self, *args, **kwargs):
         if self.adp.gns.should_zero_grad:
             self.adp.gns.reset_accumulation(*args, **kwargs)
@@ -76,9 +83,15 @@ class ScalingRuleBase(object):
             return
         scale = self.adp.gns.accum_scale * self.adp.gns.accum_count
         initial_lr = [pg["lr"] for pg in self._optimizer.param_groups]
-        scaled_lr = np.multiply(self.scale_lr(scale), initial_lr)
-        for lr, pg in zip(scaled_lr, self._optimizer.param_groups):
-            pg["lr"] = lr
+        for lr_scale, pg in zip(self.scale_lr(scale),
+                                self._optimizer.param_groups):
+            prev_lr_scale = pg.get("lr_scale", 1.0)
+            smoothing = self.scale_lr_smoothing(pg)
+            assert 0.0 <= smoothing < 1.0
+            if smoothing > 0.0:
+                lr_scale = min(lr_scale, prev_lr_scale / smoothing)
+            pg["lr_scale"] = lr_scale
+            pg["lr"] = lr_scale * pg["lr"]
         self._orig_optimizer_step(*args, **kwargs)
         for lr, pg in zip(initial_lr, self._optimizer.param_groups):
             pg["lr"] = lr
