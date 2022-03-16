@@ -143,7 +143,7 @@ class AdaptDLAllocator(object):
                 LOG.info("Patch AdaptDLJob %s/%s: %s", namespace, name, patch)
                 await patch_job_status(self._objs_api, namespace, name, patch)
 
-    async def _find_nodes(self, pod_label_selector=None):
+    async def _find_nodes(self, pod_label_selector=""):
         node_infos = {}
         node_list = await self._core_api.list_node()
         # Find all non-AdaptDL pods which are taking up resources and subtract
