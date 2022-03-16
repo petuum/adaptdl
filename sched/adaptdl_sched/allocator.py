@@ -143,14 +143,16 @@ class AdaptDLAllocator(object):
                 LOG.info("Patch AdaptDLJob %s/%s: %s", namespace, name, patch)
                 await patch_job_status(self._objs_api, namespace, name, patch)
 
-    async def _find_nodes(self, pod_label_selector=None):
+    async def _find_nodes(self, pod_label_selector=""):
+        # NOTE: Default empty string "" label_selector qualifies all pods
         node_infos = {}
         node_list = await self._core_api.list_node()
-        # Find all non-AdaptDL pods which are taking up resources and subtract
-        # those resources from the available pool. Apparently there's not a
-        # more efficient way to get currently available resources in k8s?. We
-        # also check if we have reached the pod limit on the node. This number
-        # denotes (allocatable pods - Non-terminated pods) on that node.
+        # Find all pods qualified by the pod_label_selector which are taking up
+        # resources and subtract those resources from the available pool.
+        # Apparently there's not a more efficient way to get currently
+        # available resources in k8s?. We also check if we have reached the pod
+        # limit on the node. This number denotes (allocatable pods -
+        # Non-terminated pods) on that node.
         pod_list = await self._core_api.list_pod_for_all_namespaces(
                                 label_selector=pod_label_selector)
         for node in node_list.items:
