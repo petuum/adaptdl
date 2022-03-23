@@ -62,7 +62,7 @@ class AdaptDLAllocator(object):
                     # We only consider newly-added preemptible jobs
                     # because this allocation may not be final.
                     if (event["type"] == "ADDED" and
-                        event["object"]["spec"]["preemptible"]):
+                            event["object"]["spec"]["preemptible"]):
                         async with self._lock:
                             await self._allocate_one(event)
 
