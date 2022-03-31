@@ -59,7 +59,10 @@ class AdaptDLAllocator(object):
                 async for event in watch.stream(
                         self._objs_api.list_namespaced_custom_object,
                         *self._custom_resource, timeout_seconds=60):
-                    if event["type"] == "ADDED":  # there is a n arriving job
+                    # We only consider newly-added preemptible jobs
+                    # because this allocation may not be final.
+                    if (event["type"] == "ADDED" and
+                            event["object"]["spec"]["preemptible"]):
                         async with self._lock:
                             await self._allocate_one(event)
 
