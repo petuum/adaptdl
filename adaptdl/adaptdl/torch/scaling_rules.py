@@ -19,7 +19,7 @@ import warnings
 
 from types import MethodType
 
-from adaptdl.torch.data import current_dataloader
+# from adaptdl.torch.data import current_dataloader
 
 
 __all__ = ["ScalingRuleBase", "AdaScale", "LinearScale", "SqrtScale",
@@ -45,6 +45,9 @@ class ScalingRuleBase(object):
                 loss.backward()
                 adascale.step()
     """
+
+    _adaptlr = None
+
     def __init__(self):
         # instance of AdaptiveDataParallel, needs to be set before any of the
         # methods can be used
@@ -77,6 +80,7 @@ class ScalingRuleBase(object):
         scale = self.adp.gns.accum_scale * self.adp.gns.accum_count
         initial_lr = [pg["lr"] for pg in self._optimizer.param_groups]
         scaled_lr = np.multiply(self.scale_lr(scale), initial_lr)
+        ScalingRuleBase._adaptlr = scaled_lr
         for lr, pg in zip(scaled_lr, self._optimizer.param_groups):
             pg["lr"] = lr
         self._orig_optimizer_step(*args, **kwargs)
@@ -106,6 +110,10 @@ class ScalingRuleBase(object):
         self._orig_optimizer_step = optimizer.step
         if patch_optimizer:
             self._patch_optimizer()
+
+    @staticmethod
+    def _get_adapt_lr_scale():
+        return ScalingRuleBase._adaptlr
 
 
 class AdaScale(ScalingRuleBase):
