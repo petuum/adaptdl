@@ -1,59 +1,62 @@
-apiVersion: apiextensions.k8s.io/v1beta1
+apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   name: adaptdljobs.adaptdl.petuum.com
 spec:
   group: adaptdl.petuum.com
-  versions:
-    - name: v1
-      served: true
-      storage: true
   scope: Namespaced
   names:
     plural: adaptdljobs
     singular: adaptdljob
     kind: AdaptDLJob
-  additionalPrinterColumns:
+    shortNames:
+    - adljob
+    - adljobs
+  versions:
+  - name: v1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          metadata:
+            type: object
+            properties:
+              # Name is used as label values which have a 63 character limit.
+              name:
+                type: string
+                maxLength: 63
+          spec:
+            type: object
+            properties:
+              maxReplicas:
+                type: integer
+                minimum: 1
+              minReplicas:
+                type: integer
+                minimum: 0
+              preemptible:
+                type: boolean
+              template:
+                type: object
+            required: ["template"]
+        required: ["spec"]
+    subresources:
+      status: {}
+    additionalPrinterColumns:
     - name: Ready
       type: integer
-      JSONPath: .status.readyReplicas
+      jsonPath: .status.readyReplicas
     - name: Replicas
       type: string
-      JSONPath: .status.replicas
+      jsonPath: .status.replicas
     - name: Restarts
       type: integer
-      JSONPath: .status.group
+      jsonPath: .status.group
     - name: Status
       type: string
-      JSONPath: .status.phase
+      jsonPath: .status.phase
     - name: Age
       type: date
-      JSONPath: .metadata.creationTimestamp
-  subresources:
-    status: {}
-  validation:
-    openAPIV3Schema:
-      type: object
-      properties:
-        metadata:
-          type: object
-          properties:
-            # Name is used as label values which have a 63 character limit.
-            name:
-              type: string
-              maxLength: 63
-        spec:
-          type: object
-          properties:
-            maxReplicas:
-              type: integer
-              minimum: 1
-            minReplicas:
-              type: integer
-              minimum: 0
-            preemptible:
-              type: boolean
-            template:
-              type: object
-          required: ["template"]
-      required: ["spec"]
+      jsonPath: .metadata.creationTimestamp
