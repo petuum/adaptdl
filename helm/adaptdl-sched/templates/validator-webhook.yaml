@@ -32,8 +32,8 @@ webhooks:
     rules:
       - operations: ["CREATE", "UPDATE"]
         apiGroups: ["adaptdl.petuum.com"]
-        apiVersions: ["v1"]
+        apiVersions: ["v1beta1"]
         resources: ["adaptdljobs"]
     admissionReviewVersions:
-      - v1
+      - v1beta1
     sideEffects: None
