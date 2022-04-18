@@ -19,6 +19,7 @@ spec:
     schema:
       openAPIV3Schema:
         type: object
+        required: ["spec"]
         properties:
           metadata:
             type: object
@@ -29,6 +30,7 @@ spec:
                 maxLength: 63
           spec:
             type: object
+            required: ["template"]
             properties:
               maxReplicas:
                 type: integer
@@ -40,8 +42,7 @@ spec:
                 type: boolean
               template:
                 type: object
-            required: ["template"]
-        required: ["spec"]
+                x-kubernetes-preserve-unknown-fields: true
     subresources:
       status: {}
     additionalPrinterColumns:
