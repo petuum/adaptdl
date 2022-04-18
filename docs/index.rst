@@ -36,4 +36,5 @@ can be used in multiple ways:
    AdaptDL with PyTorch<adaptdl-pytorch.rst>
    Standalone Training<standalone-training.rst>
    Tune Trial Scheduler<ray/tune_tutorial.rst>
+   AdaptDL on Ray AWS<ray/aws_ray_adaptdl.rst>
    API Reference<api/adaptdl.rst>
