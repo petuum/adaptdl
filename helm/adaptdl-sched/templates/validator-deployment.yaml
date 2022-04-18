@@ -17,6 +17,7 @@ spec:
         app: adaptdl-validator
         release: {{ .Release.Name }}
     spec:
+      serviceAccountName: adaptdl
       volumes:
         - name: tls
           secret:
