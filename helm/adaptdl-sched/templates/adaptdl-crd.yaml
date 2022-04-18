@@ -43,6 +43,9 @@ spec:
               template:
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
+          status:
+            type: object
+            x-kubernetes-preserve-unknown-fields: true
     subresources:
       status: {}
     additionalPrinterColumns:
