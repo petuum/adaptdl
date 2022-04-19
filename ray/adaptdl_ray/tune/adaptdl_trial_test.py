@@ -20,9 +20,7 @@ import ray
 
 from ray import tune
 from ray.tune.ray_trial_executor import RayTrialExecutor
-from ray.tune.trial import Trial
 from ray.tune.suggest import BasicVariantGenerator
-from .adaptdl_trial import AdaptDLTrial
 from .adaptdl_trainable import AdaptDLTrainableCreator, _train_simple
 
 
@@ -36,19 +34,6 @@ class TrialRunnerTest(unittest.TestCase):
 
     def tearDown(self):
         ray.shutdown()
-
-    def testTrialStatus(self):
-        ray.init(num_cpus=2)
-        trainable_cls = AdaptDLTrainableCreator(_train_simple, num_workers=2)
-        trial = AdaptDLTrial(trainable_cls.__name__, trial_id="0")
-        trial_executor = RayTrialExecutor()
-        assert trial.status == Trial.PENDING
-        trial_executor.start_trial(trial)
-        assert trial.status == Trial.RUNNING
-        trial_executor.stop_trial(trial)
-        assert trial.status == Trial.TERMINATED
-        trial_executor.stop_trial(trial, error=True)
-        assert trial.status == Trial.ERROR
 
     def testExperimentTagTruncation(self):
         ray.init(num_cpus=2)
@@ -72,7 +57,5 @@ class TrialRunnerTest(unittest.TestCase):
                 if not trial:
                     break
                 trial_executor.start_trial(trial)
-                assert trial.status == Trial.RUNNING
                 assert len(os.path.basename(trial.logdir)) <= 200
                 trial_executor.stop_trial(trial)
-                assert trial.status == Trial.TERMINATED
