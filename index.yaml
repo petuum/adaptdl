@@ -3,7 +3,7 @@ entries:
   adaptdl:
   - apiVersion: v1
     appVersion: 0.2.2
-    created: "2022-04-20T03:46:28.953873789Z"
+    created: "2022-04-20T05:31:49.596769677Z"
     dependencies:
     - condition: docker-registry.enabled
       name: docker-registry
@@ -16,7 +16,7 @@ entries:
     version: 0.2.2
   - apiVersion: v1
     appVersion: 0.2.1
-    created: "2022-04-20T03:46:28.952448886Z"
+    created: "2022-04-20T05:31:49.595397965Z"
     dependencies:
     - condition: docker-registry.enabled
       name: docker-registry
@@ -29,7 +29,7 @@ entries:
     version: 0.2.1
   - apiVersion: v1
     appVersion: 0.2.0
-    created: "2022-04-20T03:46:28.951037084Z"
+    created: "2022-04-20T05:31:49.594245956Z"
     dependencies:
     - condition: docker-registry.enabled
       name: docker-registry
@@ -42,7 +42,7 @@ entries:
     version: 0.2.0
   - apiVersion: v1
     appVersion: 0.1.6
-    created: "2022-04-20T03:46:28.949726582Z"
+    created: "2022-04-20T05:31:49.592978545Z"
     dependencies:
     - condition: docker-registry.enabled
       name: docker-registry
@@ -55,8 +55,21 @@ entries:
     version: 0.1.6
   adaptdl-sched:
   - apiVersion: v1
+    appVersion: 0.2.11
+    created: "2022-04-20T05:31:49.605232647Z"
+    dependencies:
+    - condition: docker-registry.enabled
+      name: docker-registry
+      repository: '@stable'
+      version: 1.9.4
+    digest: 809389a8559ee4188c070c85b12afcc1c4c893c1bedce7ef01baf276802404c7
+    name: adaptdl-sched
+    urls:
+    - adaptdl-sched-0.2.11.tgz
+    version: 0.2.11
+  - apiVersion: v1
     appVersion: 0.2.10
-    created: "2022-04-20T03:46:28.959301198Z"
+    created: "2022-04-20T05:31:49.603799835Z"
     dependencies:
     - condition: docker-registry.enabled
       name: docker-registry
@@ -69,7 +82,7 @@ entries:
     version: 0.2.10
   - apiVersion: v1
     appVersion: 0.2.9
-    created: "2022-04-20T03:46:28.968949114Z"
+    created: "2022-04-20T05:31:49.613831918Z"
     dependencies:
     - condition: docker-registry.enabled
       name: docker-registry
@@ -82,7 +95,7 @@ entries:
     version: 0.2.9
   - apiVersion: v1
     appVersion: 0.2.8
-    created: "2022-04-20T03:46:28.967691012Z"
+    created: "2022-04-20T05:31:49.612126403Z"
     dependencies:
     - condition: docker-registry.enabled
       name: docker-registry
@@ -95,7 +108,7 @@ entries:
     version: 0.2.8
   - apiVersion: v1
     appVersion: 0.2.7
-    created: "2022-04-20T03:46:28.96643051Z"
+    created: "2022-04-20T05:31:49.610938094Z"
     dependencies:
     - condition: docker-registry.enabled
       name: docker-registry
@@ -108,7 +121,7 @@ entries:
     version: 0.2.7
   - apiVersion: v1
     appVersion: 0.2.6
-    created: "2022-04-20T03:46:28.965205708Z"
+    created: "2022-04-20T05:31:49.609775484Z"
     dependencies:
     - condition: docker-registry.enabled
       name: docker-registry
@@ -121,7 +134,7 @@ entries:
     version: 0.2.6
   - apiVersion: v1
     appVersion: 0.2.4
-    created: "2022-04-20T03:46:28.963999506Z"
+    created: "2022-04-20T05:31:49.608469373Z"
     dependencies:
     - condition: docker-registry.enabled
       name: docker-registry
@@ -134,7 +147,7 @@ entries:
     version: 0.2.4
   - apiVersion: v1
     appVersion: 0.2.3
-    created: "2022-04-20T03:46:28.962792604Z"
+    created: "2022-04-20T05:31:49.607390564Z"
     dependencies:
     - condition: docker-registry.enabled
       name: docker-registry
@@ -147,7 +160,7 @@ entries:
     version: 0.2.3
   - apiVersion: v1
     appVersion: 0.2.2
-    created: "2022-04-20T03:46:28.961024601Z"
+    created: "2022-04-20T05:31:49.606323756Z"
     dependencies:
     - condition: docker-registry.enabled
       name: docker-registry
@@ -160,7 +173,7 @@ entries:
     version: 0.2.2
   - apiVersion: v1
     appVersion: 0.2.1
-    created: "2022-04-20T03:46:28.957543095Z"
+    created: "2022-04-20T05:31:49.601182013Z"
     dependencies:
     - condition: docker-registry.enabled
       name: docker-registry
@@ -173,7 +186,7 @@ entries:
     version: 0.2.1
   - apiVersion: v1
     appVersion: 0.2.0
-    created: "2022-04-20T03:46:28.956313193Z"
+    created: "2022-04-20T05:31:49.599730701Z"
     dependencies:
     - condition: docker-registry.enabled
       name: docker-registry
@@ -186,7 +199,7 @@ entries:
     version: 0.2.0
   - apiVersion: v1
     appVersion: 0.1.6
-    created: "2022-04-20T03:46:28.955178391Z"
+    created: "2022-04-20T05:31:49.598271789Z"
     dependencies:
     - condition: docker-registry.enabled
       name: docker-registry
@@ -197,4 +210,4 @@ entries:
     urls:
     - adaptdl-sched-0.1.6.tgz
     version: 0.1.6
-generated: "2022-04-20T03:46:28.947472778Z"
+generated: "2022-04-20T05:31:49.59115063Z"
