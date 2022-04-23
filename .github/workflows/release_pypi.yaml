@@ -35,7 +35,7 @@ jobs:
         cd adaptdl
         HOME=$(pwd) python setup.py sdist bdist_wheel
         ls -ltr dist/
-        python -m twine upload dist/*
+        python -m twine upload --verbose dist/*
     - name: Build and push sched package
       env:
         TWINE_USERNAME: "__token__"
@@ -45,7 +45,7 @@ jobs:
         cd sched
         HOME=$(pwd) python setup.py sdist bdist_wheel
         ls -ltr dist/
-        python -m twine upload dist/*
+        python -m twine upload --verbose dist/*
     - name: Build and push ray package
       env:
         TWINE_USERNAME: "__token__"
@@ -55,7 +55,7 @@ jobs:
         cd ray
         HOME=$(pwd) python setup.py sdist bdist_wheel
         ls -ltr dist/
-        python -m twine upload dist/*
+        python -m twine upload --verbose dist/*
     - name: Build and push cli package
       env:
         TWINE_USERNAME: "__token__"
@@ -65,4 +65,4 @@ jobs:
         cd cli
         HOME=$(pwd) python setup.py sdist bdist_wheel
         ls -ltr dist/
-        python -m twine upload dist/*
+        python -m twine upload --verbose dist/*
