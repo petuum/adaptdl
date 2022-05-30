@@ -118,6 +118,8 @@ def main():
                        transform=transform)
     dataset2 = datasets.MNIST('../data', train=False,
                        transform=transform)
+    adaptdl.torch.init_process_group("nccl" if torch.cuda.is_available()
+                                     else "gloo")  # Changed in step 1
     train_loader = adaptdl.torch.AdaptiveDataLoader(dataset1, drop_last=True, **kwargs) # Changed in step 2
     test_loader = adaptdl.torch.AdaptiveDataLoader(dataset2, **kwargs) # Changed in step 2
 
@@ -127,8 +129,6 @@ def main():
     optimizer = optim.Adadelta(model.parameters(), lr=args.lr)
 
     scheduler = StepLR(optimizer, step_size=1, gamma=args.gamma)
-    adaptdl.torch.init_process_group("nccl" if torch.cuda.is_available()
-                                     else "gloo") # Changed in step 1
     model = adaptdl.torch.AdaptiveDataParallel(model, optimizer, scheduler) # Changed in step 1
 
     for epoch in adaptdl.torch.remaining_epochs_until(args.epochs): # Changed in step 4
