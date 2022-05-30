@@ -32,6 +32,7 @@ from adaptdl.torch._metrics import (
     profile_step_start, profile_step_commit,
     set_batch_size, get_goodput_fn, get_progress)
 from adaptdl._signal import get_exit_flag
+from adaptdl.torch.context import AdaptiveDLContext
 
 logging.basicConfig(level=logging.INFO)
 LOG = logging.getLogger(__name__)
@@ -267,43 +268,6 @@ class AdaptiveDataLoaderHelper(object):
         self._gradient_accumulation = gradient_accumulation
         self.train()
 
-    def _sync_local_bsz(self):
-        goodput_fn = get_goodput_fn()
-        if self.max_batch_size is None or goodput_fn is None:
-            # No autoscale batch size, just divide batch size evenly.
-            self._state.current_local_bsz = math.ceil(
-                self.batch_size / adaptdl.env.num_replicas())
-            self._state.accumulation_steps = 0
-        elif not self._state.current_local_bsz:
-            # if init, use the batch size suggested
-            _, atomic_bsz, accum_steps = goodput_fn.optimize(
-                adaptdl.env.num_nodes(), adaptdl.env.num_replicas(),
-                max_batch_size=self._max_batch_size,
-                atomic_bsz_range=self._local_bsz_bounds,
-                accumulation=self._gradient_accumulation)
-            self._state.current_local_bsz = atomic_bsz
-            self._state.accumulation_steps = accum_steps
-        else:
-            # if not first time, we check against the relative speedup
-            suggest_goodput, atomic_bsz, accum_steps = goodput_fn.optimize(
-                adaptdl.env.num_nodes(), adaptdl.env.num_replicas(),
-                max_batch_size=self._max_batch_size,
-                atomic_bsz_range=self._local_bsz_bounds,
-                accumulation=self._gradient_accumulation)
-            # get current goodput
-            current_goodput = goodput_fn(
-                adaptdl.env.num_nodes(), adaptdl.env.num_replicas(),
-                self.current_local_bsz, self.accumulation_steps)
-            # use only if speedup is significant
-            speedup = suggest_goodput / max(current_goodput, 1e-8)
-            if speedup > self._speedup_threshold:
-                self._state.current_local_bsz = atomic_bsz
-                self._state.accumulation_steps = accum_steps
-        self._state.current_local_bsz, self._state.accumulation_steps = \
-            adaptdl.collective.broadcast((self._state.current_local_bsz,
-                                          self._state.accumulation_steps))
-        return self.current_local_bsz
-
     @property
     def training(self):
         return self is AdaptiveDataLoaderHelper._training
@@ -398,53 +362,6 @@ class AdaptiveDataLoaderHelper(object):
                           self.accumulation_steps, global_step)
 
 
-class AdaptiveDataLoaderMixin(object):
-    """
-    This class provides elastic functionality to any custom DataLoader which
-    inherits it. It defines a member _elastic of type
-    :class:`AdaptiveDataLoaderHelper` which has useful methods and members to
-    implement restart-safe, elastic DataLoaders. It also exposes public methods
-    which can be used inside training loops directly from
-    :class:`AdaptiveDataLoader`.
-    """
-
-    def __init__(self, batch_size):
-        self._elastic = AdaptiveDataLoaderHelper(batch_size)
-
-    def autoscale_batch_size(self, max_batch_size, local_bsz_bounds=None,
-                             gradient_accumulation=False):
-        self._elastic.autoscale_batch_size(max_batch_size, local_bsz_bounds,
-                                           gradient_accumulation)
-
-    @property
-    def current_local_bsz(self):
-        if AdaptiveDataLoaderHelper._current is not self._elastic:
-            return None
-        return self._elastic.current_local_bsz
-
-    @property
-    def accumulation_steps(self):
-        """
-        The number of batches returned by the dataloader before a
-        step is taken.
-        """
-        return self._elastic.accumulation_steps
-
-    @property
-    def training(self):
-        return self._elastic.training
-
-    @property
-    def current_batch_size(self):
-        if AdaptiveDataLoaderHelper._current is not self._elastic:
-            return None
-        return self._elastic.current_batch_size
-
-    def to_tensorboard(self, writer, global_step, tag_prefix=""):
-        self._elastic.to_tensorboard(writer, global_step, tag_prefix)
-    to_tensorboard.__doc__ = AdaptiveDataLoaderHelper.to_tensorboard.__doc__
-
-
 def _worker_init_wrapper(worker_init_fn, num_workers):
     # Set globally-unique python and numpy seeds for each worker.
 
@@ -462,7 +379,7 @@ def _worker_init_wrapper(worker_init_fn, num_workers):
     return wrapper
 
 
-class AdaptiveDataLoader(DataLoader, AdaptiveDataLoaderMixin):
+class AdaptiveDataLoader(DataLoader, AdaptiveDLContext):
     """
     This class is a PyTorch DataLoader that also supports adaptive batch sizes
     and checkpoint-restart elasticity. Applications can typically use objects
@@ -501,7 +418,7 @@ class AdaptiveDataLoader(DataLoader, AdaptiveDataLoaderMixin):
         kwargs["worker_init_fn"] = _worker_init_wrapper(
             kwargs.get("worker_init_fn"), kwargs.get("num_workers"))
         super().__init__(dataset, batch_size, shuffle=False, **kwargs)
-        AdaptiveDataLoaderMixin.__init__(self, batch_size)
+        AdaptiveDLContext.__init__(self, batch_size)
 
     def __iter__(self):
         """
@@ -526,7 +443,7 @@ class AdaptiveDataLoader(DataLoader, AdaptiveDataLoaderMixin):
             while not done:
                 self.sampler.set_epoch(
                     epoch, index=self._elastic.current_index)
-                self.batch_sampler.batch_size = self._elastic._sync_local_bsz()
+                self.batch_sampler.batch_size = self.get_batch_size()
                 for idx, batch in enumerate(super().__iter__()):
                     with self._elastic.profile(self.training and idx >= 1):
                         yield batch
