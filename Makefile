@@ -1,4 +1,4 @@
-# Set ADAPTDL_DEV_REPO to use an external docker registry.
+### Set ADAPTDL_DEV_REPO to use an external docker registry.
 # Set ADAPTDL_DEV_REPO_CREDS to the name of registry secret.
 RELEASE_NAME = adaptdl
 LOCAL_PORT = 59283
