@@ -120,6 +120,24 @@ def current_dataloader():
     return AdaptiveDataLoaderHelper._current
 
 
+Context_obj = None
+def context_initialize(batch_size):
+    """
+    Initialize this module, must be invoked before calling any other functions.
+    This function will block until it has been invoked from all replicas.
+
+    Arguments:
+        batch_size: batch_size of the context.
+
+    Raises:
+        RuntimeError: If this module had already been initialized.
+    """
+    global Context_obj
+    if Context_obj is not None:
+        raise RuntimeError("{} is already initialized".format(__name__))
+    Context_obj = adaptdl.torch.context.Context(batch_size)
+    return Context_obj
+
 class AdaptiveDataLoaderHelper(object):
     """
     This class provides fine-grained control over adaptive training loops. It
@@ -139,14 +157,15 @@ class AdaptiveDataLoaderHelper(object):
     _training = None  # The AdaptiveDataLoader which loads training data.
     _current = None  # The AdaptiveDataLoader which is currently iterating.
 
-    def __init__(self, batch_size=1):
+    def __init__(self, batch_size=32):
+        self._context = Context_obj
         # Autoscale batch size fields.
         self._max_batch_size = None
         self._local_bsz_bounds = None
         # Create and load state.
-        self._state = _AdaptiveDataLoaderState()
-        adaptdl.checkpoint.load_state(self._state)
-        self.batch_size = batch_size
+        self._state = self._context._state
+        # adaptdl.checkpoint.load_state(self._state)
+        self._context.batch_size = batch_size
         self.future_exit = None
         self._gradient_accumulation = False
         self._speedup_threshold = 1.05
@@ -198,7 +217,7 @@ class AdaptiveDataLoaderHelper(object):
         The local batch size bounds on each replica. A pair of integers,
         (min_local_bsz, max_local_bsz).
         """
-        return self._local_bsz_bounds
+        return self._context._local_bsz_bounds
 
     @property
     def current_local_bsz(self):
@@ -207,7 +226,7 @@ class AdaptiveDataLoaderHelper(object):
         The batch size returned by the dataloader may be smaller if
         gradient accumulation is used
         """
-        return self._state.current_local_bsz
+        return self._context.get_batch_size()
 
     @property
     def accumulation_steps(self):
@@ -215,7 +234,7 @@ class AdaptiveDataLoaderHelper(object):
         The number of batches returned by the dataloader before a
         step is taken.
         """
-        return self._state.accumulation_steps
+        return self._context.get_accum_steps()
 
     def is_accum_step(self):
         """
@@ -236,73 +255,17 @@ class AdaptiveDataLoaderHelper(object):
         """
         if AdaptiveDataLoaderHelper._training is None:
             AdaptiveDataLoaderHelper._training = self
-        set_batch_size(self.batch_size, self.max_batch_size,
+        set_batch_size(self._context.batch_size, self.max_batch_size,
                        self.local_bsz_bounds, self._gradient_accumulation)
 
-    def autoscale_batch_size(self, max_batch_size, local_bsz_bounds=None,
-                             gradient_accumulation=False):
-        """
-        Enables adaptive batch size. Should be invoked once after the data
-        loader object is created.
-
-        Arguments:
-            max_batch_size (int): Maximum total batch size allowed.
-            local_bsz_bounds (tuple): A pair of (min_local_bsz, max_local_bsz),
-                the min and max local batch sizes allowed on each replica.
-
-        Raises:
-            ValueError: If any of the provided batch size bounds are invalid.
-        """
-        if not isinstance(max_batch_size, int) or \
-                max_batch_size < self.batch_size:
-            raise ValueError("invalid max_batch_size")
-        if local_bsz_bounds is not None and (
-                local_bsz_bounds[0] is not None and
-                local_bsz_bounds[0] > self.batch_size or
-                local_bsz_bounds[1] is not None and
-                local_bsz_bounds[1] < self.batch_size):
-            raise ValueError("invalid local_bsz_bounds")
-        self._max_batch_size = max_batch_size
-        self._local_bsz_bounds = local_bsz_bounds
-        self._gradient_accumulation = gradient_accumulation
-        self.train()
 
     def _sync_local_bsz(self):
-        goodput_fn = get_goodput_fn()
-        if self.max_batch_size is None or goodput_fn is None:
-            # No autoscale batch size, just divide batch size evenly.
-            self._state.current_local_bsz = math.ceil(
-                self.batch_size / adaptdl.env.num_replicas())
-            self._state.accumulation_steps = 0
-        elif not self._state.current_local_bsz:
-            # if init, use the batch size suggested
-            _, atomic_bsz, accum_steps = goodput_fn.optimize(
-                adaptdl.env.num_nodes(), adaptdl.env.num_replicas(),
-                max_batch_size=self._max_batch_size,
-                atomic_bsz_range=self._local_bsz_bounds,
-                accumulation=self._gradient_accumulation)
-            self._state.current_local_bsz = atomic_bsz
-            self._state.accumulation_steps = accum_steps
-        else:
-            # if not first time, we check against the relative speedup
-            suggest_goodput, atomic_bsz, accum_steps = goodput_fn.optimize(
-                adaptdl.env.num_nodes(), adaptdl.env.num_replicas(),
-                max_batch_size=self._max_batch_size,
-                atomic_bsz_range=self._local_bsz_bounds,
-                accumulation=self._gradient_accumulation)
-            # get current goodput
-            current_goodput = goodput_fn(
-                adaptdl.env.num_nodes(), adaptdl.env.num_replicas(),
-                self.current_local_bsz, self.accumulation_steps)
-            # use only if speedup is significant
-            speedup = suggest_goodput / max(current_goodput, 1e-8)
-            if speedup > self._speedup_threshold:
-                self._state.current_local_bsz = atomic_bsz
-                self._state.accumulation_steps = accum_steps
+        self._state.current_local_bsz, self._state.accumulation_steps = \
+            self._context._get_local_bsz()
         self._state.current_local_bsz, self._state.accumulation_steps = \
             adaptdl.collective.broadcast((self._state.current_local_bsz,
                                           self._state.accumulation_steps))
-        return self.current_local_bsz
+        return self.current_local_bsz, self._state.current_local_bsz, self._state.accumulation_steps
 
     @property
     def training(self):
@@ -355,7 +318,7 @@ class AdaptiveDataLoaderHelper(object):
 
     @property
     def current_batch_size(self):
-        return (self.current_local_bsz * (self.accumulation_steps + 1) *
+        return (self._context.get_batch_size() * (self._context.get_accum_steps() + 1) *
                 adaptdl.env.num_replicas())
 
     def skipdone(self):
@@ -413,14 +376,15 @@ class AdaptiveDataLoaderMixin(object):
 
     def autoscale_batch_size(self, max_batch_size, local_bsz_bounds=None,
                              gradient_accumulation=False):
-        self._elastic.autoscale_batch_size(max_batch_size, local_bsz_bounds,
+        self._elastic._context.autoscale_batch_size(max_batch_size, local_bsz_bounds,
                                            gradient_accumulation)
+        self._elastic.train()
 
     @property
     def current_local_bsz(self):
-        if AdaptiveDataLoaderHelper._current is not self._elastic:
-            return None
-        return self._elastic.current_local_bsz
+        # if AdaptiveDataLoaderHelper._current is not self._elastic:
+        #     return None
+        return self._elastic._context.current_local_bsz
 
     @property
     def accumulation_steps(self):
@@ -428,7 +392,7 @@ class AdaptiveDataLoaderMixin(object):
         The number of batches returned by the dataloader before a
         step is taken.
         """
-        return self._elastic.accumulation_steps
+        return self._elastic._context.accumulation_steps
 
     @property
     def training(self):
@@ -526,19 +490,19 @@ class AdaptiveDataLoader(DataLoader, AdaptiveDataLoaderMixin):
             while not done:
                 self.sampler.set_epoch(
                     epoch, index=self._elastic.current_index)
-                self.batch_sampler.batch_size = self._elastic._sync_local_bsz()
+                self.batch_sampler.batch_size = self._elastic._context.get_batch_size()
                 for idx, batch in enumerate(super().__iter__()):
                     with self._elastic.profile(self.training and idx >= 1):
                         yield batch
                         # Increment by the number of data samples processed
                         self._elastic.current_index += \
                             num_replicas * self.batch_sampler.batch_size
-                        if self._elastic.max_batch_size is not None and \
+                        if self._elastic._context.max_batch_size is not None and \
                                 get_progress() >= len(self.dataset) * \
                                 (epoch + 1) / self.batch_size:
                             done = True
                             break
-                if self._elastic.max_batch_size is None:
+                if self._elastic._context.max_batch_size is None:
                     done = True
                 self._elastic.current_index -= \
                     self._elastic.current_index % -len(self.dataset)
