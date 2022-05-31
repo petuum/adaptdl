@@ -9,6 +9,8 @@ from torch.optim.lr_scheduler import StepLR
 
 import adaptdl # Changed in step 1
 import adaptdl.torch # Changed in step 1
+from adaptdl.torch import data
+
 
 class Net(nn.Module):
     def __init__(self):
@@ -36,7 +38,7 @@ class Net(nn.Module):
         return output
 
 
-def train(args, model, device, train_loader, optimizer, epoch):
+def train(args, model, device, train_loader, optimizer, epoch, adacontext): # For test Context only, users do not need to call this
     model.train()
     for batch_idx, (data, target) in enumerate(train_loader):
         data, target = data.to(device), target.to(device)
@@ -45,15 +47,23 @@ def train(args, model, device, train_loader, optimizer, epoch):
         loss = F.nll_loss(output, target)
         loss.backward()
         optimizer.step()
+
         if batch_idx % args.log_interval == 0:
-            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'
+                  '\treal_batch_size:{}\treal_lr:{}' 
+                  '\t ada_batch_size:{}\tada_accum:{}\tada_lr_scale:{}'
+                .format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
-                100. * batch_idx / len(train_loader), loss.item()))
+                100. * batch_idx / len(train_loader), loss.item(),
+                len(data), optimizer.param_groups[0]['lr'],
+                adacontext.get_batch_size(), adacontext.get_accum_steps(),
+                adacontext.get_lr_scale(model.scaling_rule.scale_lr, model.gns,optimizer)[1],# For test Context only, users do not need to call this
+            ))
             if args.dry_run:
                 break
 
 
-def test(model, device, test_loader):
+def tst(model, device, test_loader):
     model.eval()
     stats = adaptdl.torch.Accumulator() # Changed in step 5
     with torch.no_grad():
@@ -75,6 +85,7 @@ def test(model, device, test_loader):
 
 def main():
     # Training settings
+
     parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
     parser.add_argument('--batch-size', type=int, default=64, metavar='N',
                         help='input batch size for training (default: 64)')
@@ -118,12 +129,14 @@ def main():
                        transform=transform)
     dataset2 = datasets.MNIST('../data', train=False,
                        transform=transform)
+
     adaptdl.torch.init_process_group("nccl" if torch.cuda.is_available()
                                      else "gloo")  # Changed in step 1
+    adacontext = data.Context_obj  # For test Context only, users do not need to call this
     train_loader = adaptdl.torch.AdaptiveDataLoader(dataset1, drop_last=True, **kwargs) # Changed in step 2
     test_loader = adaptdl.torch.AdaptiveDataLoader(dataset2, **kwargs) # Changed in step 2
 
-    train_loader.autoscale_batch_size(1028, local_bsz_bounds=(32, 128)) # Changed in step 3, optional
+    train_loader.autoscale_batch_size(1028, local_bsz_bounds=(64, 128)) # Changed in step 3, optional
 
     model = Net().to(device)
     optimizer = optim.Adadelta(model.parameters(), lr=args.lr)
@@ -132,8 +145,8 @@ def main():
     model = adaptdl.torch.AdaptiveDataParallel(model, optimizer, scheduler) # Changed in step 1
 
     for epoch in adaptdl.torch.remaining_epochs_until(args.epochs): # Changed in step 4
-        train(args, model, device, train_loader, optimizer, epoch)
-        test(model, device, test_loader)
+        train(args, model, device, train_loader, optimizer, epoch, adacontext) # For test Context only, users do not need to call this
+        tst(model, device, test_loader)
         scheduler.step()
 
     if args.save_model:

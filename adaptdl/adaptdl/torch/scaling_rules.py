@@ -20,7 +20,8 @@ import warnings
 from types import MethodType
 
 from adaptdl.torch.data import current_dataloader
-
+from adaptdl.torch.context import Context
+from adaptdl.torch import data
 
 __all__ = ["ScalingRuleBase", "AdaScale", "LinearScale", "SqrtScale",
            "LEGWScale"]
@@ -45,6 +46,9 @@ class ScalingRuleBase(object):
                 loss.backward()
                 adascale.step()
     """
+
+    _adaptlr = None
+
     def __init__(self):
         # instance of AdaptiveDataParallel, needs to be set before any of the
         # methods can be used
@@ -74,9 +78,7 @@ class ScalingRuleBase(object):
             raise ValueError("AdaptiveDataParallel instance is not set!")
         if not self.adp.require_backward_grad_sync:
             return
-        scale = self.adp.gns.accum_scale * self.adp.gns.accum_count
-        initial_lr = [pg["lr"] for pg in self._optimizer.param_groups]
-        scaled_lr = np.multiply(self.scale_lr(scale), initial_lr)
+        scale, scaled_lr, initial_lr = data.Context_obj.get_lr_scale(self.scale_lr, self.adp.gns, self._optimizer)
         for lr, pg in zip(scaled_lr, self._optimizer.param_groups):
             pg["lr"] = lr
         self._orig_optimizer_step(*args, **kwargs)
