@@ -121,7 +121,7 @@ def current_dataloader():
 
 
 Context_obj = None
-def context_initialize(batch_size=32):
+def context_initialize():
     """
     Initialize this module, must be invoked before calling any other functions.
     This function will block until it has been invoked from all replicas.
@@ -135,7 +135,7 @@ def context_initialize(batch_size=32):
     global Context_obj
     if Context_obj is not None:
         raise RuntimeError("{} is already initialized".format(__name__))
-    Context_obj = adaptdl.torch.context.Context(batch_size)
+    Context_obj = adaptdl.torch.context.Context()
     return Context_obj
 
 class AdaptiveDataLoaderHelper(object):
