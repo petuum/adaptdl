@@ -121,7 +121,7 @@ def init_process_group(backend,
                                   world_size)
 
     # Initialize Context module.
-    adaptdl.torch.data.context_initialize(batch_size=32)
+    adaptdl.torch.data.context_initialize()
 
     # Initialize torch.distributed.
     torch_port = adaptdl.collective.broadcast(portpicker.pick_unused_port())

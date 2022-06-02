@@ -121,7 +121,7 @@ def current_dataloader():
 
 
 Context_obj = None
-def context_initialize(batch_size):
+def context_initialize(batch_size=32):
     """
     Initialize this module, must be invoked before calling any other functions.
     This function will block until it has been invoked from all replicas.
