@@ -318,8 +318,8 @@ class AdaptiveDataLoaderHelper(object):
 
     @property
     def current_batch_size(self):
-        return (self._context.get_batch_size() * (self._context.get_accum_steps() + 1) *
-                adaptdl.env.num_replicas())
+	return (self._context.current_local_bsz * (self.accumulation_steps + 1) * 
+		adaptdl.env.num_replicas())
 
     def skipdone(self):
         """
