@@ -490,7 +490,7 @@ class AdaptiveDataLoader(DataLoader, AdaptiveDataLoaderMixin):
             while not done:
                 self.sampler.set_epoch(
                     epoch, index=self._elastic.current_index)
-                self.batch_sampler.batch_size = self._elastic._context.get_batch_size()
+		self.batch_sampler.batch_size, _, _ = self._elastic._sync_local_bsz()
                 for idx, batch in enumerate(super().__iter__()):
                     with self._elastic.profile(self.training and idx >= 1):
                         yield batch
