@@ -167,7 +167,7 @@ def supervisor_url():
 
 def from_ray():
     """ Returns True if the code is being called from Ray"""
-    if "ray" in sys.modules:
+    if os.getenv("ADAPTDL_TUNE_TRIAL_SCHED", "False") == "True":
         import ray
         return ray.is_initialized()
     else:
