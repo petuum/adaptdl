@@ -72,7 +72,7 @@ class AdaptDLScheduler(TrialScheduler):
         trials = [trial for trial in trial_runner.get_trials()
                   if trial.status in (Trial.RUNNING, Trial.PENDING)]
         if self._should_realloc and len(self._allocs) == 0:
-            in_use_pgs = [pg.to_dict() for pg in
+            in_use_pgs = [pg.__dict__ for pg in
                           trial_runner.trial_executor._pg_manager._in_use_pgs]
             consumed_resources = pgs_to_resources(in_use_pgs)
             nodes = config.nodes(consumed_resources)

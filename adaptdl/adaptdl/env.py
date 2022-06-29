@@ -18,7 +18,6 @@ environment variables, or their defaults if unset.
 """
 
 import os
-import sys
 
 
 def checkpoint_path():

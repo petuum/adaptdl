@@ -56,7 +56,7 @@ def wrap_function_patched(function):
 
 
 def setup_process_group(*args, **kwargs):
-    os.environment["ADAPTDL_TUNE_TRIAL_SCHED"] = "True"
+    os.environ["ADAPTDL_TUNE_TRIAL_SCHED"] = "True"
     init_process_group(backend=kwargs["backend"],
                        init_method=kwargs["url"],
                        world_size=kwargs["world_size"],
