@@ -21,7 +21,6 @@ import ray
 from ray.tune.resources import Resources
 from ray.tune.registry import register_trainable
 from ray.tune.integration.torch import _TorchTrainable
-from ray.util.sgd.torch.constants import NCCL_TIMEOUT_S
 
 import adaptdl_ray.tune.adaptdl_patch as P
 from adaptdl_ray.adaptdl import config
@@ -33,7 +32,7 @@ def AdaptDLTrainableCreator(func: Callable,
                             num_cpus_per_worker: int = 1,
                             num_workers_per_host: Optional[int] = None,
                             backend: str = "gloo",
-                            timeout_s: int = NCCL_TIMEOUT_S,
+                            timeout_s: int = 12000,
                             use_gpu=None):
     """ Trainable creator for AdaptDL's elastic Trials"""
     if config.default_device() == "GPU":
