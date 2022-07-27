@@ -306,7 +306,7 @@ class AdamGradientNoiseScale(GradientNoiseScale):
         eps = self._adam_param_group['eps'][idx]
         correction = 1 - beta2 ** state['step']
         pinv = (exp_avg_sq.sqrt() / math.sqrt(correction)).add_(eps)
-        return pinv
+        return pinv.to(param.device)
 
     def _reset_adam_state(self, step=1):
         for group in self._optimizer.param_groups:
