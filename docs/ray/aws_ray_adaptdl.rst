@@ -3,12 +3,12 @@ Adaptdl on Ray AWS
 
 The executable ``adaptdl_on_ray_aws`` allows you to run an AdaptDL job on an AWS-Ray cluster. The intention of this module is to allow you to get AdaptDL jobs working quickly, without the need to deploy Kubernetes, and to use Ray's cluster rescaling with AdaptDL's worker autoscaling.
 
-This module includes a scheduler and all of the framework code necessary to an run AdaptDL job on a AWS-Ray cluster. All inter-worker communication, checkpointing, and rescheduling are handled for you.
+This module includes a scheduler and all of the framework code necessary to run an AdaptDL job on a AWS-Ray cluster. All inter-worker communication, checkpointing, and rescheduling are handled for you.
 
 How this module works
 -----
 
-``adaptdl_on_ray_aws`` submits a Ray task to the cluster with the working directory and your main executable file path -- as well as any command line arguments. This task allocates dynamically allocates a number of worker tasks depending on the AdaptDL scalability parameters and passes the working directory and execution parameters to the workers. The workers then run the code and communicate back scalability parameters. If the job determines that the number of workers should change, then the workers will checkpoint, and a new set of workers will be created.
+``adaptdl_on_ray_aws`` submits a Ray task to the cluster with the working directory and your main executable file path -- as well as any command line arguments. This task dynamically allocates a number of worker tasks depending on the AdaptDL scalability parameters and passes the working directory and execution parameters to the workers. The workers then run the code and communicate back scalability parameters. If the job determines that the number of workers should change, then the workers will checkpoint, and a new set of workers will be created.
 
 This is analogous to how the AdaptDL scheduler for Kubernetes works when restricted to a single AdaptDL training job, where pods in Kubernetes are replaced by Ray tasks.
 

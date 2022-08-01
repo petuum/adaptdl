@@ -38,7 +38,7 @@ available_node_types:
     # GPU workers.
     ray.worker.default:
         docker:
-            worker_image: "rayproject/ray-ml:latest-cpu"
+            worker_image: "rayproject/ray-ml:latest-gpu"
         min_workers: 1
         max_workers: 3
         node_config:
