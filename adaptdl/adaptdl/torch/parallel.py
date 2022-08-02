@@ -155,7 +155,7 @@ class AdaptiveDataParallel(DistributedDataParallel):
         scale = dataloader.current_batch_size / dataloader.batch_size
         self._state.gain = self.gns.gain(scale)
         self._state.lr_factor = \
-            np.average(self.scaling_rule.prev_lr or 1.0)
+            np.average(self.scaling_rule.scale_lr(scale))
         update_progress(self.gns.get_progress())
         if dataloader.max_batch_size and \
                 dataloader.max_batch_size > dataloader.batch_size:
@@ -195,8 +195,9 @@ class AdaptiveDataParallel(DistributedDataParallel):
                           self._state.lr_factor, global_step)
         writer.add_scalar(tag_prefix + "Accum_Scale",
                           self.gns.accum_scale, global_step)
-        writer.add_scalar(tag_prefix + "Accum_Count",
-                          self.gns.accum_count, global_step)
+        if self.gns.accum_count > 0:
+            writer.add_scalar(tag_prefix + "Accum_Count",
+                              self.gns.accum_count, global_step)
         writer.add_scalar(tag_prefix + "Progress",
                           self.gns.get_progress(), global_step)
 

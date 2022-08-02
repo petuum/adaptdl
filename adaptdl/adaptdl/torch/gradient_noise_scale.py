@@ -298,7 +298,7 @@ class AdamGradientNoiseScale(GradientNoiseScale):
 
     def _calculate_preconditioner(self, idx, param):
         state = self._optimizer.state[param]
-        if state.get('step', 0) < 1:
+        if state.get('step', 0) < 5:
             return torch.ones_like(param, memory_format=torch.preserve_format)
 
         exp_avg_sq = state["exp_avg_sq"].clone()  # not sure if clone is needed
@@ -308,7 +308,7 @@ class AdamGradientNoiseScale(GradientNoiseScale):
         pinv = (exp_avg_sq.sqrt() / math.sqrt(correction)).add_(eps)
         return pinv.to(param.device)
 
-    def _reset_adam_state(self, step=1):
+    def _reset_adam_state(self, step=0):
         for group in self._optimizer.param_groups:
             beta1, beta2 = group["betas"]
             for param in group["params"]:
@@ -324,5 +324,6 @@ class AdamGradientNoiseScale(GradientNoiseScale):
         scale = self._accum_scale * self._accum_count
         if not np.isclose(scale, self._state["prev_scale"]):
             # reset Adam states when scale is changed
+            self._reset_adam_state()
             self._state["prev_scale"] = scale
         return super()._final_callback()

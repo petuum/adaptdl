@@ -130,16 +130,8 @@ class AdamScale(AdaScale):
     Implements the variant of AdaScale_ that supports Adam, AdamW and RMSProp
     """
 
-    def __init__(self):
-        self.prev_lr = None
-
     def scale_lr(self, scale,  power=0.5):
-        lr =  np.power(super().scale_lr(scale=scale), power)
-        if self.prev_lr is not None:
-            beta = self._optimizer.param_groups[0]["betas"][0]
-            lr = min(lr, self.prev_lr / beta)
-        self.prev_lr = lr
-        return lr
+        return np.power(super().scale_lr(scale=scale), power)
 
 
 class LinearScale(ScalingRuleBase):
