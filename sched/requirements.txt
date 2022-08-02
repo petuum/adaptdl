@@ -1,6 +1,6 @@
 adaptdl
 future>=0.17.1
-kubernetes_asyncio>10.0.0  # 10.0.0 is buggy
+kubernetes_asyncio==9.1.0  # 10.0.0 is buggy
 prometheus_client>=0.7.1
 pymoo==0.6.0
 python-dateutil>=2.7.3
