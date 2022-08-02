@@ -24,7 +24,7 @@ import pymoo.optimize
 
 from collections import OrderedDict
 from pymoo.algorithms.moo.nsga2 import NSGA2
-from pymoo.operators.crossover.util import crossover_mask
+from pymoo.util.misc import crossover_mask
 from pymoo.util.nds.non_dominated_sorting import NonDominatedSorting
 
 LOG = logging.getLogger(__name__)
