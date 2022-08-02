@@ -30,35 +30,45 @@ def test_optimize(num_nodes, total_devices=16):
     num_devices = total_devices // num_nodes
     print("{}x{} nodes:".format(num_nodes, num_devices))
     # Make up a realistic speedup function.
-    perf_params = PerfParams(0.121, 0.00568, 0.0236, 0.00634,
-                             0.0118, 0.00317, 1.14)
+    perf_params = PerfParams(
+        0.121, 0.00568, 0.0236, 0.00634, 0.0118, 0.00317, 1.14
+    )
     grad_params = GradParams(sqr=0.00136, var=0.000502)
     goodput_fn = GoodputFunction(perf_params, grad_params, 128)
-    speedup_fn = SpeedupFunction(goodput_fn, max_batch_size=1280,
-                                 atomic_bsz_range=(64, 256))
+    speedup_fn = SpeedupFunction(
+        goodput_fn, max_batch_size=1280, atomic_bsz_range=(64, 256)
+    )
     now = datetime.now()
     jobs = {}
     # Add a few jobs.
     job_resources = {"nvidia.com/gpu": 1, "pods": 1}
     for i in range(16):
-        creation_timestamp = now + timedelta(minutes=len(jobs)),
+        creation_timestamp = (now + timedelta(minutes=len(jobs)),)
         max_replicas = 8
         min_replicas = 0
         key = len(jobs)
-        jobs[key] = JobInfo(job_resources, speedup_fn, creation_timestamp,
-                            min_replicas, max_replicas)
+        jobs[key] = JobInfo(
+            job_resources,
+            speedup_fn,
+            creation_timestamp,
+            min_replicas,
+            max_replicas,
+        )
     # Add a few nodes.
     node_resources = {"nvidia.com/gpu": num_devices, "pods": 32}
-    nodes = {i: NodeInfo(node_resources, preemptible=False)
-             for i in range(num_nodes)}
+    nodes = {
+        i: NodeInfo(node_resources, preemptible=False)
+        for i in range(num_nodes)
+    }
     # Add a node template.
     node_template = NodeInfo(node_resources, preemptible=True)
     policy = PolluxPolicy()
     prev_allocs = {}
     for i in range(3):
         start = time.time()
-        allocations, desired_nodes = \
-            policy.optimize(jobs, nodes, prev_allocs, node_template)
+        allocations, desired_nodes = policy.optimize(
+            jobs, nodes, prev_allocs, node_template
+        )
         duration = time.time() - start
         print("optimize {}x ({}s sec):".format(i + 1, duration))
         node_count = Counter()
@@ -77,28 +87,50 @@ def test_allocate_job():
         "1": NodeInfo({"gpu": 2, "cpu": 2000, "pods": 32}, preemptible=False),
         "2": NodeInfo({"gpu": 2, "cpu": 3000, "pods": 32}, preemptible=True),
     }
-    perf_params = PerfParams(0.121, 0.00568, 0.0236, 0.00634,
-                             0.0118, 0.00317, 1.14)
+    perf_params = PerfParams(
+        0.121, 0.00568, 0.0236, 0.00634, 0.0118, 0.00317, 1.14
+    )
     grad_params = GradParams(sqr=0.00136, var=0.000502)
     goodput_fn = GoodputFunction(perf_params, grad_params, 128)
-    speedup_fn = SpeedupFunction(goodput_fn, max_batch_size=1280,
-                                 atomic_bsz_range=(64, 256))
+    speedup_fn = SpeedupFunction(
+        goodput_fn, max_batch_size=1280, atomic_bsz_range=(64, 256)
+    )
     now = datetime.now()
     min_replicas = 0
-    job_1 = JobInfo({"gpu": 1, "cpu": 500, "pods": 1}, speedup_fn,
-                    now + timedelta(minutes=0), min_replicas, max_replicas=1)
-    job_2 = JobInfo({"gpu": 1, "cpu": 1000, "pods": 1}, speedup_fn,
-                    now + timedelta(minutes=1), min_replicas, max_replicas=1)
-    job_3 = JobInfo({"gpu": 1, "cpu": 1000, "pods": 1}, speedup_fn,
-                    now + timedelta(minutes=1), 2, max_replicas=2)
-    job_4 = JobInfo({"gpu": 1, "cpu": 2000, "pods": 1}, speedup_fn,
-                    now + timedelta(minutes=1), 2, max_replicas=2)
+    job_1 = JobInfo(
+        {"gpu": 1, "cpu": 500, "pods": 1},
+        speedup_fn,
+        now + timedelta(minutes=0),
+        min_replicas,
+        max_replicas=1,
+    )
+    job_2 = JobInfo(
+        {"gpu": 1, "cpu": 1000, "pods": 1},
+        speedup_fn,
+        now + timedelta(minutes=1),
+        min_replicas,
+        max_replicas=1,
+    )
+    job_3 = JobInfo(
+        {"gpu": 1, "cpu": 1000, "pods": 1},
+        speedup_fn,
+        now + timedelta(minutes=1),
+        2,
+        max_replicas=2,
+    )
+    job_4 = JobInfo(
+        {"gpu": 1, "cpu": 2000, "pods": 1},
+        speedup_fn,
+        now + timedelta(minutes=1),
+        2,
+        max_replicas=2,
+    )
     policy = PolluxPolicy()
 
-    assert(policy.allocate_job(job_1, nodes) == ["0"])
-    assert(policy.allocate_job(job_2, nodes) == ["1"])
-    assert(policy.allocate_job(job_3, nodes) == ["1", "1"])
-    assert(policy.allocate_job(job_4, nodes) == [])
+    assert policy.allocate_job(job_1, nodes) == ["0"]
+    assert policy.allocate_job(job_2, nodes) == ["1"]
+    assert policy.allocate_job(job_3, nodes) == ["1", "1"]
+    assert policy.allocate_job(job_4, nodes) == []
 
 
 def test_unusable_node():
@@ -109,21 +141,38 @@ def test_unusable_node():
         2: NodeInfo({"gpu": 1, "cpu": 8000, "pods": 32}, preemptible=False),
     }
     template = NodeInfo({"gpu": 1, "cpu": 8000, "pods": 32}, preemptible=True)
-    perf_params = PerfParams(0.121, 0.00568, 0.0236, 0.00634,
-                             0.0118, 0.00317, 1.14)
+    perf_params = PerfParams(
+        0.121, 0.00568, 0.0236, 0.00634, 0.0118, 0.00317, 1.14
+    )
     grad_params = GradParams(sqr=0.00136, var=0.000502)
     goodput_fn = GoodputFunction(perf_params, grad_params, 128)
-    speedup_fn = SpeedupFunction(goodput_fn, max_batch_size=1280,
-                                 atomic_bsz_range=(64, 256))
+    speedup_fn = SpeedupFunction(
+        goodput_fn, max_batch_size=1280, atomic_bsz_range=(64, 256)
+    )
     now = datetime.now()
     min_replicas = 0
     jobs = {
-        0: JobInfo({"gpu": 1, "cpu": 1000, "pods": 1}, speedup_fn,
-                   now + timedelta(minutes=0), min_replicas, max_replicas=1),
-        1: JobInfo({"gpu": 1, "cpu": 1000, "pods": 1}, speedup_fn,
-                   now + timedelta(minutes=1), min_replicas, max_replicas=1),
-        2: JobInfo({"gpu": 1, "cpu": 1000, "pods": 1}, speedup_fn,
-                   now + timedelta(minutes=2), min_replicas, max_replicas=1),
+        0: JobInfo(
+            {"gpu": 1, "cpu": 1000, "pods": 1},
+            speedup_fn,
+            now + timedelta(minutes=0),
+            min_replicas,
+            max_replicas=1,
+        ),
+        1: JobInfo(
+            {"gpu": 1, "cpu": 1000, "pods": 1},
+            speedup_fn,
+            now + timedelta(minutes=1),
+            min_replicas,
+            max_replicas=1,
+        ),
+        2: JobInfo(
+            {"gpu": 1, "cpu": 1000, "pods": 1},
+            speedup_fn,
+            now + timedelta(minutes=2),
+            min_replicas,
+            max_replicas=1,
+        ),
     }
     policy = PolluxPolicy()
     allocations, desired_nodes = policy.optimize(jobs, nodes, {}, template)
