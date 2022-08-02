@@ -201,6 +201,7 @@ class AdaptiveDataParallel(DistributedDataParallel):
         writer.add_scalar(tag_prefix + "Progress",
                           self.gns.get_progress(), global_step)
 
+
 class _AdaptiveDataParallelState(adaptdl.checkpoint.State):
     def __init__(self, model, optimizer, lr_scheduler, mp_scaler,
                  name="adaptdl-dataparallel"):
