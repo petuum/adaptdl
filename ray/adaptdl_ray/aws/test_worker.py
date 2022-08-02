@@ -35,8 +35,7 @@ def ray_fix():
 
 
 @ray.remote
-class MockedController():
-
+class MockedController:
     def __init__(self):
         self.checkpoint = None
 
@@ -59,7 +58,7 @@ class MockedController():
 
 
 @ray.remote
-class TerminationEndpoint():
+class TerminationEndpoint:
     def __init__(self):
         self.terminating = False
 
@@ -71,14 +70,19 @@ class TerminationEndpoint():
 
     async def start_server(self):
         app = web.Application()
-        app.add_routes([
-            web.get('/latest/meta-data/spot/instance-action',
-                    self.handle_termination_request)
-            ])
+        app.add_routes(
+            [
+                web.get(
+                    "/latest/meta-data/spot/instance-action",
+                    self.handle_termination_request,
+                )
+            ]
+        )
         runner = web.AppRunner(app)
         await runner.setup()
         site = web.TCPSite(
-            runner, ray._private.services.get_node_ip_address(), 8234)
+            runner, ray._private.services.get_node_ip_address(), 8234
+        )
         await site.start()
         await asyncio.sleep(30)
         await runner.cleanup()
@@ -99,8 +103,16 @@ def test_worker(ray_fix):
     argv = ["--arg1", "value", "--arg2", "value"]
 
     worker_task = run_adaptdl.remote(
-        "test_key", "test_uid", rank, replicas,
-        restarts, checkpoint, offset, path, argv)
+        "test_key",
+        "test_uid",
+        rank,
+        replicas,
+        restarts,
+        checkpoint,
+        offset,
+        path,
+        argv,
+    )
 
     # can't cancel with force=True
     time.sleep(10)
@@ -109,7 +121,7 @@ def test_worker(ray_fix):
     time.sleep(10)
     checkpoint = ray.get(controller.get_checkpoint.remote())
     print(checkpoint)
-    assert('file.txt' in checkpoint)
+    assert "file.txt" in checkpoint
     ray.cancel(worker_task, force=False)
 
     rank = 1
@@ -118,14 +130,22 @@ def test_worker(ray_fix):
     offset = 50
 
     worker_task = run_adaptdl.remote(
-        "test_key_2", "test_uid_2", rank, replicas,
-        restarts, checkpoint, offset, path, argv)
+        "test_key_2",
+        "test_uid_2",
+        rank,
+        replicas,
+        restarts,
+        checkpoint,
+        offset,
+        path,
+        argv,
+    )
 
     time.sleep(10)
-    assert(os.path.exists("/tmp/checkpoint-test_uid_2-1/file.txt"))
+    assert os.path.exists("/tmp/checkpoint-test_uid_2-1/file.txt")
     with open("/tmp/checkpoint-test_uid_2-1/file.txt", "rb") as f:
         result = int(f.read())
-        assert (result == 5)
+        assert result == 5
 
 
 async def test_spot_instance_termination(ray_fix):
@@ -134,10 +154,11 @@ async def test_spot_instance_termination(ray_fix):
 
     task = listen_for_spot_termination.remote(timeout=5.0)
     ip = ray.get(task)
-    assert(ip is None)
+    assert ip is None
     task = listen_for_spot_termination.remote(timeout=15.0)
     time.sleep(5)
     await endpoint.set_to_terminate.remote()
     ip = ray.get(task, timeout=10)
-    assert(ip == ray._private.services.get_node_ip_address()), \
-        f"found {ip}, expected {ray._private.services.get_node_ip_address()}"
+    assert (
+        ip == ray._private.services.get_node_ip_address()
+    ), f"found {ip}, expected {ray._private.services.get_node_ip_address()}"

@@ -42,22 +42,31 @@ def test_evaluate(perf_params, grad_params):
     atomic_bsz = np.array([8, 12, 16, 20, 24])
     accum_steps = np.array([0, 1, 2, 3, 4])
     # Cartesian product.
-    num_nodes, num_replicas, atomic_bsz, accum_steps = \
-        map(np.array, zip(*itertools.product(num_nodes, num_replicas,
-                                             atomic_bsz, accum_steps)))
+    num_nodes, num_replicas, atomic_bsz, accum_steps = map(
+        np.array,
+        zip(
+            *itertools.product(
+                num_nodes, num_replicas, atomic_bsz, accum_steps
+            )
+        ),
+    )
     # Only keep valid arguments.
-    valid = np.logical_and(num_nodes <= num_replicas, init_batch_size
-                           <= num_replicas * atomic_bsz * accum_steps)
+    valid = np.logical_and(
+        num_nodes <= num_replicas,
+        init_batch_size <= num_replicas * atomic_bsz * accum_steps,
+    )
     num_nodes = num_nodes[valid]
     num_replicas = num_replicas[valid]
     atomic_bsz = atomic_bsz[valid]
     accum_steps = accum_steps[valid]
     # Evaluate goodput.
     goodput = goodput_fn(num_nodes, num_replicas, atomic_bsz, accum_steps)
-    throughput = goodput_fn.throughput(num_nodes, num_replicas,
-                                       atomic_bsz, accum_steps)
-    efficiency = goodput_fn.efficiency(num_replicas * atomic_bsz
-                                       * (accum_steps + 1))
+    throughput = goodput_fn.throughput(
+        num_nodes, num_replicas, atomic_bsz, accum_steps
+    )
+    efficiency = goodput_fn.efficiency(
+        num_replicas * atomic_bsz * (accum_steps + 1)
+    )
     # Check basic invariants.
     assert np.all(0 <= throughput)
     assert np.all(0 <= efficiency) and np.all(efficiency <= 1)
@@ -87,24 +96,24 @@ def test_evaluate(perf_params, grad_params):
 def test_optimize_no_bounds(perf_params, grad_params):
     goodput_fn = GoodputFunction(perf_params, grad_params, 128)
     goodput, bsz, steps = goodput_fn.optimize(1, 3)
-    assert(bsz == 128//3 + 1), "expected bsz = 43, got {}".format(bsz)
-    assert(isinstance(goodput, float))
+    assert bsz == 128 // 3 + 1, "expected bsz = 43, got {}".format(bsz)
+    assert isinstance(goodput, float)
 
     replicas = np.asarray([1, 2, 3, 4, 5])
     # single-node
     goodput, bsz, steps = goodput_fn.optimize(np.ones_like(replicas), replicas)
-    assert(bsz.shape == (5,))
-    assert(np.all(bsz == np.ceil(128 / replicas).astype(int)))
-    assert(goodput.shape == (5,))
-    assert(bsz[0] == 128)
-    assert(np.all(steps == 0))
+    assert bsz.shape == (5,)
+    assert np.all(bsz == np.ceil(128 / replicas).astype(int))
+    assert goodput.shape == (5,)
+    assert bsz[0] == 128
+    assert np.all(steps == 0)
     # multi-node
     goodput, bsz, steps = goodput_fn.optimize(replicas, replicas)
-    assert(bsz.shape == (5,))
-    assert(np.all(bsz == np.ceil(128 / replicas).astype(int)))
-    assert(goodput.shape == (5,))
-    assert(bsz[0] == 128)
-    assert(np.all(steps == 0))
+    assert bsz.shape == (5,)
+    assert np.all(bsz == np.ceil(128 / replicas).astype(int))
+    assert goodput.shape == (5,)
+    assert bsz[0] == 128
+    assert np.all(steps == 0)
 
 
 @pytest.mark.parametrize("perf_params", PERF_PARAMS)
@@ -112,28 +121,30 @@ def test_optimize_no_bounds(perf_params, grad_params):
 def test_optimize_local_bounds(perf_params, grad_params):
     fun = GoodputFunction(perf_params, grad_params, 128)
     goodput, bsz, steps = fun.optimize(1, 1, atomic_bsz_range=(64, 256))
-    assert(bsz == 128), "expected bsz = 128, got {}".format(bsz)
-    assert(isinstance(goodput, float))
+    assert bsz == 128, "expected bsz = 128, got {}".format(bsz)
+    assert isinstance(goodput, float)
 
     replicas = np.asarray(range(1, 100))
     # single-node
-    goodput, bsz, steps = fun.optimize(np.ones_like(replicas), replicas,
-                                       atomic_bsz_range=(64, 256))
-    assert(np.all(bsz >= np.ceil(128 / replicas).astype(int)))
-    assert(np.all(np.logical_or(bsz >= (64), goodput == 0.0)))
-    assert(np.all(bsz <= (256)))
-    assert(np.all(bsz * replicas <= 100 * 128))
-    assert(bsz[0] == 128)
-    assert(np.all(steps == 0))
+    goodput, bsz, steps = fun.optimize(
+        np.ones_like(replicas), replicas, atomic_bsz_range=(64, 256)
+    )
+    assert np.all(bsz >= np.ceil(128 / replicas).astype(int))
+    assert np.all(np.logical_or(bsz >= (64), goodput == 0.0))
+    assert np.all(bsz <= (256))
+    assert np.all(bsz * replicas <= 100 * 128)
+    assert bsz[0] == 128
+    assert np.all(steps == 0)
     # multi-node
-    goodput, bsz, steps = fun.optimize(replicas, replicas,
-                                       atomic_bsz_range=(64, 256))
-    assert(np.all(bsz >= np.ceil(128 / replicas).astype(int)))
-    assert(np.all(np.logical_or(bsz >= (64), goodput == 0.0)))
-    assert(np.all(bsz <= (256)))
-    assert(np.all(bsz * replicas <= 100 * 128))
-    assert(bsz[0] == 128)
-    assert(np.all(steps == 0))
+    goodput, bsz, steps = fun.optimize(
+        replicas, replicas, atomic_bsz_range=(64, 256)
+    )
+    assert np.all(bsz >= np.ceil(128 / replicas).astype(int))
+    assert np.all(np.logical_or(bsz >= (64), goodput == 0.0))
+    assert np.all(bsz <= (256))
+    assert np.all(bsz * replicas <= 100 * 128)
+    assert bsz[0] == 128
+    assert np.all(steps == 0)
 
 
 @pytest.mark.parametrize("perf_params", PERF_PARAMS)
@@ -141,65 +152,77 @@ def test_optimize_local_bounds(perf_params, grad_params):
 def test_optimize_max_bounds(perf_params, grad_params):
     fun = GoodputFunction(perf_params, grad_params, 128)
     goodput, bsz, steps = fun.optimize(1, 1, max_batch_size=1280)
-    assert(bsz == 128), "expected bsz = 128, got {}".format(bsz)
-    assert(isinstance(goodput, float))
+    assert bsz == 128, "expected bsz = 128, got {}".format(bsz)
+    assert isinstance(goodput, float)
 
     replicas = np.asarray(range(1, 100))
     # single-node
-    goodput, bsz, steps = fun.optimize(np.ones_like(replicas), replicas,
-                                       max_batch_size=1280)
-    assert(np.all(bsz >= np.ceil(128 / replicas).astype(int)))
-    assert(np.all(bsz * replicas <= 1280 + replicas))
-    assert(bsz[0] == 128)
-    assert(np.all(steps == 0))
+    goodput, bsz, steps = fun.optimize(
+        np.ones_like(replicas), replicas, max_batch_size=1280
+    )
+    assert np.all(bsz >= np.ceil(128 / replicas).astype(int))
+    assert np.all(bsz * replicas <= 1280 + replicas)
+    assert bsz[0] == 128
+    assert np.all(steps == 0)
     # multi-node
     goodput, bsz, steps = fun.optimize(replicas, replicas, max_batch_size=1280)
-    assert(np.all(bsz >= np.ceil(128 / replicas).astype(int)))
-    assert(np.all(bsz * replicas <= 1280 + replicas))
-    assert(bsz[0] == 128)
-    assert(np.all(steps == 0))
+    assert np.all(bsz >= np.ceil(128 / replicas).astype(int))
+    assert np.all(bsz * replicas <= 1280 + replicas)
+    assert bsz[0] == 128
+    assert np.all(steps == 0)
 
 
 @pytest.mark.parametrize("perf_params", PERF_PARAMS)
 @pytest.mark.parametrize("grad_params", GRAD_PARAMS)
 def test_optimize_all_bounds(perf_params, grad_params):
     fun = GoodputFunction(perf_params, grad_params, 128)
-    goodput, bsz, steps = fun.optimize(1, 1, max_batch_size=1280,
-                                       atomic_bsz_range=(64, 256))
-    assert(bsz == 128), "expected bsz = 128, got {}".format(bsz)
-    assert(isinstance(goodput, float))
+    goodput, bsz, steps = fun.optimize(
+        1, 1, max_batch_size=1280, atomic_bsz_range=(64, 256)
+    )
+    assert bsz == 128, "expected bsz = 128, got {}".format(bsz)
+    assert isinstance(goodput, float)
 
     replicas = np.asarray(range(1, 20))
     # single-node
-    goodput, bsz, steps = fun.optimize(np.ones_like(replicas), replicas,
-                                       max_batch_size=1280,
-                                       atomic_bsz_range=(64, 256))
-    assert(np.all(np.logical_or(bsz >= np.ceil(128 / replicas).astype(int),
-                                goodput == 0.0)))
-    assert(np.all(np.logical_or(bsz >= (64),
-                                goodput == 0.0)))
-    assert(np.all(bsz <= (256)))
-    assert(np.all(np.logical_or(bsz * replicas <= 1280 + replicas,
-                                goodput == 0.0)))
-    assert(bsz[0] == 128)
-    assert(np.all(steps == 0))
+    goodput, bsz, steps = fun.optimize(
+        np.ones_like(replicas),
+        replicas,
+        max_batch_size=1280,
+        atomic_bsz_range=(64, 256),
+    )
+    assert np.all(
+        np.logical_or(
+            bsz >= np.ceil(128 / replicas).astype(int), goodput == 0.0
+        )
+    )
+    assert np.all(np.logical_or(bsz >= (64), goodput == 0.0))
+    assert np.all(bsz <= (256))
+    assert np.all(
+        np.logical_or(bsz * replicas <= 1280 + replicas, goodput == 0.0)
+    )
+    assert bsz[0] == 128
+    assert np.all(steps == 0)
     # multi-node
-    goodput, bsz, steps = fun.optimize(replicas, replicas,
-                                       max_batch_size=1280,
-                                       atomic_bsz_range=(64, 256))
-    assert(np.all(np.logical_or(bsz >= np.ceil(128 / replicas).astype(int),
-                                goodput == 0.0)))
-    assert(np.all(np.logical_or(bsz >= (64),
-                                goodput == 0.0)))
-    assert(np.all(bsz <= (256)))
-    assert(np.all(np.logical_or(bsz * replicas <= 1280 + replicas,
-                                goodput == 0.0)))
-    assert(bsz[0] == 128)
-    assert(np.all(steps == 0))
+    goodput, bsz, steps = fun.optimize(
+        replicas, replicas, max_batch_size=1280, atomic_bsz_range=(64, 256)
+    )
+    assert np.all(
+        np.logical_or(
+            bsz >= np.ceil(128 / replicas).astype(int), goodput == 0.0
+        )
+    )
+    assert np.all(np.logical_or(bsz >= (64), goodput == 0.0))
+    assert np.all(bsz <= (256))
+    assert np.all(
+        np.logical_or(bsz * replicas <= 1280 + replicas, goodput == 0.0)
+    )
+    assert bsz[0] == 128
+    assert np.all(steps == 0)
     # multi-node edge case
     replicas = 4
-    goodput, bsz, steps = fun.optimize(4, 4, max_batch_size=1024,
-                                       atomic_bsz_range=(128, 128))
+    goodput, bsz, steps = fun.optimize(
+        4, 4, max_batch_size=1024, atomic_bsz_range=(128, 128)
+    )
     assert goodput > 0.0
     assert bsz == 128
     assert steps == 0
@@ -209,46 +232,66 @@ def test_optimize_all_bounds(perf_params, grad_params):
 @pytest.mark.parametrize("grad_params", GRAD_PARAMS)
 def test_optimize_accumulation(perf_params, grad_params):
     fun = GoodputFunction(perf_params, grad_params, 128)
-    goodput, bsz, steps = fun.optimize(1, 1, max_batch_size=1280,
-                                       atomic_bsz_range=(64, 256),
-                                       accumulation=True)
-    assert(isinstance(goodput, float))
+    goodput, bsz, steps = fun.optimize(
+        1,
+        1,
+        max_batch_size=1280,
+        atomic_bsz_range=(64, 256),
+        accumulation=True,
+    )
+    assert isinstance(goodput, float)
 
     replicas = np.asarray(range(1, 20))
     # single-node
-    goodput, bsz, steps = fun.optimize(np.ones_like(replicas), replicas,
-                                       max_batch_size=1280,
-                                       atomic_bsz_range=(64, 256),
-                                       accumulation=True)
-    assert(np.all(np.logical_or(bsz >= np.ceil(128 / replicas).astype(int),
-                                goodput == 0.0)))
-    assert(np.all(np.logical_or(bsz >= (64),
-                                goodput == 0.0)))
-    assert(np.all(bsz <= (256)))
-    assert(np.all(np.logical_or(bsz * replicas * (steps + 1) <
-                                1280 + replicas * (steps + 1),
-                                goodput == 0.0)))
-    assert(np.all(steps <= 15))
-    assert(np.all(steps >= 0))
-    assert(np.all(np.logical_or(replicas > 1,
-                                np.logical_or(bsz == 128, steps > 0))))
+    goodput, bsz, steps = fun.optimize(
+        np.ones_like(replicas),
+        replicas,
+        max_batch_size=1280,
+        atomic_bsz_range=(64, 256),
+        accumulation=True,
+    )
+    assert np.all(
+        np.logical_or(
+            bsz >= np.ceil(128 / replicas).astype(int), goodput == 0.0
+        )
+    )
+    assert np.all(np.logical_or(bsz >= (64), goodput == 0.0))
+    assert np.all(bsz <= (256))
+    assert np.all(
+        np.logical_or(
+            bsz * replicas * (steps + 1) < 1280 + replicas * (steps + 1),
+            goodput == 0.0,
+        )
+    )
+    assert np.all(steps <= 15)
+    assert np.all(steps >= 0)
+    assert np.all(
+        np.logical_or(replicas > 1, np.logical_or(bsz == 128, steps > 0))
+    )
     # multi-node
-    goodput, bsz, steps = fun.optimize(replicas, replicas,
-                                       max_batch_size=1280,
-                                       atomic_bsz_range=(64, 256),
-                                       accumulation=True)
-    assert(np.all(np.logical_or(bsz >= np.ceil(128 / replicas).astype(int),
-                                goodput == 0.0)))
-    assert(np.all(np.logical_or(bsz >= (64),
-                                goodput == 0.0)))
-    assert(np.all(bsz <= (256)))
-    assert(np.all(np.logical_or(bsz * replicas * (steps + 1) <
-                                1280 + replicas * (steps + 1),
-                                goodput == 0.0)))
-    assert(np.all(steps <= 15))
-    assert(np.all(steps >= 0))
-    assert(np.all(np.logical_or(np.multiply(steps, bsz) >= 256,
-                                steps == 0)))
+    goodput, bsz, steps = fun.optimize(
+        replicas,
+        replicas,
+        max_batch_size=1280,
+        atomic_bsz_range=(64, 256),
+        accumulation=True,
+    )
+    assert np.all(
+        np.logical_or(
+            bsz >= np.ceil(128 / replicas).astype(int), goodput == 0.0
+        )
+    )
+    assert np.all(np.logical_or(bsz >= (64), goodput == 0.0))
+    assert np.all(bsz <= (256))
+    assert np.all(
+        np.logical_or(
+            bsz * replicas * (steps + 1) < 1280 + replicas * (steps + 1),
+            goodput == 0.0,
+        )
+    )
+    assert np.all(steps <= 15)
+    assert np.all(steps >= 0)
+    assert np.all(np.logical_or(np.multiply(steps, bsz) >= 256, steps == 0))
 
 
 @pytest.mark.parametrize("perf_params", PERF_PARAMS)
@@ -260,17 +303,21 @@ def test_one_replica_accumulation(perf_params, grad_params):
     max_batch_sizes = np.asarray(range(128, 128 * 20, 128))
     # single-node
     for max_batch_size in max_batch_sizes:
-        goodput, bsz, steps = fun.optimize(np.ones_like(replicas), replicas,
-                                           max_batch_size=1280,
-                                           atomic_bsz_range=(64, 256),
-                                           accumulation=True)
-        assert(np.all(np.logical_or(bsz >= (64),
-                                    goodput == 0.0)))
-        assert(np.all(bsz <= (256)))
-        assert(np.all(np.logical_or(bsz * (steps + 1) <=
-                                    max_batch_size,
-                                    goodput == 0.0)))
-        assert(np.all(np.logical_or(bsz >= np.ceil(128 / replicas).astype(int),
-                                    goodput == 0.0)))
-        assert(np.all(np.logical_or(bsz * (steps + 1) != 128,
-                                    steps == 0)))
+        goodput, bsz, steps = fun.optimize(
+            np.ones_like(replicas),
+            replicas,
+            max_batch_size=1280,
+            atomic_bsz_range=(64, 256),
+            accumulation=True,
+        )
+        assert np.all(np.logical_or(bsz >= (64), goodput == 0.0))
+        assert np.all(bsz <= (256))
+        assert np.all(
+            np.logical_or(bsz * (steps + 1) <= max_batch_size, goodput == 0.0)
+        )
+        assert np.all(
+            np.logical_or(
+                bsz >= np.ceil(128 / replicas).astype(int), goodput == 0.0
+            )
+        )
+        assert np.all(np.logical_or(bsz * (steps + 1) != 128, steps == 0))
