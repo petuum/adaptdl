@@ -128,12 +128,13 @@ class GoodputFunction(object):
                 num_replicas == 1,
                 self._init_batch_size, np.ceil(local_bsz - eps)).astype(int)
 
+        # Constrain the atomic_bsz before we evaluate the candidates
+        atomic_bsz = np.maximum(min_atomic_bsz, atomic_bsz)
+        atomic_bsz = np.minimum(max_atomic_bsz, atomic_bsz)
+
         # Evaluate the goodput of all candidate configurations.
         goodput = self.evaluate(num_nodes, num_replicas,
                                 atomic_bsz, accum_steps)
-        # Set the goodput of invalid configurations to 0.0.
-        goodput = np.where((min_atomic_bsz <= atomic_bsz) &
-                           (atomic_bsz <= max_atomic_bsz), goodput, 0.0)
         # Find the indices of the best configurations.
         indices = np.argmax(goodput, axis=0), np.arange(goodput.shape[1])
         # Restore the correct output shape and return results.

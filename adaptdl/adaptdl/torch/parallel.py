@@ -193,6 +193,13 @@ class AdaptiveDataParallel(DistributedDataParallel):
                           self._state.gain, global_step)
         writer.add_scalar(tag_prefix + "Learning_Rate_Factor",
                           self._state.lr_factor, global_step)
+        writer.add_scalar(tag_prefix + "Accum_Scale",
+                          self.gns.accum_scale, global_step)
+        if self.gns.accum_count > 0:
+            writer.add_scalar(tag_prefix + "Accum_Count",
+                              self.gns.accum_count, global_step)
+        writer.add_scalar(tag_prefix + "Progress",
+                          self.gns.get_progress(), global_step)
 
 
 class _AdaptiveDataParallelState(adaptdl.checkpoint.State):

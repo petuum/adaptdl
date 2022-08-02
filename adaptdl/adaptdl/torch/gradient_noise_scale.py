@@ -225,9 +225,9 @@ class GradientNoiseScale(object):
                 if param.grad is None:
                     grads[-1].append(None)
                     continue
-                grad = param.grad.detach().float()
-                grads[-1].append(
-                    grad / mixed_precision_scale / self._accum_count)
+                param.grad.div_(self._accum_count)
+                grads[-1].append(param.grad.detach().float() /
+                                 mixed_precision_scale)
         preconditioner = self._get_preconditioner()
 
         # Note: mixed precision can result in nan/inf gradients,
@@ -236,8 +236,8 @@ class GradientNoiseScale(object):
         # there are nan/inf, so we also skip the update here
         grads_normsqr = _normsqr_groups(grads, preconditioner)
         if not np.all(np.isfinite(grads_normsqr)):
-            LOG.warning("GradientNoiseScale detected invalid gradient! "
-                        "Skipping step.")
+            LOG.warning(f"GradientNoiseScale detected invalid gradient! "
+                        f"at scale {mixed_precision_scale}, Skipping step.")
             return
         count = self._num_replicas * self._accum_count
         scale = self._accum_scale * self._accum_count
@@ -307,7 +307,7 @@ class AdamGradientNoiseScale(GradientNoiseScale):
         eps = self._adam_param_group['eps'][idx]
         correction = 1 - beta2 ** state['step']
         pinv = (exp_avg_sq.sqrt() / math.sqrt(correction)).add_(eps)
-        return pinv
+        return pinv.to(param.device)
 
     def _reset_adam_state(self, step=0):
         for group in self._optimizer.param_groups:
@@ -324,7 +324,7 @@ class AdamGradientNoiseScale(GradientNoiseScale):
     def _final_callback(self):
         scale = self._accum_scale * self._accum_count
         if not np.isclose(scale, self._state["prev_scale"]):
-            self._reset_adam_state()
             # reset Adam states when scale is changed
+            self._reset_adam_state()
             self._state["prev_scale"] = scale
         return super()._final_callback()

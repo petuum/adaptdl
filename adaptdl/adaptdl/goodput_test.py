@@ -145,6 +145,28 @@ def test_optimize_local_bounds(perf_params, grad_params):
     assert np.all(bsz * replicas <= 100 * 128)
     assert bsz[0] == 128
     assert np.all(steps == 0)
+    # closed bounds  w/o accumulation
+    goodput, bsz, steps = fun.optimize(
+        np.ones_like(replicas), replicas, atomic_bsz_range=(256, 256)
+    )
+    assert np.all(bsz >= np.ceil(128 / replicas).astype(int))
+    assert np.all(np.logical_or(bsz == (256), goodput == 0.0))
+    assert np.all(bsz == (256))
+    assert bsz[0] == 256
+    assert np.all(steps == 0)
+
+    # closed bounds w/ accumulation
+    goodput, bsz, steps = fun.optimize(
+        np.ones_like(replicas),
+        replicas,
+        atomic_bsz_range=(256, 256),
+        accumulation=True,
+    )
+    assert np.all(bsz >= np.ceil(128 / replicas).astype(int))
+    assert np.all(np.logical_or(bsz == (256), goodput == 0.0))
+    assert np.all(bsz == (256))
+    assert bsz[0] == 256
+    assert np.all(steps == 0)
 
 
 @pytest.mark.parametrize("perf_params", PERF_PARAMS)
