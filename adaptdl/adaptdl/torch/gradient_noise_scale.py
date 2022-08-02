@@ -226,7 +226,8 @@ class GradientNoiseScale(object):
                     grads[-1].append(None)
                     continue
                 param.grad.div_(self._accum_count)
-                grads[-1].append(param.grad.detach().float() / mixed_precision_scale)
+                grads[-1].append(param.grad.detach().float() /
+                                 mixed_precision_scale)
         preconditioner = self._get_preconditioner()
 
         # Note: mixed precision can result in nan/inf gradients,
