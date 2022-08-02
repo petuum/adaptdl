@@ -23,8 +23,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        # TODO: bump flake8 to >5.0.0
-        pip install flake8==4.0.1 pytest-cov==2.6.1 coverage -r requirements-test.txt
+        pip install flake8 pytest-cov==2.6.1 coverage -r requirements-test.txt
     - name: Lint with flake8
       run: |
         # stop the build if there are Python syntax errors or undefined names
