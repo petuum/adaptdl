@@ -16,7 +16,6 @@ nodeGroups:
       withAddonPolicies:
         autoScaler: true
         efs: true
-    ami: auto
     ssh:
       allow: true
     tags:
