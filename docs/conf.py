@@ -13,12 +13,14 @@
 #
 import os
 import sys
+import sphinx_rtd_theme
+
 sys.path.insert(0, os.path.abspath('../adaptdl'))
 
 # -- Project information -----------------------------------------------------
 
 project = 'AdaptDL'
-copyright = '2020, Petuum, Inc.'
+copyright = '2022, Petuum, Inc.'
 author = 'Petuum, Inc.'
 
 
@@ -33,6 +35,7 @@ extensions = [
     'sphinx.ext.autodoc',
     'sphinx.ext.viewcode',
     'sphinx.ext.napoleon',
+    'sphinx_rtd_theme'
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -49,7 +52,6 @@ exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 #
-import sphinx_rtd_theme
 html_theme = 'sphinx_rtd_theme'
 html_logo = '_static/img/AdaptDLHorizLogo.png'
 html_favicon = '_static/img/AdaptDLFavicon.png'
