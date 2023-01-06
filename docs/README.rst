@@ -1,7 +1,7 @@
 .. image:: _static/img/AdaptDLHorizLogo.png
   :align: center
 
-.. image:: https://img.shields.io/github/workflow/status/petuum/adaptdl/Test
+.. image:: https://img.shields.io/github/actions/workflow/status/petuum/adaptdl/test.yaml?branch=master
   :target: https://github.com/petuum/adaptdl/actions?query=workflow%3ATest
   :alt: GitHub Workflow Status
 .. image:: https://codecov.io/gh/petuum/adaptdl/branch/master/graph/badge.svg
