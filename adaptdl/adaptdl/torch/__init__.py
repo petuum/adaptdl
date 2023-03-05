@@ -29,6 +29,7 @@ import pkg_resources
 
 import adaptdl.collective
 import adaptdl.env
+import adaptdl.torch.data
 import semver
 from .epoch import current_epoch, finished_epochs, remaining_epochs_until
 from .data import current_dataloader, AdaptiveDataLoader, ElasticSampler
@@ -118,6 +119,9 @@ def init_process_group(backend,
                                   master_port,
                                   rank,
                                   world_size)
+
+    # Initialize Context module.
+    adaptdl.torch.data.context_initialize()
 
     # Initialize torch.distributed.
     torch_port = adaptdl.collective.broadcast(portpicker.pick_unused_port())

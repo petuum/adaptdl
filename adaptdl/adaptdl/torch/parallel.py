@@ -96,7 +96,7 @@ class AdaptiveDataParallel(DistributedDataParallel):
         if dataloader is not None and dataloader.training:
             self.require_backward_grad_sync = dataloader.is_optim_step()
             accum_scale = (dataloader.current_local_bsz *
-                           adaptdl.env.num_replicas() / dataloader.batch_size)
+                           adaptdl.env.num_replicas() / dataloader._context.batch_size)
             self.gns.set_accum_scale(accum_scale)
         return super().forward(*args, **kwargs)
 
@@ -152,13 +152,13 @@ class AdaptiveDataParallel(DistributedDataParallel):
             raise RuntimeError("backpropagation outside AdaptiveDataLoader")
         dataloader.train()
 
-        scale = dataloader.current_batch_size / dataloader.batch_size
+        scale = dataloader.current_batch_size / dataloader._context.batch_size
         self._state.gain = self.gns.gain(scale)
         self._state.lr_factor = \
             np.average(self.scaling_rule.scale_lr(scale))
         update_progress(self.gns.get_progress())
         if dataloader.max_batch_size and \
-                dataloader.max_batch_size > dataloader.batch_size:
+                dataloader.max_batch_size > dataloader._context.batch_size:
             update_grad_params(self._key, self.gns.sqr_avg(),
                                self.gns.var_avg())
         self._sync_start = None
