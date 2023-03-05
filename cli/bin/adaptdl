@@ -318,6 +318,18 @@ def logs(args, remaining):
             time.sleep(2)
 
 
+def delete(args, remaining):
+    try:
+        subprocess.check_call(
+            ["kubectl", "delete", "adaptdljob", f"{args.jobname}"]
+            + remaining
+        )
+    except KeyboardInterrupt:
+        return
+    except Exception:
+        traceback.print_exc()
+
+
 def ls(args, remaining):
     def default_ls():
         all_jobs = {}
@@ -458,6 +470,14 @@ if __name__ == "__main__":
         "  Number of nodes (Nodes), Speedup (Spdp), Restarts (Rtrt)",
     )
     parser_ls.set_defaults(handler=ls)
+
+    parser_delete = subparsers.add_parser(
+        "delete", help="delete a AdaptDLJob by name"
+    )
+    parser_delete.add_argument(
+        "jobname", type=str, help="name of the AdaptDLJob"
+    )
+    parser_delete.set_defaults(handler=delete)
 
     parser_cp = subparsers.add_parser(
         "cp", help="copy a file from the AdaptDL cluster to the local client"
